@@ -50,7 +50,7 @@ The database isn't a mirror of NASA or iNaturalist. It exists to:
 - run fast cross-source spatial and temporal queries
 - keep provenance and a record of what the app actually saw
 - replay the timeline without hitting upstream APIs on every scrub
-- make agent answers reproducible
+- make agent answers reproducible against the stored data (records keep their latest upstream state, not a version history, so an answer can change if upstream re-identifies a record)
 
 I only persist the regions and time windows the app supports.
 

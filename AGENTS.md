@@ -71,4 +71,4 @@ Report briefly: **Changed / Why / Verified / Open / Next**. Never claim somethin
 ## Docs to maintain
 
 - `docs/roadmap.md`: the phase plan. Read it at the start of a session to know the current phase. When a phase is done, tick its checkboxes in the same phase's final commit. New ideas go under "Later," never into the current phase.
-- `docs/decisions.md`: when Mike makes a decision (or resolves an "Open for discussion" item), propose a short entry (decision, alternatives, why, tradeoff) and add it once he approves. Update the brief too if it changes scope.
+- `docs/decisions.md`: only for important decisions, mainly when Mike picks one real alternative over another (or resolves an "Open for discussion" item). Keep it short enough to read through: implementation details and small modeling choices belong in code comments and commit messages, not here. For a qualifying decision, propose a short entry (decision, alternatives, why, tradeoff) and add it once he approves. Update the brief too if it changes scope.
