@@ -107,4 +107,4 @@ The AI SDK gives Zod-typed tools, a bounded multi-step tool loop, and streaming 
 
 - **iNaturalist quality grade:** research-only is more reliable but makes live data lag badly; including "needs ID" gives a richer live feed. Whatever I choose must apply consistently to both modes. Deciding after working with the real API
 - Live weather sampling strategy
-- Charting library, client data fetching (TanStack Query or not), whether to store raw upstream payloads, and cron cadences given rate limits and the Vercel plan
+- Charting library, client data fetching (TanStack Query or not), whether to store raw upstream payloads, and cron cadences given upstream rate limits (on Vercel Pro, so per-minute schedules are available)

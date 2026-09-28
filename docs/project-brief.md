@@ -148,7 +148,7 @@ GBIF, eBird, Movebank, USGS Earthquakes, OpenAQ. These may be mentioned as "how 
 ### 5.1 Principles
 
 - **Shared contracts per source:** retrieval can differ between live polling and historical backfill, but both produce the same normalized records and go through the same storage path, parameterized by bbox + time range
-- **Scheduled live ingestion** runs on a timer (Vercel Cron on the Pro plan supports per-minute schedules; confirm plan and function duration limits). Suggested cadences to evaluate: iNaturalist every few minutes, FIRMS every 15 to 30 minutes, weather every 15 to 60 minutes
+- **Scheduled live ingestion** runs on a timer (the project is on Vercel Pro, so per-minute Cron schedules are available; function duration limits still apply). Suggested cadences to evaluate: iNaturalist every few minutes, FIRMS every 15 to 30 minutes, weather every 15 to 60 minutes
 - **Idempotent upserts** keyed on source + source record ID, so re-running ingestion never duplicates data
 - **Every ingestion run is recorded**: source, parameters (bbox, time range, filters), started/finished time, records fetched/inserted/updated, status, error, and whether results were truncated or paginated fully
 - **Partial retrieval must never look complete.** If a run hit a page cap or failed midway, coverage metadata says so and the agent/UI treat that window as incomplete
@@ -306,7 +306,7 @@ This honesty is a deliberate strength of the submission, not a weakness to minim
 - **Next.js** (App Router) with **TypeScript**
 - **Tailwind CSS**
 - **Supabase** (Postgres) with **PostGIS** as the new technology
-- **Vercel** for hosting and scheduled ingestion (Vercel Cron)
+- **Vercel** (Pro plan) for hosting and scheduled ingestion (Vercel Cron)
 - Deterministic tool layer in TypeScript
 - **MapLibre GL** via **react-map-gl** for the map
 - **Anthropic Claude** via the **Vercel AI SDK** for the agent
