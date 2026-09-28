@@ -7,7 +7,7 @@
 
 ## Phase 1: Schema v1
 
-- [ ] Migrations: datasets/presets, ingestion_runs, iNaturalist observations (geography + indexes)
+- [x] Migrations: datasets/presets, ingestion_runs, iNaturalist observations (geography + indexes)
 
 ## Phase 2: iNaturalist live ingestion
 
