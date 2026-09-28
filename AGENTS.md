@@ -42,7 +42,8 @@ Ecotone Explorer: a California wildfire + wildlife explorer (Inversa take-home, 
 ## Tech decisions
 
 - **DB access:** raw parameterized SQL with `postgres.js`, plain `.sql` migrations. No ORM. Never use `sql.unsafe()` with user or LLM input; map dynamic identifiers from a Zod enum.
-- **Serverless + Supabase:** connect through the transaction pooler (port 6543) with `prepare: false`.
+- **Database:** local Supabase stack (CLI + Docker) for development and tests; one hosted Supabase project for production. Locally, `DATABASE_URL` points at the local stack (`127.0.0.1:54322`); on Vercel it's the transaction pooler string (port 6543). Always `prepare: false`.
+- **Migrations:** new files in `supabase/migrations/`. Apply locally with `supabase db reset` (or `supabase migration up`) and to production with `supabase db push`. Once pushed, migrations are forward-only. Never run destructive commands against the linked production project (`supabase db reset --linked`, drops, truncates) without Mike's go-ahead.
 - Validate all external API responses and agent tool inputs with Zod.
 
 ## Testing
