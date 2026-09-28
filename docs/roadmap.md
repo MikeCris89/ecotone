@@ -2,8 +2,8 @@
 
 ## Phase 0: Scaffold
 
-- [ ] Next.js + TS + Tailwind, Supabase project with PostGIS, postgres.js client, env setup
-- [ ] Deploy hello-world to Vercel
+- [x] Next.js + TS + Tailwind, Supabase project with PostGIS, postgres.js client, env setup
+- [x] Deploy hello-world to Vercel
 
 ## Phase 1: Schema v1
 
