@@ -16,7 +16,9 @@ create table inat_observations (
 	-- When this app last retrieved the record.
 	retrieved_at timestamptz not null,
 
-	location geography(Point, 4326) not null,
+	-- PostGIS types are schema-qualified: `supabase db push` doesn't put `extensions` on the
+	-- search_path, even though local `migration up` does.
+	location extensions.geography(Point, 4326) not null,
 	-- Metres, from public_positional_accuracy, which accounts for obscuring (the raw accuracy
 	-- doesn't). Null means unknown, never zero.
 	positional_accuracy_m integer check (positional_accuracy_m >= 0),
@@ -53,7 +55,7 @@ create table inat_observations (
 create index inat_observations_location_idx on inat_observations using gist (location);
 -- Bbox filters use geometry: a geography envelope's edges are great circles, which bow away from
 -- the lat/lon lines of a bbox (by ~13 km at the middle of California's northern edge).
-create index inat_observations_location_geom_idx on inat_observations using gist ((location::geometry));
+create index inat_observations_location_geom_idx on inat_observations using gist ((location::extensions.geometry));
 create index inat_observations_observed_on_idx on inat_observations (observed_on);
 create index inat_observations_observed_at_idx on inat_observations (observed_at);
 -- Upload-lag and "recently uploaded" queries.
