@@ -15,6 +15,9 @@ const END = new Date("2002-06-10T03:00:00Z");
 
 let datasetId: string;
 let point: WeatherPoint;
+// A live point outside the bbox, and a point of another dataset inside it.
+let outsidePointId: string;
+let otherDatasetPointId: string;
 let runId: string;
 // A bbox around the first point only.
 let bbox: { west: number; south: number; east: number; north: number };
@@ -42,7 +45,13 @@ function reading(validAt: string, overrides: Partial<WeatherReadingRow> = {}): W
 beforeAll(async () => {
 	const dataset = await getDataset("live-california");
 	datasetId = dataset.id;
-	point = (await getWeatherPoints(dataset.id))[0];
+	[point, { id: outsidePointId }] = await getWeatherPoints(dataset.id);
+	[{ id: otherDatasetPointId }] = await sql<{ id: string }[]>`
+		insert into weather_points (dataset_id, location)
+		select id, extensions.st_setsrid(extensions.st_makepoint(${point.longitude}, ${point.latitude}), 4326)::extensions.geography
+		from datasets where slug = 'czu-2020'
+		returning id
+	`;
 	bbox = {
 		west: point.longitude - 0.1,
 		south: point.latitude - 0.1,
@@ -69,6 +78,8 @@ beforeAll(async () => {
 			reading("2002-06-10T03:00:00.000Z"),
 			// Another model.
 			reading("2002-06-10T01:00:00.000Z", { model: "era5" }),
+			reading("2002-06-10T01:00:00.000Z", { point_id: outsidePointId }),
+			reading("2002-06-10T01:00:00.000Z", { point_id: otherDatasetPointId }),
 		],
 		runId,
 	);
@@ -76,6 +87,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	await sql`delete from weather_readings where ingestion_run_id = ${runId}`;
+	await sql`delete from weather_points where id = ${otherDatasetPointId}`;
 	await sql`delete from ingestion_runs where id = ${runId}`;
 	await sql.end();
 });

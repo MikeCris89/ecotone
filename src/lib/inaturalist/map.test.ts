@@ -46,9 +46,10 @@ function row(offset: number, overrides: Partial<InatObservationRow>): InatObserv
 const TIMED = FIRST_ID;
 const DATE_ONLY_JUNE_10 = FIRST_ID + 2;
 const DATE_ONLY_JUNE_11 = FIRST_ID + 3;
+const NEEDS_ID_AT_START = FIRST_ID + 8;
 
 const rows = [
-	row(0, { observed_at: "2002-06-10T20:00:00.000Z" }),
+	row(0, { observed_at: "2002-06-10T20:00:00.000Z", positional_accuracy_m: 25000, obscured: true }),
 	// Just before the main test window.
 	row(1, { observed_at: "2002-06-10T11:59:59.000Z" }),
 	row(2, { observed_on: "2002-06-10" }),
@@ -59,6 +60,8 @@ const rows = [
 	row(6, { observed_at: "2002-06-10T20:00:00.000Z", longitude: -131 }),
 	// Exactly at the main test window's end, which is exclusive.
 	row(7, { observed_at: "2002-06-11T12:00:00.000Z" }),
+	// Exactly at the main test window's start, which is inclusive.
+	row(8, { observed_at: "2002-06-10T12:00:00.000Z", quality_grade: "needs_id" }),
 ];
 
 let runId: string;
@@ -96,10 +99,15 @@ describe("getInatMapLayer", () => {
 	it("returns verifiable observations in the bbox that may have happened in the window, newest first", async () => {
 		const result = await layer("2002-06-10T12:00:00Z", "2002-06-11T12:00:00Z");
 
-		expect(result.rows.map(([id]) => id)).toEqual([DATE_ONLY_JUNE_11, TIMED, DATE_ONLY_JUNE_10]);
+		expect(result.rows.map(([id]) => id)).toEqual([
+			DATE_ONLY_JUNE_11,
+			TIMED,
+			NEEDS_ID_AT_START,
+			DATE_ONLY_JUNE_10,
+		]);
 		expect(result).toMatchObject({
 			filters: { qualityGrades: ["research", "needs_id"] },
-			total: 3,
+			total: 4,
 			truncated: false,
 		});
 	});
@@ -114,11 +122,17 @@ describe("getInatMapLayer", () => {
 			epoch("2002-06-10T20:00:00Z"),
 			epoch("2002-06-10T20:00:00Z"),
 			"Insecta",
+			25000,
+			true,
 		]);
-		// Pacific Daylight Time: the date runs from 07:00Z to 07:00Z the next day.
-		expect(rows.find(([id]) => id === DATE_ONLY_JUNE_10)?.slice(3, 5)).toEqual([
+		// Pacific Daylight Time: the date runs from 07:00Z up to 07:00Z the next day. Unknown
+		// accuracy stays null.
+		expect(rows.find(([id]) => id === DATE_ONLY_JUNE_10)?.slice(3)).toEqual([
 			epoch("2002-06-10T07:00:00Z"),
-			epoch("2002-06-11T06:59:59Z"),
+			epoch("2002-06-11T07:00:00Z"),
+			"Insecta",
+			null,
+			false,
 		]);
 	});
 
@@ -128,10 +142,16 @@ describe("getInatMapLayer", () => {
 		expect(rows.map(([id]) => id)).toEqual([DATE_ONLY_JUNE_10]);
 	});
 
+	it("keeps a date-only record whose date ends within the window's first second", async () => {
+		const { rows } = await layer("2002-06-11T06:59:59.500Z", "2002-06-11T08:00:00Z");
+
+		expect(rows.map(([id]) => id)).toEqual([DATE_ONLY_JUNE_11, DATE_ONLY_JUNE_10]);
+	});
+
 	it("keeps the newest rows and reports the full count when capped", async () => {
 		const result = await layer("2002-06-10T12:00:00Z", "2002-06-11T12:00:00Z", 2);
 
 		expect(result.rows.map(([id]) => id)).toEqual([DATE_ONLY_JUNE_11, TIMED]);
-		expect(result).toMatchObject({ total: 3, truncated: true });
+		expect(result).toMatchObject({ total: 4, truncated: true });
 	});
 });

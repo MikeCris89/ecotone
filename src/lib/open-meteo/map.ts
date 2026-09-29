@@ -1,5 +1,5 @@
 import { sql } from "@/lib/db";
-import type { MapLayer, MapQuery } from "@/lib/map-query";
+import { inBbox, type MapLayer, type MapQuery } from "@/lib/map-query";
 import { LIVE_MODEL } from "@/lib/open-meteo/client";
 
 // Rows are ~45 bytes of JSON, so a full layer stays well under Vercel's 4.5 MB response limit. A
@@ -46,10 +46,7 @@ export async function getWeatherMapLayer(
 		join weather_points p on p.id = r.point_id
 		where p.dataset_id = ${datasetId}
 			and r.model = ${LIVE_MODEL}
-			and extensions.st_intersects(
-				p.location::extensions.geometry,
-				extensions.st_makeenvelope(${bbox.west}, ${bbox.south}, ${bbox.east}, ${bbox.north}, 4326)
-			)
+			and ${inBbox("p.location", bbox)}
 			and r.valid_at >= ${start} and r.valid_at < ${end}
 	`;
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Bbox, Dataset } from "@/lib/datasets";
+import { sql } from "@/lib/db";
 
 // Every window ends now. The map loads the widest once and narrows it on the client, so switching
 // windows (and, later, scrubbing) never waits on the network.
@@ -43,6 +44,17 @@ export function parseMapQuery(params: URLSearchParams, dataset: Dataset, now: Da
 			? { west: dataset.west, south: dataset.south, east: dataset.east, north: dataset.north }
 			: { west, south: south!, east: east!, north: north! };
 	return { bbox, start: new Date(now.getTime() - WINDOW_HOURS[window] * 60 * 60_000), end: now };
+}
+
+/**
+ * Whether the point in a geography column falls in the bbox. Compared as geometry, so the bbox's
+ * edges follow lines of latitude and longitude, and the tables' geometry indexes apply.
+ */
+export function inBbox(column: string, bbox: Bbox) {
+	return sql`extensions.st_intersects(
+		${sql(column)}::extensions.geometry,
+		extensions.st_makeenvelope(${bbox.west}, ${bbox.south}, ${bbox.east}, ${bbox.north}, 4326)
+	)`;
 }
 
 /**

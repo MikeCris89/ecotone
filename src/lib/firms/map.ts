@@ -1,6 +1,6 @@
 import { sql } from "@/lib/db";
 import { DEFAULT_FIRMS_CONFIDENCE } from "@/lib/default-filters";
-import type { MapLayer, MapQuery } from "@/lib/map-query";
+import { inBbox, type MapLayer, type MapQuery } from "@/lib/map-query";
 
 // Rows are ~95 bytes of JSON (the ID is long), so a full layer stays well under Vercel's 4.5 MB
 // response limit. A big fire week can reach tens of thousands of detections.
@@ -23,10 +23,7 @@ export async function getFirmsMapLayer(query: MapQuery, cap = FIRMS_MAP_CAP): Pr
 			(count(*) over ())::int as total
 		from firms_detections
 		where confidence in ${sql(DEFAULT_FIRMS_CONFIDENCE)}
-			and extensions.st_intersects(
-				location::extensions.geometry,
-				extensions.st_makeenvelope(${bbox.west}, ${bbox.south}, ${bbox.east}, ${bbox.north}, 4326)
-			)
+			and ${inBbox("location", bbox)}
 			and acquired_at >= ${start} and acquired_at < ${end}
 		order by acquired_at desc, source_id
 		limit ${cap}
