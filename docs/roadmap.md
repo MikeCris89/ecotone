@@ -14,7 +14,7 @@
 - [x] Adapter, Zod validation, normalization, idempotent upsert, ingestion run record
   - A successful poll by updated time doesn't prove complete coverage by observation date; coverage logic must keep `time_field` separate
 - [x] Cron route polling California; verify rows accumulate in production
-  - Verified locally; production accumulation to be confirmed after merge (a `succeeded` run every ~5 min)
+  - Verified in production: 134 consecutive `succeeded` runs over 11 hours (2026-09-29), no missed polls
 
 ## Phase 3: FIRMS live ingestion
 
