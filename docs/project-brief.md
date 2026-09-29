@@ -154,6 +154,7 @@ GBIF, eBird, Movebank, USGS Earthquakes, OpenAQ. These may be mentioned as "how 
 - **Partial retrieval must never look complete.** If a run hit a page cap or failed midway, coverage metadata says so and the agent/UI treat that window as incomplete
 - Selective storage: persist only supported regions and windows plus provenance. The DB is not a mirror of upstream archives
 - **Persisted live data is the application's system of record for replaying live mode over time.** Upstream providers do retain some history; the reason to store it is fast replay, cross-source spatial queries, reproducible agent answers, and a record of what the app actually saw
+- **Records hold their latest known state, not a version history.** Upserts overwrite a record when upstream changes it (e.g. a new identification or quality grade), so an answer replayed later can differ if the underlying records changed. Answers are reproducible against the current stored data, not frozen in time
 - A fixed retention window bounds live storage growth
 
 ### 5.2 Data modeling guidance
@@ -196,7 +197,7 @@ The agent is aware of the current UI context (active mode, selected time window,
 - Tool arguments are **validated** (schema validation, bounded ranges, bbox limits, max time windows)
 - Bounded execution: max tool calls per question, timeouts, graceful failure messages
 - **No RAG / vector search.** These are exact spatial, temporal, and numerical queries; embeddings are the wrong tool. Be ready to explain this choice
-- LLM provider: **Open for discussion**
+- LLM provider: Anthropic Claude via the Vercel AI SDK (see section 9)
 
 ### 6.3 Tool contract
 

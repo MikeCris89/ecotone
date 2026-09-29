@@ -7,11 +7,12 @@
 
 ## Phase 1: Schema v1
 
-- [ ] Migrations: datasets/presets, ingestion_runs, iNaturalist observations (geography + indexes)
+- [x] Migrations: datasets/presets, ingestion_runs, iNaturalist observations (geography + indexes)
 
 ## Phase 2: iNaturalist live ingestion
 
 - [ ] Adapter, Zod validation, normalization, idempotent upsert, ingestion run record
+  - A successful poll by updated time doesn't prove complete coverage by observation date; coverage logic must keep `time_field` separate
 - [ ] Cron route polling California; verify rows accumulate in production
 
 ## Phase 3: FIRMS live ingestion

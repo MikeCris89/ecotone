@@ -43,7 +43,7 @@ Ecotone Explorer: a California wildfire + wildlife explorer (Inversa take-home, 
 
 - **DB access:** raw parameterized SQL with `postgres.js`, plain `.sql` migrations. No ORM. Never use `sql.unsafe()` with user or LLM input; map dynamic identifiers from a Zod enum.
 - **Database:** local Supabase stack (CLI + Docker) for development and tests; one hosted Supabase project for production. Locally, `DATABASE_URL` points at the local stack (`127.0.0.1:54322`); on Vercel it's the transaction pooler string (port 6543). Always `prepare: false`.
-- **Migrations:** new files in `supabase/migrations/`. Apply locally with `supabase db reset` (or `supabase migration up`) and to production with `supabase db push`. Once pushed, migrations are forward-only. Never run destructive commands against the linked production project (`supabase db reset --linked`, drops, truncates) without Mike's go-ahead.
+- **Migrations:** new files in `supabase/migrations/`. Apply locally with `supabase db reset` (or `supabase migration up`) and to production with `supabase db push`. Once pushed, migrations are forward-only. Schema-qualify PostGIS types and functions in migrations (`extensions.geography`, `extensions.st_makeenvelope`): `supabase db push` doesn't put `extensions` on the search_path, although local `migration up` does, so unqualified names pass locally and fail on push. Never run destructive commands against the linked production project (`supabase db reset --linked`, drops, truncates) without Mike's go-ahead.
 - Validate all external API responses and agent tool inputs with Zod.
 
 ## Testing
@@ -71,4 +71,4 @@ Report briefly: **Changed / Why / Verified / Open / Next**. Never claim somethin
 ## Docs to maintain
 
 - `docs/roadmap.md`: the phase plan. Read it at the start of a session to know the current phase. When a phase is done, tick its checkboxes in the same phase's final commit. New ideas go under "Later," never into the current phase.
-- `docs/decisions.md`: when Mike makes a decision (or resolves an "Open for discussion" item), propose a short entry (decision, alternatives, why, tradeoff) and add it once he approves. Update the brief too if it changes scope.
+- `docs/decisions.md`: only for important decisions, mainly when Mike picks one real alternative over another (or resolves an "Open for discussion" item). Keep it short enough to read through: implementation details and small modeling choices belong in code comments and commit messages, not here. For a qualifying decision, propose a short entry (decision, alternatives, why, tradeoff) and add it once he approves. Update the brief too if it changes scope.
