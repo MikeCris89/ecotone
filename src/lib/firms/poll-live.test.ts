@@ -1,8 +1,15 @@
 // FIRMS is mocked; the database is the local Supabase stack (see vitest.config.mts).
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { sql } from "@/lib/db";
-import { pollLiveDetections } from "@/lib/firms/poll-live";
+import { backfillLiveDetections, pollLiveDetections } from "@/lib/firms/poll-live";
 import { rawDetection, toCsv } from "@/lib/firms/test-fixtures";
+import { finishRun } from "@/lib/ingestion-runs";
+
+// Wraps the real finishRun so a test can make one call fail, as a dropped connection would.
+vi.mock("@/lib/ingestion-runs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/lib/ingestion-runs")>();
+	return { ...actual, finishRun: vi.fn(actual.finishRun) };
+});
 
 // Acquired in 2001, so the test never touches ingested detections.
 const TEST_DATE = "2001-01-01";
@@ -161,6 +168,23 @@ describe("pollLiveDetections", () => {
 		expect(await storedCount()).toBe(1);
 	});
 
+	it("reports a run as partial, not failed, when recording its outcome fails after storing", async () => {
+		vi.mocked(finishRun).mockRejectedValueOnce(new Error("connection lost"));
+		mockFirms({
+			VIIRS_SNPP_NRT: new Response(toCsv(detections("VIIRS_SNPP_NRT", 2))),
+			VIIRS_NOAA20_NRT: new Response(toCsv(detections("VIIRS_NOAA20_NRT", 2))),
+			VIIRS_NOAA21_NRT: new Response(toCsv(detections("VIIRS_NOAA21_NRT", 2))),
+		});
+
+		const runs = Object.values(await poll());
+
+		// Whichever satellite finished first lost its outcome write; its detections are stored.
+		expect(runs.filter((run) => run.status !== "succeeded")).toEqual([
+			expect.objectContaining({ status: "partial", error: "connection lost", recordsInserted: 2 }),
+		]);
+		expect(await storedCount()).toBe(6);
+	});
+
 	it("fails without storing anything when every row is invalid", async () => {
 		mockFirms({ VIIRS_SNPP_NRT: new Response(toCsv(detections("VIIRS_SNPP_NRT", 2, { confidence: "85" }))) });
 
@@ -168,5 +192,41 @@ describe("pollLiveDetections", () => {
 
 		expect(runs.VIIRS_SNPP_NRT).toMatchObject({ status: "failed", recordsFetched: 2 });
 		expect(await storedCount()).toBe(0);
+	});
+});
+
+describe("backfillLiveDetections", () => {
+	it("fetches the live window in requests of up to five days, one backfill run per satellite each", async () => {
+		// 17:05 on 2026-09-28 in Los Angeles, so the window's first local date is 2026-09-21.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-09-29T00:05:00Z"));
+		const urls = mockFirms({});
+
+		const runs = await backfillLiveDetections();
+		runIds.push(...runs.map((run) => run.runId));
+
+		// 2026-09-21 through 2026-09-29 (UTC): nine dates.
+		expect(urls.filter((url) => url.endsWith("/5/2026-09-21"))).toHaveLength(3);
+		expect(urls.filter((url) => url.endsWith("/4/2026-09-26"))).toHaveLength(3);
+		expect(runs.every((run) => run.status === "succeeded")).toBe(true);
+
+		const stored = await sql<{ mode: string; window_end: Date; covered_until: Date }[]>`
+			select mode, window_end, covered_until from ingestion_runs
+			where id in ${sql(runs.map((run) => run.runId))} and filters ->> 'product' = 'VIIRS_SNPP_NRT'
+			order by window_start
+		`;
+		expect(stored).toEqual([
+			// Ended well before the latency margin, so complete to its end.
+			{
+				mode: "backfill",
+				window_end: new Date("2026-09-26T00:00:00Z"),
+				covered_until: new Date("2026-09-26T00:00:00Z"),
+			},
+			{
+				mode: "backfill",
+				window_end: new Date("2026-09-29T00:05:00Z"),
+				covered_until: new Date("2026-09-28T21:05:00Z"),
+			},
+		]);
 	});
 });

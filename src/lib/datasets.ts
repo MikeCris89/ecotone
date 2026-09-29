@@ -1,3 +1,4 @@
+import { localDate, startOfLocalDate } from "@/lib/dates";
 import { sql } from "@/lib/db";
 
 export const LIVE_DATASET_SLUG = "live-california";
@@ -21,4 +22,15 @@ export async function getDataset(slug: string): Promise<Dataset> {
 	`;
 	if (!row) throw new Error(`Dataset ${slug} not found`);
 	return row;
+}
+
+/**
+ * Where a live dataset's rolling window begins: the local date `retentionDays` before `now`, in
+ * the dataset's timezone, and the instant that date starts. Whole local dates, because
+ * iNaturalist's observation dates are local dates.
+ */
+export function liveWindowStart(dataset: Dataset, now: Date): { date: string; instant: Date } {
+	if (dataset.retentionDays == null) throw new Error(`${dataset.slug} has no retention window`);
+	const date = localDate(new Date(now.getTime() - dataset.retentionDays * 24 * 60 * 60_000), dataset.timezone);
+	return { date, instant: startOfLocalDate(date, dataset.timezone) };
 }

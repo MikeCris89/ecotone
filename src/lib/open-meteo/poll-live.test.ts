@@ -2,9 +2,16 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDataset } from "@/lib/datasets";
 import { sql } from "@/lib/db";
-import { BATCH_SIZE, PAST_HOURS, pollLiveWeather } from "@/lib/open-meteo/poll-live";
+import { finishRun } from "@/lib/ingestion-runs";
+import { backfillLiveWeather, BATCH_SIZE, PAST_HOURS, pollLiveWeather } from "@/lib/open-meteo/poll-live";
 import { getWeatherPoints } from "@/lib/open-meteo/store";
 import { hourlyAt, rawLocation } from "@/lib/open-meteo/test-fixtures";
+
+// Wraps the real finishRun so a test can make one call fail, as a dropped connection would.
+vi.mock("@/lib/ingestion-runs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/lib/ingestion-runs")>();
+	return { ...actual, finishRun: vi.fn(actual.finishRun) };
+});
 
 // Valid around 2001-01-01, so the test never touches ingested readings (or the store test's, in 2000).
 const NOW = new Date("2001-01-01T12:20:00Z");
@@ -88,7 +95,8 @@ beforeEach(() => {
 afterEach(async () => {
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
-	await sql`delete from weather_readings where valid_at >= '2000-12-31T00:00:00Z' and valid_at < '2001-01-02T00:00:00Z'`;
+	// From 2000-12-25: the backfill test reaches back to the start of the live window.
+	await sql`delete from weather_readings where valid_at >= '2000-12-25T00:00:00Z' and valid_at < '2001-01-02T00:00:00Z'`;
 	if (runIds.length > 0) await sql`delete from ingestion_runs where id in ${sql(runIds.splice(0))}`;
 });
 
@@ -163,6 +171,17 @@ describe("pollLiveWeather", () => {
 		expect(await storedCount()).toBe(pointCount * HOURS);
 	});
 
+	it("reports a run as partial, not failed, when recording its outcome fails after storing", async () => {
+		vi.mocked(finishRun).mockRejectedValueOnce(new Error("connection lost"));
+		mockOpenMeteo();
+
+		const run = await poll();
+
+		expect(run).toMatchObject({ status: "partial", error: "connection lost", recordsInserted: pointCount * HOURS });
+		expect((await storedRun(run.runId)).status).toBe("partial");
+		expect(await storedCount()).toBe(pointCount * HOURS);
+	});
+
 	it("stops coverage before a response that's missing the latest hour", async () => {
 		mockOpenMeteo(respondWith(hourlyAt(TIMES.slice(0, -1))));
 
@@ -232,5 +251,25 @@ describe("pollLiveWeather", () => {
 		});
 		expect(await storedRun(run.runId)).toMatchObject({ status: "failed", covered_until: null });
 		expect(await storedCount()).toBe(0);
+	});
+});
+
+describe("backfillLiveWeather", () => {
+	it("fetches back to the start of the live window's first local date as one backfill run", async () => {
+		// The window's first local date is 2000-12-25, which starts at 08:00 UTC (Pacific Standard Time).
+		const windowStart = new Date("2000-12-25T08:00:00Z");
+		const pastHours = (CURRENT_HOUR.getTime() - windowStart.getTime()) / 3_600_000;
+		const times = Array.from({ length: pastHours + 1 }, (_, i) =>
+			new Date(windowStart.getTime() + i * 3_600_000).toISOString().slice(0, 16),
+		);
+		const urls = mockOpenMeteo(respondWith(hourlyAt(times)));
+
+		const run = await backfillLiveWeather();
+		runIds.push(run.runId);
+
+		for (const url of urls) expect(url.searchParams.get("past_hours")).toBe(String(pastHours));
+		expect(run).toMatchObject({ status: "succeeded", recordsInserted: pointCount * (pastHours + 1) });
+		const [stored] = await sql`select mode, window_start, covered_until from ingestion_runs where id = ${run.runId}`;
+		expect(stored).toEqual({ mode: "backfill", window_start: windowStart, covered_until: CURRENT_HOUR });
 	});
 });
