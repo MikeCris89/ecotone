@@ -99,3 +99,11 @@
 - **Weather `source_url` links expire:** each is the single-point, single-hour API request for the reading, which only resolves while Open-Meteo still serves that hour from HRRR (at least 8 days, as tested). Older readings keep their values, but the link stops working
 - **Per-point call counting is assumed:** Open-Meteo's docs don't say how multi-point requests count against limits. Budgeting assumes one call per point; watch for 429s once the poll runs in production
 - **Shared outgoing IPs:** Vercel functions share IPs, and Open-Meteo limits by IP, so rate limiting can come from other tenants. A poll that gets rate-limited is `partial` or `failed`; the next hourly poll re-fetches the gap
+
+### Known limitations from Phase 5 (check later)
+
+- **iNaturalist backfill isn't resumable:** a date that hits the 4-minute budget is `partial`, and a re-run starts it over from the lowest ID. That only helps when the slowdown was transient. A California date needs ~30 pages against a budget of ~100, so it shouldn't happen at current volume
+- **iNaturalist backfill windows are approximate:** each run's window is a Los Angeles date's span, but iNaturalist filters on `observed_on`, the date the observer recorded
+- **Coverage can span several runs:** a FIRMS backfill splits each satellite's window into two runs. `max(covered_until)` across runs would report full coverage even when one of them failed; Phase 8's coverage view must check each run's `status`, not just the latest `covered_until`
+- **Weather backfill depends on Open-Meteo's HRRR retention:** it asks for up to 191 past hours (all 192 were served with no gaps on 2026-09-29). If Open-Meteo keeps fewer, the oldest hours come back missing and the run is `partial`
+- **Seeding is manual:** the backfill routes aren't scheduled; iNaturalist takes one call per date
