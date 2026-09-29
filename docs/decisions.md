@@ -119,6 +119,8 @@ Live polling asks for records changed since the last poll. If casual were filter
 
 Each satellite passes over California about twice a day, so three satellites give ~6 passes instead of 2, which is what makes the live timeline worth scrubbing. MODIS has 1 km pixels and a different confidence scale. FIRMS deletes URT detections once their NRT version arrives (1 to 3 hours later) and nothing links the two, so storing URT would leave stale duplicates unless every poll deleted rows missing from the latest response. With only a few passes a day, the extra latency costs little. FIRMS has no detection IDs or "changed since" query, so the key is built from satellite, time and coordinates, and each poll is a full snapshot rather than a cursor. **Tradeoffs:** live detections lag passes by hours; Live and CZU counts differ in satellite coverage unless filtered to S-NPP; NRT has no fire-type flag, so live detections can include industrial heat sources.
 
+**URT check (2026-09-29, 21:29 UTC):** that day's California Area API responses included URT rows (VIIRS_SNPP_NRT 45, NOAA-20 30, NOAA-21 37), so storing them is possible. Live ingestion stays NRT-only for now; see roadmap "Later".
+
 ## 15. Open-Meteo live ingestion
 
 **Decision:** Sample modeled conditions at a fixed ~0.5° grid of 169 points inside California, from NOAA's HRRR model (pinned), hourly values only. Poll hourly (at :20), re-fetching the last 24 hours, and never store forecast hours.
@@ -145,8 +147,14 @@ Per-record columns would repeat one constant on thousands of rows. A dataset (e.
 
 **Tradeoff:** Vercel's function time limit forces per-date calls, and seeding is a manual step.
 
-## 18. Open decisions
+## 18. Map loading and default filters
 
-- **Default quality-grade filter** for display and analysis (all grades are stored, see 13): research-only matches the GBIF-verified CZU counts but thins the most recent live data; including "needs ID" gives a richer live feed. Must be the same in both modes
-- **Default FIRMS confidence filter** (all levels are stored, see 14): nominal + high is the usual choice; low is ~4% of live detections
-- Charting library and client data fetching (TanStack Query or not)
+**Decision:** The map loads each layer's whole Live window (California, 7 days) once, as compact rows capped per layer, and narrows it to 24h / 3 days / 7 days on the client. TanStack Query refreshes each layer on its source's poll cadence. The API routes still accept a bbox and window. Vercel's CDN caches their responses for a minute, then serves them stale for up to 5 more while it refetches. Rows carry only what the client styles or filters by (location, time span, animal group, positional accuracy, obscured flag, quality grade as an index); a record's details are fetched on click. Default filters, shared by the map and the agent tools: iNaturalist research + needs ID, FIRMS nominal + high confidence. A record with only an observation date counts in every window its Los Angeles calendar date overlaps. Basemap: OpenFreeMap, with the style URL in an environment variable.
+
+**Considered:** refetching the viewport on every pan; GeoJSON responses; no CDN caching; plain `fetch`; research-only observations; including low-confidence detections; placing date-only records at midnight.
+
+The Live window is bounded (~32,000 recorded observations a week, ~2 MB as compact rows), so one load makes switching windows and scrubbing the timeline instant, where per-pan refetches would re-download nearly the same data at statewide zoom. Per-layer caps (50,000 observations, 30,000 detections, 50,000 weather readings) keep each response under Vercel's 4.5 MB limit, and a capped layer reports its full count. At its cap the iNaturalist layer is already ~3.7 MB, so any new row field needs a lower cap. Research + needs ID is iNaturalist's "verifiable" set; research-only would thin the newest live data, which is mostly needs ID. Low confidence is ~4% of live detections. A midnight time would invent precision, while the whole date keeps the record in every window it could belong to. GeoJSON would repeat every property name on every row, so rows are tuples and the client builds GeoJSON once per response. Layers only change when a poll lands, so the CDN can answer repeat requests without touching the database. OpenFreeMap needs no key but has no SLA, so switching to e.g. Carto is a configuration change. **Tradeoffs:** the one-load approach only works while the window stays this size; much more data would need the bbox parameters or server-side aggregation. CZU counts under this filter won't match the GBIF research-only figures in the brief. The agent tools must state the defaults in their limitations, or their numbers won't match the map. A cached layer can be up to ~6 minutes behind the database, so the client measures windows from the response's `end` rather than the browser clock.
+
+## 19. Open decisions
+
+- Charting library for the timeline and metrics

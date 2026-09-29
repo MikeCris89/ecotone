@@ -53,6 +53,8 @@ No coverage targets. Test where bugs would make the app misleading: normalizatio
 
 Run tests with `pnpm test` (Vitest). Database tests need the local Supabase stack running and always target it (`vitest.config.mts` overrides `DATABASE_URL`), never production. Mock upstream APIs in tests; don't call them.
 
+Nothing polls the local stack (Vercel Cron only runs in production), so local data stops at the last local backfill while production keeps growing. Compare route output and SQL against the same database.
+
 ## After substantial work
 
 Report briefly: **Changed / Why / Verified / Open / Next**. Never claim something works unless you actually verified it.

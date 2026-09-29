@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+// Also the order of the map rows' quality-grade index (see map.ts).
+export const QUALITY_GRADES = ["research", "needs_id", "casual"] as const;
+
 // Only the fields we store; Zod drops the rest. Live polling and backfill both go through this.
 const observationSchema = z.object({
 	id: z.number().int().positive(),
@@ -19,7 +22,7 @@ const observationSchema = z.object({
 	public_positional_accuracy: z.number().nonnegative().nullish(),
 	obscured: z.boolean(),
 	geoprivacy: z.enum(["open", "obscured", "private"]).nullish(),
-	quality_grade: z.enum(["research", "needs_id", "casual"]),
+	quality_grade: z.enum(QUALITY_GRADES),
 	taxon: z
 		.object({
 			id: z.number().int().positive(),
@@ -51,7 +54,7 @@ export type InatObservationRow = {
 	positional_accuracy_m: number | null;
 	obscured: boolean;
 	geoprivacy: "open" | "obscured" | "private" | null;
-	quality_grade: "research" | "needs_id" | "casual";
+	quality_grade: (typeof QUALITY_GRADES)[number];
 	taxon_id: number;
 	scientific_name: string;
 	common_name: string | null;
