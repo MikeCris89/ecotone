@@ -1,5 +1,4 @@
-import { getDataset, LIVE_DATASET_SLUG } from "@/lib/datasets";
-import { localDate } from "@/lib/dates";
+import { getDataset, LIVE_DATASET_SLUG, liveWindowStart } from "@/lib/datasets";
 import {
 	finishRun,
 	getLatestCoveredUntil,
@@ -8,7 +7,7 @@ import {
 	type RunProgress,
 	type RunStatus,
 } from "@/lib/ingestion-runs";
-import { fetchObservationsPage, PER_PAGE, sleep } from "@/lib/inaturalist/client";
+import { fetchObservationsPage, PER_PAGE, REQUEST_INTERVAL_MS, sleep } from "@/lib/inaturalist/client";
 import { normalizeObservation, type InatObservationRow } from "@/lib/inaturalist/normalize";
 import { upsertObservations } from "@/lib/inaturalist/store";
 
@@ -25,8 +24,6 @@ const TIME_BUDGET_MS = 30_000;
 // Every request, retries included, must finish by this point. The route's 60 s maxDuration then
 // leaves time to store the last page and record the run's outcome.
 const FETCH_DEADLINE_MS = 45_000;
-// iNaturalist asks clients to stay under ~60 requests per minute.
-const REQUEST_INTERVAL_MS = 1_000;
 
 export type PollSummary = RunProgress & { runId: string; status: RunStatus };
 
@@ -38,18 +35,14 @@ export type PollSummary = RunProgress & { runId: string; status: RunStatus };
 export async function pollLiveObservations(): Promise<PollSummary> {
 	const startedAt = Date.now();
 	const dataset = await getDataset(LIVE_DATASET_SLUG);
-	if (dataset.retentionDays == null) throw new Error(`${LIVE_DATASET_SLUG} has no retention window`);
+	// observed_on is the observer's local date, so the window's first day is too.
+	const observedFrom = liveWindowStart(dataset, new Date(startedAt)).date;
 
 	const lastCovered = await getLatestCoveredUntil("inaturalist", dataset.id, "live");
 	const windowStart = floorToSecond(
 		lastCovered ? lastCovered.getTime() - CURSOR_OVERLAP_MS : startedAt - FIRST_RUN_LOOKBACK_MS,
 	);
 	const windowEnd = new Date(startedAt);
-	// observed_on is the observer's local date, so the window's first day is too.
-	const observedFrom = localDate(
-		new Date(startedAt - dataset.retentionDays * 24 * 60 * 60_000),
-		dataset.timezone,
-	);
 
 	const runId = await startRun({
 		source: "inaturalist",

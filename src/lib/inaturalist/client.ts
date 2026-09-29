@@ -4,35 +4,47 @@ import type { Bbox } from "@/lib/datasets";
 const API_URL = "https://api.inaturalist.org/v1/observations";
 const USER_AGENT = "EcotoneExplorer/0.1 (+https://github.com/MikeCris89/ecotone)";
 export const PER_PAGE = 200;
+// Callers wait this long between pages: iNaturalist asks clients to stay under ~60 requests per minute.
+export const REQUEST_INTERVAL_MS = 1_000;
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 // Records are otherwise validated one by one in normalizeObservation, so one bad record is
-// reported instead of failing the page. updated_at is required here because paging depends on
-// it: without it the poll can't tell how far it got, so the page fails.
+// reported instead of failing the page. id and updated_at are required here because paging
+// depends on them: without them a run can't tell how far it got, so the page fails.
 const pageSchema = z.object({
-	results: z.array(z.looseObject({ updated_at: z.iso.datetime({ offset: true }) })),
+	results: z.array(
+		z.looseObject({ id: z.number().int().positive(), updated_at: z.iso.datetime({ offset: true }) }),
+	),
 });
 
 export type RawObservation = z.infer<typeof pageSchema>["results"][number];
 
 /**
- * One page of animal observations in the bbox, updated at or after `updatedSince` (inclusive,
- * to the second), oldest update first. All quality grades are fetched: skipping casual would
- * hide a record that gets downgraded to casual, leaving a stale row behind.
+ * One page of animal observations in the bbox. All quality grades are fetched: skipping casual
+ * would hide a record that gets downgraded to casual, leaving a stale row behind.
+ *
+ * Live polling pages by update time: records updated at or after `updatedSince` (inclusive, to
+ * the second), oldest update first. Backfill pages by ID: records with an ID above `idAbove`,
+ * lowest first, which stays stable while records change mid-run and isn't subject to
+ * iNaturalist's 10,000-result limit on page numbers.
  *
  * Throws rather than retrying or waiting past `deadline` (epoch ms), so the caller always has
  * time left to record the run's outcome before the function is killed.
  */
-export async function fetchObservationsPage(query: {
-	bbox: Bbox;
-	updatedSince: Date;
-	// First local observation date to include (YYYY-MM-DD).
-	observedFrom: string;
-	page: number;
-	deadline: number;
-}): Promise<RawObservation[]> {
+export async function fetchObservationsPage(
+	query: {
+		bbox: Bbox;
+		// First local observation date to include (YYYY-MM-DD).
+		observedFrom: string;
+		deadline: number;
+	} & (
+		| { updatedSince: Date; page: number }
+		// observedTo: last local observation date to include (YYYY-MM-DD).
+		| { observedTo: string; idAbove: number }
+	),
+): Promise<RawObservation[]> {
 	const params = new URLSearchParams({
 		taxon_id: "1", // Animalia
 		swlat: String(query.bbox.south),
@@ -40,12 +52,18 @@ export async function fetchObservationsPage(query: {
 		nelat: String(query.bbox.north),
 		nelng: String(query.bbox.east),
 		d1: query.observedFrom,
-		updated_since: query.updatedSince.toISOString(),
-		order_by: "updated_at",
 		order: "asc",
 		per_page: String(PER_PAGE),
-		page: String(query.page),
 	});
+	if ("idAbove" in query) {
+		params.set("d2", query.observedTo);
+		params.set("order_by", "id");
+		params.set("id_above", String(query.idAbove));
+	} else {
+		params.set("updated_since", query.updatedSince.toISOString());
+		params.set("order_by", "updated_at");
+		params.set("page", String(query.page));
+	}
 
 	for (let attempt = 0; ; attempt++) {
 		const remaining = query.deadline - Date.now();
