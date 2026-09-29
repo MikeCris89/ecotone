@@ -1,0 +1,15 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+# .env.local is copied from the repository root into new workspaces by Conductor's default
+# `.env*` files-to-copy pattern, so nothing needs configuring for it here.
+
+[scripts]
+setup = "pnpm install"
+# Every workspace shares one local Supabase stack (Docker), so only one dev server runs at a time.
+run_mode = "nonconcurrent"
+
+[scripts.run.dev]
+available_in = ["local"]
+command = "pnpm dev --port $CONDUCTOR_PORT"
+default = true
+icon = "play"
