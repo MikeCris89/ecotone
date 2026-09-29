@@ -166,7 +166,7 @@ The exact schema is **open for discussion**, but these constraints are decided:
 - **Time columns are distinct and explicit.** At minimum: when the thing happened (`observed_at` / acquisition time), when the source published or created it (where available), and when we retrieved it (`retrieved_at`). Never turn an old observation into a current one because it was downloaded today
 - **Provenance on every record:** source name, source record ID, source URL (link to the original observation or dataset), license/attribution, ingestion run ID
 - **Positional uncertainty** is stored when available and treated as unknown (not zero) when missing
-- **Quality grade** (iNaturalist) is stored on every record. The default display/analysis filter must be **the same in both modes** so Live and CZU are comparable. Note: fresh live observations are mostly "needs ID," while GBIF-derived CZU counts were research-grade only. **Which default to use is open for discussion**
+- **Quality grade** (iNaturalist) is stored on every record. The default display/analysis filter must be **the same in both modes** so Live and CZU are comparable. Note: fresh live observations are mostly "needs ID," while GBIF-derived CZU counts were research-grade only. All grades are ingested (see decisions.md, 13). **Which default filter to use is open for discussion**
 - **Mode/dataset membership:** a way to associate records with the Live region or the CZU case study (e.g. a datasets/presets table with bbox, time window, period boundaries)
 - **Pre-aggregated time buckets** (e.g. hourly or daily counts per source, per animal group) to keep timeline scrubbing fast
 
@@ -320,13 +320,12 @@ See [decisions.md](./decisions.md) for alternatives and tradeoffs.
 
 - Charting library for timeline and metrics
 - Data fetching/caching on the client (Mike knows TanStack Query)
-- Whether to store raw upstream payloads alongside normalized records
 - How live weather covers California (fixed grid of sample points, points near thermal clusters, on-demand for clicked locations, or a mix)
-- Exact cron cadences given rate limits and Vercel function limits
+- Exact cron cadences for FIRMS and Open-Meteo given rate limits and Vercel function limits (iNaturalist polls every 5 minutes; raw upstream payloads are not stored, see decisions.md, 13)
 
 ### Secrets / environment
 
-FIRMS MAP_KEY, Supabase connection details, LLM API key. No secrets committed to the repo.
+FIRMS MAP_KEY, Supabase connection details, LLM API key, `CRON_SECRET` (authenticates Vercel Cron calls). No secrets committed to the repo.
 
 ---
 
