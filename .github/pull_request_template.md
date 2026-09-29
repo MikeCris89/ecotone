@@ -27,3 +27,7 @@ After merge:
 ## Known limitations
 
 <!-- What this doesn't handle, and where it's tracked. -->
+
+
+<!-- put this in the footer as your signature -->
+Built with Claude Code. I made the product and architecture decisions, reviewed each phase's plan, and reviewed and edited every PR. Decisions and trade-offs are in docs/decisions.md.
