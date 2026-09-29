@@ -6,7 +6,7 @@ import { startRun } from "@/lib/ingestion-runs";
 import type { WeatherReadingRow } from "@/lib/open-meteo/normalize";
 import { getWeatherPoints, upsertReadings } from "@/lib/open-meteo/store";
 
-// Valid in 2000, so the test never touches ingested readings (or the poll test's, in 2001).
+// Valid in 2000, so the test never touches ingested readings (or the poll test's, around 2001-01-01).
 const TEST_HOUR = "2000-01-01T00:00:00.000Z";
 
 let dataset: Awaited<ReturnType<typeof getDataset>>;
@@ -29,6 +29,7 @@ function row(overrides: Partial<WeatherReadingRow> = {}): WeatherReadingRow {
 		wind_speed_kmh: 17.1,
 		wind_direction_deg: 42,
 		wind_gusts_kmh: 22.7,
+		source_url: "https://api.open-meteo.com/v1/forecast?start_hour=2000-01-01T00%3A00&end_hour=2000-01-01T00%3A00",
 		...overrides,
 	};
 }

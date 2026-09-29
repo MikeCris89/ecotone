@@ -12,8 +12,8 @@ create table weather_points (
 -- Modeled conditions from Open-Meteo, one row per point, model, and hour. Values are modeled for
 -- a grid cell, never measured at the point.
 --
--- No source_url or license column: Open-Meteo has no per-reading page and one license for all
--- data (CC BY 4.0). The equivalent API request can be rebuilt from point, model, and valid_at.
+-- No license column: every Open-Meteo value is CC BY 4.0, so attribution is per source (shown in
+-- the UI), as for FIRMS.
 create table weather_readings (
 	point_id bigint not null references weather_points (id),
 	-- Pinned, never Open-Meteo's best_match, which blends models per variable and doesn't say
@@ -43,6 +43,10 @@ create table weather_readings (
 	wind_direction_deg double precision check (wind_direction_deg between 0 and 360),
 	wind_gusts_kmh double precision check (wind_gusts_kmh >= 0),
 
+	-- Open-Meteo has no per-reading page; this is the API request that returns just this reading.
+	-- It resolves only while Open-Meteo still serves that hour from the model, which for a
+	-- forecast model like HRRR is a limited window.
+	source_url text not null,
 	-- The run that last wrote this row.
 	ingestion_run_id bigint not null references ingestion_runs (id),
 	primary key (point_id, model, valid_at)

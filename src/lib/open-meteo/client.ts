@@ -68,19 +68,10 @@ export async function fetchHourly(query: {
 	model: string;
 	pastHours: number;
 }): Promise<LocationForecast[]> {
-	const params = new URLSearchParams({
-		latitude: query.points.map((point) => point.latitude).join(","),
-		longitude: query.points.map((point) => point.longitude).join(","),
-		hourly: VARIABLES.join(","),
-		models: query.model,
-		past_hours: String(query.pastHours),
-		// Just the current hour: forecasts aren't stored.
-		forecast_hours: "1",
-		timezone: "GMT",
-		temperature_unit: "celsius",
-		wind_speed_unit: "kmh",
-		precipitation_unit: "mm",
-	});
+	const params = hourlyParams(query.points, query.model);
+	params.set("past_hours", String(query.pastHours));
+	// Just the current hour: forecasts aren't stored.
+	params.set("forecast_hours", "1");
 
 	const response = await fetch(`${API_URL}?${params}`, {
 		cache: "no-store",
@@ -97,4 +88,29 @@ export async function fetchHourly(query: {
 		throw new Error(`Open-Meteo returned ${locations.length} locations for ${query.points.length} points`);
 	}
 	return locations;
+}
+
+/**
+ * The request that returns one reading on its own: Open-Meteo has no per-reading page, so this
+ * is the reading's source link. `hour` is Open-Meteo's UTC format, e.g. 2026-09-29T13:00. It
+ * only resolves while Open-Meteo still serves that hour from `model`.
+ */
+export function readingUrl(point: Point, model: string, hour: string): string {
+	const params = hourlyParams([point], model);
+	params.set("start_hour", hour);
+	params.set("end_hour", hour);
+	return `${API_URL}?${params}`;
+}
+
+function hourlyParams(points: Point[], model: string): URLSearchParams {
+	return new URLSearchParams({
+		latitude: points.map((point) => point.latitude).join(","),
+		longitude: points.map((point) => point.longitude).join(","),
+		hourly: VARIABLES.join(","),
+		models: model,
+		timezone: "GMT",
+		temperature_unit: "celsius",
+		wind_speed_unit: "kmh",
+		precipitation_unit: "mm",
+	});
 }

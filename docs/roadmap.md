@@ -93,5 +93,6 @@
 - **Coastal gaps:** grid cells whose centre falls offshore of the simplified state outline aren't sampled, so coastal places rely on the nearest inland point
 - **Recent hours get revised:** each poll re-fetches 24 hours, so values can change as newer HRRR runs arrive. They settle once they're older than a day. `first_retrieved_at` records when an hour first appeared
 - **`records_updated` is re-fetches, not changes:** every poll reports ~4,000 already-stored readings as updated
+- **Weather `source_url` links expire:** each is the single-point, single-hour API request for the reading, which only resolves while Open-Meteo still serves that hour from HRRR (at least 8 days, as tested). Older readings keep their values, but the link stops working
 - **Per-point call counting is assumed:** Open-Meteo's docs don't say how multi-point requests count against limits. Budgeting assumes one call per point; watch for 429s once the poll runs in production
 - **Shared outgoing IPs:** Vercel functions share IPs, and Open-Meteo limits by IP, so rate limiting can come from other tenants. A poll that gets rate-limited is `partial` or `failed`; the next hourly poll re-fetches the gap

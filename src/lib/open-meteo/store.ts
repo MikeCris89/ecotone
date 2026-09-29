@@ -35,19 +35,19 @@ export async function upsertReadings(
 		insert into weather_readings (
 			point_id, model, valid_at, first_retrieved_at, retrieved_at, grid_location, elevation_m,
 			temperature_c, relative_humidity_pct, precipitation_mm, wind_speed_kmh, wind_direction_deg,
-			wind_gusts_kmh, ingestion_run_id
+			wind_gusts_kmh, source_url, ingestion_run_id
 		)
 		select
 			r.point_id, r.model, r.valid_at, r.retrieved_at, r.retrieved_at,
 			extensions.st_setsrid(extensions.st_makepoint(r.grid_longitude, r.grid_latitude), 4326)::extensions.geography,
 			r.elevation_m, r.temperature_c, r.relative_humidity_pct, r.precipitation_mm, r.wind_speed_kmh,
-			r.wind_direction_deg, r.wind_gusts_kmh, ${ingestionRunId}::bigint
+			r.wind_direction_deg, r.wind_gusts_kmh, r.source_url, ${ingestionRunId}::bigint
 		from jsonb_to_recordset(${sql.json(rows)}::jsonb) as r (
 			point_id bigint, model text, valid_at timestamptz, retrieved_at timestamptz,
 			grid_longitude double precision, grid_latitude double precision, elevation_m double precision,
 			temperature_c double precision, relative_humidity_pct double precision,
 			precipitation_mm double precision, wind_speed_kmh double precision,
-			wind_direction_deg double precision, wind_gusts_kmh double precision
+			wind_direction_deg double precision, wind_gusts_kmh double precision, source_url text
 		)
 		-- first_retrieved_at is deliberately not updated: it records when the value first appeared.
 		on conflict (point_id, model, valid_at) do update set
@@ -60,6 +60,7 @@ export async function upsertReadings(
 			wind_speed_kmh = excluded.wind_speed_kmh,
 			wind_direction_deg = excluded.wind_direction_deg,
 			wind_gusts_kmh = excluded.wind_gusts_kmh,
+			source_url = excluded.source_url,
 			ingestion_run_id = excluded.ingestion_run_id
 		-- xmax is 0 only on freshly inserted rows, so this separates inserts from updates.
 		returning (xmax = 0) as inserted

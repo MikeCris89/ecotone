@@ -8,9 +8,9 @@ const HOUR_MS = 60 * 60_000;
 // Each hourly poll re-fetches the last day, so a few missed polls leave no gap and recent hours
 // pick up newer model runs. Open-Meteo counts up to two weeks for one point as a single call, so
 // the extra hours cost nothing against its rate limits.
-const PAST_HOURS = 24;
+export const PAST_HOURS = 24;
 // Points per request: keeps URLs short, and one failed request doesn't lose every point.
-const BATCH_SIZE = 50;
+export const BATCH_SIZE = 50;
 
 export type PollSummary = RunProgress & {
 	runId: string;
@@ -18,7 +18,16 @@ export type PollSummary = RunProgress & {
 	error?: string;
 };
 
-type BatchResult = { fetched: number; stored: number; invalid: number; inserted: number; updated: number };
+type BatchResult = {
+	fetched: number;
+	stored: number;
+	invalid: number;
+	// Expected hours missing from the response, or present with no values.
+	absent: number;
+	inserted: number;
+	updated: number;
+	coveredUntil: Date | null;
+};
 
 /**
  * Fetches the last day of hourly modeled conditions at every Live California weather point and
@@ -28,13 +37,18 @@ export async function pollLiveWeather(): Promise<PollSummary> {
 	const dataset = await getDataset(LIVE_DATASET_SLUG);
 	const points = await getWeatherPoints(dataset.id);
 	const now = new Date();
-	const currentHour = new Date(Math.floor(now.getTime() / HOUR_MS) * HOUR_MS);
+	const currentHour = Math.floor(now.getTime() / HOUR_MS) * HOUR_MS;
+	const windowStart = new Date(currentHour - PAST_HOURS * HOUR_MS);
+	// Every hour a complete response has for each point, in Open-Meteo's format (2026-09-29T13:00).
+	const expectedHours = Array.from({ length: PAST_HOURS + 1 }, (_, i) =>
+		new Date(windowStart.getTime() + i * HOUR_MS).toISOString().slice(0, 16),
+	);
 	const runId = await startRun({
 		source: "open-meteo",
 		datasetId: dataset.id,
 		mode: "live",
 		bbox: dataset,
-		windowStart: new Date(currentHour.getTime() - PAST_HOURS * HOUR_MS),
+		windowStart,
 		windowEnd: now,
 		timeField: "observed",
 		filters: { model: LIVE_MODEL, pastHours: PAST_HOURS, points: points.length },
@@ -58,13 +72,20 @@ export async function pollLiveWeather(): Promise<PollSummary> {
 		const batches: WeatherPoint[][] = [];
 		for (let i = 0; i < points.length; i += BATCH_SIZE) batches.push(points.slice(i, i + BATCH_SIZE));
 
-		const results = await Promise.allSettled(batches.map((batch) => pollBatch(batch, runId)));
+		const results = await Promise.allSettled(batches.map((batch) => pollBatch(batch, runId, expectedHours)));
 
-		const errors: string[] = [];
+		const failures = new Set<string>();
+		const coverage: (Date | null)[] = [];
+		let failed = 0;
+		let stored = 0;
 		let invalid = 0;
+		let absent = 0;
 		for (const result of results) {
 			if (result.status === "rejected") {
-				errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+				failed += 1;
+				failures.add(result.reason instanceof Error ? result.reason.message : String(result.reason));
+				// Its points weren't read at all.
+				coverage.push(null);
 				continue;
 			}
 			const batch = result.value;
@@ -73,19 +94,21 @@ export async function pollLiveWeather(): Promise<PollSummary> {
 			progress.recordsInserted += batch.inserted;
 			progress.recordsUpdated += batch.updated;
 			progress.recordsSkipped += batch.fetched - batch.stored;
+			stored += batch.stored;
 			invalid += batch.invalid;
+			absent += batch.absent;
+			coverage.push(batch.coveredUntil);
 		}
-		// Every batch failing is almost always one cause (rate limit, outage), so one message says it.
-		if (errors.length === batches.length) throw new Error(errors[0]);
+		// Coverage is the whole run's: an hour counts only once every point has it.
+		progress.coveredUntil = earliest(coverage);
 
-		// Points in the successful batches were read up to the current hour. Whether every point
-		// was is what the status says.
-		progress.coveredUntil = currentHour;
-		if (errors.length > 0) {
-			errors.unshift(`${errors.length} of ${batches.length} requests failed`);
-		}
-		if (invalid > 0) errors.push(`${invalid} readings failed validation and were not stored`);
-		if (errors.length > 0) return await finish("partial", errors.join("; "));
+		const problems: string[] = [];
+		// A batch fails on a request, response, or database error; the message says which.
+		if (failed > 0) problems.push(`${failed} of ${batches.length} batches failed: ${[...failures].join("; ")}`);
+		if (invalid > 0) problems.push(`${invalid} readings failed validation and were not stored`);
+		if (absent > 0) problems.push(`${absent} readings were missing or empty in the response`);
+		if (stored === 0) throw new Error(problems.join("; "));
+		if (problems.length > 0) return await finish("partial", problems.join("; "));
 		return await finish("succeeded");
 	} catch (error) {
 		// Nothing from this run was stored; earlier readings are untouched.
@@ -93,24 +116,49 @@ export async function pollLiveWeather(): Promise<PollSummary> {
 	}
 }
 
-async function pollBatch(points: WeatherPoint[], runId: string): Promise<BatchResult> {
+async function pollBatch(points: WeatherPoint[], runId: string, expectedHours: string[]): Promise<BatchResult> {
 	const locations = await fetchHourly({ points, model: LIVE_MODEL, pastHours: PAST_HOURS });
 	const retrievedAt = new Date();
 	const rows: WeatherReadingRow[] = [];
+	const coverage: (Date | null)[] = [];
 	let fetched = 0;
 	let invalid = 0;
+	let absent = 0;
 	locations.forEach((location, i) => {
-		for (let hour = 0; hour < location.hourly.time.length; hour++) {
-			fetched += 1;
-			const normalized = normalizeReading(location, hour, points[i].id, LIVE_MODEL, retrievedAt);
-			if (normalized.status === "ok") rows.push(normalized.row);
-			else if (normalized.status === "invalid") invalid += 1;
+		fetched += location.hourly.time.length;
+		// The point is covered up to its last stored hour before the first gap. A gap later in the
+		// window still means the hours after it are incomplete.
+		let coveredUntil: Date | null = null;
+		let gap = false;
+		for (const hour of expectedHours) {
+			const index = location.hourly.time.indexOf(hour);
+			const normalized =
+				index === -1 ? null : normalizeReading(location, index, points[i], LIVE_MODEL, retrievedAt);
+			if (normalized?.status === "ok") {
+				rows.push(normalized.row);
+				if (!gap) coveredUntil = new Date(normalized.row.valid_at);
+				continue;
+			}
+			gap = true;
+			if (normalized?.status === "invalid") invalid += 1;
+			else absent += 1;
 		}
+		coverage.push(coveredUntil);
 	});
 	// Every reading failing points to a format change or a normalizer bug, not one bad value.
-	if (fetched > 0 && invalid === fetched) {
-		throw new Error(`All ${fetched} readings failed validation; none were stored`);
+	if (invalid > 0 && invalid === expectedHours.length * points.length) {
+		throw new Error(`All ${invalid} readings failed validation; none were stored`);
 	}
 	const { inserted, updated } = await upsertReadings(rows, runId);
-	return { fetched, stored: rows.length, invalid, inserted, updated };
+	return { fetched, stored: rows.length, invalid, absent, inserted, updated, coveredUntil: earliest(coverage) };
+}
+
+// The earliest coverage end; null if any is null, since that point or batch covers nothing.
+function earliest(dates: (Date | null)[]): Date | null {
+	let result: Date | null = null;
+	for (const date of dates) {
+		if (date === null) return null;
+		if (result === null || date < result) result = date;
+	}
+	return result;
 }

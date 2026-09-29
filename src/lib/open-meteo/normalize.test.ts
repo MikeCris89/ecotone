@@ -4,10 +4,12 @@ import { normalizeReading } from "@/lib/open-meteo/normalize";
 import { rawLocation } from "@/lib/open-meteo/test-fixtures";
 
 const retrievedAt = new Date("2026-09-29T16:20:00Z");
+// The requested point, a little way from the grid cell centre the fixture's response reports.
+const point = { id: "42", longitude: -122.2, latitude: 37.1 };
 
 // The client has already checked the response's shape; these are hour-level values.
 function normalize(hourly: Record<string, unknown> = {}, index = 0) {
-	return normalizeReading(rawLocation({}, hourly) as LocationForecast, index, "42", "ncep_hrrr_conus", retrievedAt);
+	return normalizeReading(rawLocation({}, hourly) as LocationForecast, index, point, "ncep_hrrr_conus", retrievedAt);
 }
 
 function normalizedRow(hourly: Record<string, unknown> = {}, index = 0) {
@@ -36,6 +38,11 @@ describe("normalizeReading", () => {
 			wind_speed_kmh: 17.1,
 			wind_direction_deg: 42,
 			wind_gusts_kmh: 22.7,
+			source_url:
+				"https://api.open-meteo.com/v1/forecast?latitude=37.1&longitude=-122.2" +
+				"&hourly=temperature_2m%2Crelative_humidity_2m%2Cprecipitation%2Cwind_speed_10m%2Cwind_direction_10m%2Cwind_gusts_10m" +
+				"&models=ncep_hrrr_conus&timezone=GMT&temperature_unit=celsius&wind_speed_unit=kmh&precipitation_unit=mm" +
+				"&start_hour=2026-09-29T13%3A00&end_hour=2026-09-29T13%3A00",
 		});
 	});
 

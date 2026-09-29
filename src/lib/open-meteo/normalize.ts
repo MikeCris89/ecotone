@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { LocationForecast } from "@/lib/open-meteo/client";
+import { readingUrl, type LocationForecast, type Point } from "@/lib/open-meteo/client";
 
 // Mirrors the table's checks: rows are upserted in one statement, so a row the database rejects
 // would fail the whole batch rather than just itself. Null means the model had no value.
@@ -30,6 +30,7 @@ export type WeatherReadingRow = {
 	wind_speed_kmh: number | null;
 	wind_direction_deg: number | null;
 	wind_gusts_kmh: number | null;
+	source_url: string;
 };
 
 export type NormalizeResult =
@@ -39,11 +40,11 @@ export type NormalizeResult =
 	// Doesn't match the expected shape. A failure the run must report as incomplete.
 	| { status: "invalid" };
 
-/** Converts hour `index` of one location's response into a row for `pointId`. */
+/** Converts hour `index` of one location's response into a row for the point it was requested for. */
 export function normalizeReading(
 	location: LocationForecast,
 	index: number,
-	pointId: string,
+	point: Point & { id: string },
 	model: string,
 	retrievedAt: Date,
 ): NormalizeResult {
@@ -84,7 +85,7 @@ export function normalizeReading(
 	return {
 		status: "ok",
 		row: {
-			point_id: pointId,
+			point_id: point.id,
 			model,
 			valid_at: validAt.toISOString(),
 			retrieved_at: retrievedAt.toISOString(),
@@ -92,6 +93,7 @@ export function normalizeReading(
 			grid_latitude: location.latitude,
 			elevation_m: location.elevation,
 			...values,
+			source_url: readingUrl(point, model, h.time),
 		},
 	};
 }
