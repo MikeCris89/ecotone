@@ -33,8 +33,22 @@
 
 ## Phase 6: Map (Live)
 
-- [ ] Map with three layers, viewport- and window-bounded API routes
-  - Show each source's `attribution_text` from `data_sources`; Open-Meteo's CC BY 4.0 needs its link next to wherever weather is displayed
+- [x] 6a: Map layer API routes (#10)
+  - `GET /api/map/{inaturalist,firms,weather}?window=24h|3d|7d`, optionally with all of `west,south,east,north`. They return compact tuple rows (`InatMapRow`, `FirmsMapRow`, `WeatherMapRow` and `WeatherMapPoint`, documented in each source's `map.ts`), the default filters applied (from `src/lib/default-filters.ts`), the full match count `total`, `truncated`, and the window's `start` and `end`. See decisions.md, 18
+  - Verified locally (2026-09-29) with tests and curl: 24h iNaturalist window exactly 24 hours, 7-day iNaturalist layer 27,823 rows at 2.0 MB, bad bbox or window returns 400
+- [ ] 6b: Map with the three layers, window selector, attribution
+  - Add `@tanstack/react-query` (approved, the only new dependency). Refetch every 5 min (iNaturalist), 15 min (FIRMS), 60 min (weather), with `placeholderData: keepPreviousData` so layers don't flash empty
+  - Build each layer's GeoJSON once per response and pass it to `setData` only then. The 24h / 3 days / 7 days selector only changes `setFilter`, never the data
+  - Windows are measured from the response's `end`, not the browser clock: a CDN-cached response can be minutes old, and the window must match the data it holds
+  - Window filters: iNaturalist rows use the overlap rule `from < end && (to > start || from >= start)` (see `InatMapRow`); FIRMS and weather use `start <= time < end`
+  - iNaturalist: a heatmap labelled "recorded observation density" at low zoom, circles when zoomed in. Obscured and unknown-accuracy points styled differently from precise ones. The quality grade is an index into `QUALITY_GRADES`
+  - FIRMS: circles at every zoom, labelled "satellite thermal detections" (there are few, and each one matters)
+  - Weather: each point's latest hour in the window, labelled "modeled conditions", with Open-Meteo's link next to it. Phase 7 makes it follow the scrubber
+  - Show each source's `attribution_text` from `data_sources` and the basemap's OpenStreetMap credit. Open-Meteo's CC BY 4.0 link goes wherever weather is displayed
+  - A truncated layer says how many records it left out (`total` vs rows)
+  - Basemap style from `NEXT_PUBLIC_MAP_STYLE_URL`, defaulting to OpenFreeMap Positron (`https://tiles.openfreemap.org/styles/positron`). Mike adds the variable to `.env.example`: the agent's sandbox can't read `.env*` files
+- [ ] 6c: Click details
+  - `GET /api/map/inaturalist/[id]` and `/api/map/firms/[id]` return one record's details for a popup with its source link. Weather popups use the row's values, the model, and the distance from the requested point to the grid cell (both are in `WeatherMapPoint`)
 
 ## Phase 7: Timeline
 
@@ -50,6 +64,7 @@
     - `failed`: "failed, nothing stored from this run". Every source keeps that true: a run that stored anything before failing is `partial`
     - stale `running` runs: "interrupted, may be incomplete". The run died without recording an outcome, possibly after storing some pages
   - A backfilled date's coverage comes from its latest `succeeded` run, not its latest run, so partial runs a later re-run superseded don't show as gaps (e.g. iNaturalist 2026-09-24)
+  - How runs get stuck `running` (only when recording the outcome itself fails, or the function is killed), and the optional sweep for them: see issue #9
 
 ## Phase 9: CZU case study
 
@@ -63,6 +78,7 @@
   - Evidence carries each record's license and attribution: the record's own for iNaturalist, otherwise its source's (record -> ingestion run -> `data_sources`)
   - Coverage follows the Phase 8 rule: tools never return a bare `covered_until`, only the statement combined with `status`
   - Recorded-observation counts track observer effort and upload lag (see Phase 5 limitations): tools must not present day-to-day differences as changes in wildlife, and must flag the most recent 1–2 days as undercounted
+  - Use the map's default filters (`src/lib/default-filters.ts`) and state them in `limitations`, so answers match what the map shows (decisions.md, 18)
 
 ## Phase 11: Agent UI
 
@@ -79,6 +95,8 @@
 - Extra weather points near thermal-detection clusters, on top of the fixed grid
 - Live soil moisture (needs a pinned model that provides it; HRRR doesn't)
 - Derive the map's 7-day window from the dataset's `retention_days` instead of hardcoding 168 hours
+- Incremental map refreshes (e.g. a `since` parameter) instead of re-downloading each whole layer on every refetch (~2 MB of iNaturalist every 5 minutes per open tab)
+- Fix the flaky weather poll test (issue #9)
 
 ### Known limitations from Phase 2 (check later)
 
