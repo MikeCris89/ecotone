@@ -137,7 +137,15 @@ A fixed grid gives every point an unbroken series and keeps anywhere in Californ
 
 Per-record columns would repeat one constant on thousands of rows. A dataset (e.g. Live California) mixes all three sources, and FIRMS rows don't link to a dataset at all, so `datasets` can't hold a source's license. The ingestion run is the one link every record already has. Licenses: FIRMS is NASA-mission data, CC0 unless marked otherwise, with NASA's requested acknowledgement sentence; Open-Meteo is CC BY 4.0 with a "Weather data by Open-Meteo.com" link wherever its data is shown. **Tradeoff:** a record's license takes a two-table join, and the agent's evidence must include it explicitly.
 
-## 17. Open decisions
+## 17. Seeding the live window
+
+**Decision:** Manual `POST` routes, protected by `CRON_SECRET` and run against the deployment, one iNaturalist date per call.
+
+**Considered:** a local CLI script (needs `tsx` and the production database URL on a laptop); having the first live poll seed the window itself (iNaturalist already had a live cursor, and it would blur live and backfill runs).
+
+**Tradeoff:** Vercel's function time limit forces per-date calls, and seeding is a manual step.
+
+## 18. Open decisions
 
 - **Default quality-grade filter** for display and analysis (all grades are stored, see 13): research-only matches the GBIF-verified CZU counts but thins the most recent live data; including "needs ID" gives a richer live feed. Must be the same in both modes
 - **Default FIRMS confidence filter** (all levels are stored, see 14): nominal + high is the usual choice; low is ~4% of live detections

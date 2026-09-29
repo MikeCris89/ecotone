@@ -43,8 +43,11 @@
 ## Phase 8: Freshness and data quality UI
 
 - [ ] Feed health vs data recency per source, upload-lag zone, empty states
-  - Never show `covered_until` on its own. Combine it with the run's `status` into one plain statement: "complete through 14:00" (`succeeded`), "read through 14:00, 12 records rejected" (`partial`, `covered_until` set), "incomplete, cut off partway" (`partial`, `covered_until` null)
-  - The rejected count isn't a column yet: `records_skipped` also counts records excluded on purpose (no public coordinates, provisional FIRMS rows), and the validation failures are only in `error`
+  - Never show `covered_until` on its own. Combine it with the run's `status` into one plain statement:
+    - `succeeded`: "complete through 14:00"
+    - `partial`, `covered_until` set: "read through 14:00", plus the run's reason, e.g. "some records rejected" or "next poll continues". No exact rejected count (no column for it; `records_skipped` also counts records excluded on purpose)
+    - `partial`, `covered_until` null: "incomplete, cut off partway"
+    - `failed`, and stale `running` runs: "failed, nothing stored from this run"
 
 ## Phase 9: CZU case study
 
@@ -56,7 +59,7 @@
 - [ ] Deterministic tools with the tool contract, count guardrails, tests
   - Weather tool results must include the distance from the queried location to the weather point used
   - Evidence carries each record's license and attribution: the record's own for iNaturalist, otherwise its source's (record -> ingestion run -> `data_sources`)
-  - Coverage follows the Phase 8 rule: tools never return a bare `covered_until`, only the statement combined with `status` ("complete through 14:00", "read through 14:00, 12 records rejected", "incomplete, cut off partway")
+  - Coverage follows the Phase 8 rule: tools never return a bare `covered_until`, only the statement combined with `status`
 
 ## Phase 11: Agent UI
 

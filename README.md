@@ -1,36 +1,21 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Ecotone Explorer
 
-## Getting Started
+A California wildfire and wildlife explorer: a map, a timeline and a natural-language agent over three live data feeds, with the CZU Lightning Complex (2020) as a historical case study.
 
-First, run the development server:
+**Live:** https://ecotone-iota.vercel.app
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+**Status:** in progress. Ingestion for all three sources runs in production; the map, timeline and agent are still being built.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## The question
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> How do recorded wildlife observations and environmental conditions vary around wildfire activity in California, right now and historically?
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Sources
 
-## Learn More
+- **NASA FIRMS:** satellite thermal detections (VIIRS, three satellites)
+- **iNaturalist:** recorded wildlife observations (animals only, all quality grades)
+- **Open-Meteo:** modeled weather conditions (NOAA HRRR, hourly, on a fixed grid of points)
 
-To learn more about Next.js, take a look at the following resources:
+## How it was built
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Built with Claude Code. I made the product and architecture decisions, reviewed each phase's plan, and reviewed and edited every PR. Decisions and trade-offs are in [docs/decisions.md](docs/decisions.md).
