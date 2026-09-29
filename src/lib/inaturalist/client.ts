@@ -93,10 +93,21 @@ export async function fetchObservationsPage(
 			await sleep(retryDelay);
 			continue;
 		}
-		if (!response) throw networkError;
+		if (!response) throw withNetworkCause(networkError);
 		if (!response.ok) throw new Error(`iNaturalist responded ${response.status}`);
 		return pageSchema.parse(await response.json()).results;
 	}
+}
+
+/**
+ * fetch rejects with a bare "fetch failed" and keeps the actual network error (e.g. "read
+ * ECONNRESET") in `cause`. Runs record only the message, so the cause is folded into it.
+ */
+function withNetworkCause(error: unknown): unknown {
+	if (!(error instanceof Error) || !(error.cause instanceof Error)) return error;
+	const { message, code } = error.cause as Error & { code?: unknown };
+	const suffix = typeof code === "string" && !message.includes(code) ? ` (${code})` : "";
+	return new Error(`${error.message}: ${message}${suffix}`, { cause: error });
 }
 
 export function sleep(ms: number): Promise<void> {
