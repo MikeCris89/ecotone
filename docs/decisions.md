@@ -129,7 +129,15 @@ A fixed grid gives every point an unbroken series and keeps anywhere in Californ
 
 **Terms and limits:** the free tier is non-commercial. That's fine for this demo, but a commercial deployment would need a paid plan (Professional for historical data). The free limits are 10,000 calls/day and 300,000/month, and each point counts as a call, so polling uses ~4,100/day (~122,000/month). Limits apply per IP and Vercel functions share outgoing IPs, so a 429 can come from other tenants' traffic; the poll is then recorded as failed or partial and stored data stays. The data is CC BY 4.0, which requires visible Open-Meteo attribution in the UI.
 
-## 16. Open decisions
+## 16. Source licensing and attribution
+
+**Decision:** A `data_sources` table holds each provider's license and required attribution text. `ingestion_runs.source` references it, so every record reaches its license through its ingestion run. iNaturalist's source license is null, because each observation stores its observer's own license.
+
+**Considered:** license columns on every record; license columns on `datasets`; documenting weather and FIRMS as exceptions to the brief's per-record provenance.
+
+Per-record columns would repeat one constant on thousands of rows. A dataset (e.g. Live California) mixes all three sources, and FIRMS rows don't link to a dataset at all, so `datasets` can't hold a source's license. The ingestion run is the one link every record already has. Licenses: FIRMS is NASA-mission data, CC0 unless marked otherwise, with NASA's requested acknowledgement sentence; Open-Meteo is CC BY 4.0 with a "Weather data by Open-Meteo.com" link wherever its data is shown. **Tradeoff:** a record's license takes a two-table join, and the agent's evidence must include it explicitly.
+
+## 17. Open decisions
 
 - **Default quality-grade filter** for display and analysis (all grades are stored, see 13): research-only matches the GBIF-verified CZU counts but thins the most recent live data; including "needs ID" gives a richer live feed. Must be the same in both modes
 - **Default FIRMS confidence filter** (all levels are stored, see 14): nominal + high is the usual choice; low is ~4% of live detections

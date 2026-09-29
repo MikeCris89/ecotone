@@ -24,7 +24,7 @@
 ## Phase 4: Open-Meteo live ingestion
 
 - [x] Decide sampling strategy, table, adapter, cron
-  - Verified against the real API locally: one poll stored 169 points × 25 hours in under a second. After merge: push the migration (`supabase db push`) and confirm one `succeeded` run per hour at :20 in production
+  - Verified against the real API locally: one poll stored 169 points × 25 hours in under a second. After merge: push the two migrations, weather and `data_sources` (`supabase db push`) and confirm one `succeeded` run per hour at :20 in production
 
 ## Phase 5: Seed live window
 
@@ -51,6 +51,7 @@
 
 - [ ] Deterministic tools with the tool contract, count guardrails, tests
   - Weather tool results must include the distance from the queried location to the weather point used
+  - Evidence carries each record's license and attribution: the record's own for iNaturalist, otherwise its source's (record -> ingestion run -> `data_sources`)
 
 ## Phase 11: Agent UI
 

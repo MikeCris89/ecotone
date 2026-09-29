@@ -12,8 +12,8 @@ create table weather_points (
 -- Modeled conditions from Open-Meteo, one row per point, model, and hour. Values are modeled for
 -- a grid cell, never measured at the point.
 --
--- No license column: every Open-Meteo value is CC BY 4.0, so attribution is per source (shown in
--- the UI), as for FIRMS.
+-- No license column: every Open-Meteo value has the same license, stored once in data_sources and
+-- reached through ingestion_run_id.
 create table weather_readings (
 	point_id bigint not null references weather_points (id),
 	-- Pinned, never Open-Meteo's best_match, which blends models per variable and doesn't say
