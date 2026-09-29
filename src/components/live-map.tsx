@@ -1,10 +1,10 @@
 "use client";
 
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useQuery } from "@tanstack/react-query";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import Map, { Layer, Source } from "react-map-gl/maplibre";
-import { MapPanel, type LayerVisibility } from "@/components/map-panel";
+import { type LayerSummary, type LayerVisibility, MapPanel } from "@/components/map-panel";
 import {
 	DETECTION_COLOR,
 	NO_VALUE_COLOR,
@@ -17,7 +17,9 @@ import type { InatMapRow } from "@/lib/inaturalist/map";
 import {
 	firmsGeoJson,
 	inatGeoJson,
+	inatInWindow,
 	inatWindowFilter,
+	instantInWindow,
 	instantWindowFilter,
 	type MapLayerResponse,
 	type MapWindow,
@@ -57,6 +59,18 @@ function useMapLayer<T>(source: string, minutes: number) {
 	});
 }
 
+function summarize(query: UseQueryResult<MapLayerResponse<unknown>>, inWindow: number): LayerSummary {
+	const { data } = query;
+	return {
+		loading: query.isPending,
+		failed: query.isError,
+		loadedAt: data ? query.dataUpdatedAt : null,
+		inWindow,
+		omitted: data ? data.total - data.rows.length : 0,
+		attribution: data?.attribution ?? null,
+	};
+}
+
 export function LiveMap() {
 	const [mapWindow, setMapWindow] = useState<MapWindow>("7d");
 	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: true });
@@ -73,10 +87,26 @@ export function LiveMap() {
 		[weather.data],
 	);
 
-	// Changing the window only swaps these filters; the data stays as loaded.
-	const inatFilter = inaturalist.data && inatWindowFilter(windowBounds(inaturalist.data.end, mapWindow));
-	const firmsFilter = firms.data && instantWindowFilter(windowBounds(firms.data.end, mapWindow));
-	const weatherFilter = weather.data && instantWindowFilter(windowBounds(weather.data.end, mapWindow));
+	// Changing the window only swaps these filters and recounts; the data stays as loaded.
+	const inatWindow = inaturalist.data && windowBounds(inaturalist.data.end, mapWindow);
+	const firmsWindow = firms.data && windowBounds(firms.data.end, mapWindow);
+	const weatherWindow = weather.data && windowBounds(weather.data.end, mapWindow);
+	const inatFilter = inatWindow && inatWindowFilter(inatWindow);
+	const firmsFilter = firmsWindow && instantWindowFilter(firmsWindow);
+	const weatherFilter = weatherWindow && instantWindowFilter(weatherWindow);
+
+	// Counted with the same rules as the filters (a few ms at most for a full layer).
+	const inatShown = inatWindow
+		? inatData.features.filter(({ properties }) => inatInWindow(properties.from, properties.to, inatWindow))
+		: [];
+	const firmsShown = firmsWindow
+		? firmsData.features.filter(({ properties }) => instantInWindow(properties.time, firmsWindow))
+		: [];
+	const weatherShown = weatherWindow
+		? weatherData.features.filter(({ properties }) => instantInWindow(properties.time, weatherWindow))
+		: [];
+	const latestHour = weatherShown.length ? Math.max(...weatherShown.map(({ properties }) => properties.time)) : null;
+
 	const visibility = (layer: keyof LayerVisibility) => (visible[layer] ? "visible" : "none");
 
 	return (
@@ -186,6 +216,9 @@ export function LiveMap() {
 				onWindowChange={setMapWindow}
 				visible={visible}
 				onVisibleChange={setVisible}
+				inaturalist={summarize(inaturalist, inatShown.length)}
+				firms={summarize(firms, firmsShown.length)}
+				weather={{ ...summarize(weather, weatherShown.length), latestHour }}
 			/>
 		</div>
 	);

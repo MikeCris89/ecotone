@@ -2,6 +2,7 @@
 // 24h / 3 days / 7 days windows applied as MapLibre filters, so switching windows never refetches.
 // Type-only imports from the map modules: their runtime code needs the database.
 import type { CircleLayerSpecification } from "maplibre-gl";
+import type { SourceAttribution } from "@/lib/data-sources";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 import type { MapLayer } from "@/lib/map-query";
@@ -11,7 +12,7 @@ export const WINDOW_HOURS = { "24h": 24, "3d": 72, "7d": 168 } as const;
 export type MapWindow = keyof typeof WINDOW_HOURS;
 
 /** A map layer route's JSON body. `start` and `end` are ISO timestamps. */
-export type MapLayerResponse<Row> = MapLayer<Row> & { start: string; end: string };
+export type MapLayerResponse<Row> = MapLayer<Row> & { start: string; end: string; attribution: SourceAttribution };
 export type WeatherLayerResponse = MapLayerResponse<WeatherMapRow> & { points: WeatherMapPoint[] };
 
 /** A half-open window [start, end), in epoch seconds like the rows' times. */

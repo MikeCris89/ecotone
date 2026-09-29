@@ -6,6 +6,12 @@ import { GET as weatherLayer } from "@/app/api/map/weather/route";
 import { sql } from "@/lib/db";
 
 const routes = { inaturalist: inaturalistLayer, firms: firmsLayer, weather: weatherLayer };
+// From the data_sources migration. iNaturalist's license varies per record, so it has none.
+const attributions = {
+	inaturalist: { name: "iNaturalist", license: null, licenseUrl: null },
+	firms: { name: "NASA FIRMS", license: "CC0 1.0" },
+	weather: { name: "Open-Meteo", license: "CC BY 4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/" },
+};
 // In the Pacific, where no source has data: the responses stay small.
 const OCEAN = "west=-130.5&south=29.5&east=-129.5&north=30.5";
 
@@ -20,6 +26,16 @@ describe.each(Object.entries(routes))("GET /api/map/%s", (source, GET) => {
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Cache-Control")).toBe("public, s-maxage=60, stale-while-revalidate=300");
 		expect(await response.json()).toMatchObject({ ok: true, total: 0, truncated: false, rows: [] });
+	});
+
+	it("carries its source's attribution", async () => {
+		const response = await GET(new Request(`http://localhost/api/map/${source}?window=24h&${OCEAN}`));
+
+		expect((await response.json()).attribution).toMatchObject({
+			...attributions[source as keyof typeof attributions],
+			homepageUrl: expect.stringMatching(/^https:\/\//),
+			attributionText: expect.any(String),
+		});
 	});
 
 	it("rejects invalid parameters, uncached", async () => {
