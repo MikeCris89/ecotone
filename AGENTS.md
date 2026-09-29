@@ -50,6 +50,8 @@ Ecotone Explorer: a California wildfire + wildlife explorer (Inversa take-home, 
 
 No coverage targets. Test where bugs would make the app misleading: normalization, time handling, spatial queries, period comparisons, count guardrails, ingestion idempotency.
 
+Run tests with `pnpm test` (Vitest). Database tests need the local Supabase stack running and always target it (`vitest.config.mts` overrides `DATABASE_URL`), never production. Mock upstream APIs in tests; don't call them.
+
 ## After substantial work
 
 Report briefly: **Changed / Why / Verified / Open / Next**. Never claim something works unless you actually verified it.

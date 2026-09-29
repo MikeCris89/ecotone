@@ -103,8 +103,16 @@ The AI SDK gives Zod-typed tools, a bounded multi-step tool loop, and streaming 
 
 `supabase/migrations` is the single schema history, applied the same way locally and to the hosted project, and resets are free. **Tradeoff:** requires Docker, and the local stack runs services the app doesn't use (auth, storage).
 
-## 13. Open decisions
+## 13. iNaturalist ingestion
 
-- **iNaturalist quality grade:** research-only is more reliable but makes live data lag badly; including "needs ID" gives a richer live feed. Whatever I choose must apply consistently to both modes. Deciding after working with the real API
+**Decision:** Ingest all quality grades (research, needs ID, casual) in both modes, and apply the default display/analysis filter at query time. Poll every 5 minutes. Don't store raw upstream payloads.
+
+**Considered:** ingesting research-only, or research + needs ID. Storing raw payloads alongside normalized rows.
+
+Live polling asks for records changed since the last poll. If casual were filtered out upstream, a record later downgraded to casual (e.g. marked captive) would simply stop appearing, leaving a stale "needs ID" row. Storing every grade keeps rows truthful, and the display default stays a query-time choice that can be identical in Live and CZU. The real API (September 2026, California animals, last 7 days) was about 57% research, 41% needs ID and 2% casual, with needs ID outnumbering research in the most recent 24 hours. At ~55 changed records per 5 minutes, one request per poll suffices. Normalized columns plus `source_url` cover provenance without raw payloads. **Tradeoff:** ~2% extra rows, and every query must apply the grade filter.
+
+## 14. Open decisions
+
+- **Default quality-grade filter** for display and analysis (all grades are stored, see 13): research-only matches the GBIF-verified CZU counts but thins the most recent live data; including "needs ID" gives a richer live feed. Must be the same in both modes
 - Live weather sampling strategy
-- Charting library, client data fetching (TanStack Query or not), whether to store raw upstream payloads, and cron cadences given upstream rate limits (on Vercel Pro, so per-minute schedules are available)
+- Charting library, client data fetching (TanStack Query or not), and cron cadences for FIRMS and Open-Meteo given upstream rate limits (on Vercel Pro, so per-minute schedules are available)
