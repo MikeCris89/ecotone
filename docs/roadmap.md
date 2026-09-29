@@ -29,7 +29,7 @@
 ## Phase 5: Seed live window
 
 - [x] Backfill last 7 days for all three sources
-  - Verified against the real APIs locally (2026-09-29): all 15 runs succeeded. Open-Meteo 30,589 readings (169 points × 181 hours) in one run; FIRMS 3,218 detections in 6 runs; iNaturalist 31,526 records over 8 dates, at most 32 pages per date. Re-running Open-Meteo and iNaturalist 2026-09-22 inserted nothing and updated every record. The same calls run against production after merge; the next PR confirms the results
+  - Verified against the real APIs locally (2026-09-29): all 15 runs succeeded. Open-Meteo 30,589 readings (169 points × 181 hours) in one run; FIRMS 3,218 detections in 6 runs; iNaturalist 31,526 records over 8 dates, at most 32 pages per date. Re-running Open-Meteo and iNaturalist 2026-09-22 inserted nothing and updated every record. Ran against production after merge (2026-09-29): every run succeeded except iNaturalist 2026-09-24, whose first two runs (263, 282) ended `partial` with "fetch failed" mid-pagination, after 18 and 7 pages. A third run re-paged the whole date and succeeded, with upserts completing it at 4,031 records, in line with neighbouring dates. The iNaturalist client now retries network errors (#7)
 
 ## Phase 6: Map (Live)
 
@@ -49,6 +49,7 @@
     - `partial`, `covered_until` null: "incomplete, cut off partway"
     - `failed`: "failed, nothing stored from this run". Every source keeps that true: a run that stored anything before failing is `partial`
     - stale `running` runs: "interrupted, may be incomplete". The run died without recording an outcome, possibly after storing some pages
+  - A backfilled date's coverage comes from its latest `succeeded` run, not its latest run, so partial runs a later re-run superseded don't show as gaps (e.g. iNaturalist 2026-09-24)
 
 ## Phase 9: CZU case study
 
@@ -77,6 +78,7 @@
 - Prune live records that fall outside the retention window (polling only bounds what's fetched, not what's kept)
 - Extra weather points near thermal-detection clusters, on top of the fixed grid
 - Live soil moisture (needs a pinned model that provides it; HRRR doesn't)
+- Derive the map's 7-day window from the dataset's `retention_days` instead of hardcoding 168 hours
 
 ### Known limitations from Phase 2 (check later)
 
