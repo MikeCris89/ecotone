@@ -135,6 +135,7 @@ Exactly three providers for the MVP. Each supports both **live polling** and **h
 - Useful variables: temperature, relative humidity, precipitation, wind speed/direction, wind gusts, surface soil moisture
 - **Values are modeled for a grid cell, not measured at a point.** The API returns the grid coordinates and elevation it actually used, which can differ from the requested point by kilometres. Store the requested point, returned point, model, units, and elevation
 - For historical comparisons, pin a specific model (e.g. ERA5) so the series basis doesn't change
+- **Live:** NOAA HRRR (pinned), hourly, at a fixed ~0.5° grid of 169 points inside California, polled hourly. HRRR has no soil moisture. See decisions.md, 15
 - For CZU: 2 or 3 labeled representative locations within the analysis region, hourly, across the full window
 
 ### 4.4 Explicitly out of scope as sources
@@ -164,7 +165,7 @@ The exact schema is **open for discussion**, but these constraints are decided:
 - **Do not force everything into a generic `event/value` table.** Thermal detections, wildlife observations, and weather readings have different meanings, units, and fields. Use separate typed tables, sharing common columns (location, time, provenance)
 - **Spatial data uses PostGIS** (`geography(Point, 4326)` or equivalent) with spatial indexes. Use geography type so `ST_DWithin` distances are in metres
 - **Time columns are distinct and explicit.** At minimum: when the thing happened (`observed_at` / acquisition time), when the source published or created it (where available), and when we retrieved it (`retrieved_at`). Never turn an old observation into a current one because it was downloaded today
-- **Provenance on every record:** source name, source record ID, source URL (link to the original observation or dataset), license/attribution, ingestion run ID
+- **Provenance on every record:** source name, source record ID, source URL (link to the original observation or dataset), license/attribution, ingestion run ID. License and attribution that apply to a whole source live in `data_sources`, reached through the record's ingestion run; licenses that vary per record (iNaturalist) are stored on the record (see decisions.md, 16)
 - **Positional uncertainty** is stored when available and treated as unknown (not zero) when missing
 - **Quality grade** (iNaturalist) is stored on every record. The default display/analysis filter must be **the same in both modes** so Live and CZU are comparable. Note: fresh live observations are mostly "needs ID," while GBIF-derived CZU counts were research-grade only. All grades are ingested (see decisions.md, 13). **Which default filter to use is open for discussion**
 - **Mode/dataset membership:** a way to associate records with the Live region or the CZU case study (e.g. a datasets/presets table with bbox, time window, period boundaries)
@@ -320,8 +321,6 @@ See [decisions.md](./decisions.md) for alternatives and tradeoffs.
 
 - Charting library for timeline and metrics
 - Data fetching/caching on the client (Mike knows TanStack Query)
-- How live weather covers California (fixed grid of sample points, points near thermal clusters, on-demand for clicked locations, or a mix)
-- Exact cron cadence for Open-Meteo given rate limits and Vercel function limits (iNaturalist polls every 5 minutes and FIRMS every 15; raw upstream payloads are not stored; see decisions.md, 13 and 14)
 
 ### Secrets / environment
 
