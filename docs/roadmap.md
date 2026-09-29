@@ -11,7 +11,7 @@
 
 ## Phase 2: iNaturalist live ingestion
 
-- [ ] Adapter, Zod validation, normalization, idempotent upsert, ingestion run record
+- [x] Adapter, Zod validation, normalization, idempotent upsert, ingestion run record
   - A successful poll by updated time doesn't prove complete coverage by observation date; coverage logic must keep `time_field` separate
 - [ ] Cron route polling California; verify rows accumulate in production
 
@@ -59,3 +59,4 @@
 ## Later
 
 - (stretch ideas go here)
+- Prune live records that fall outside the retention window (polling only bounds what's fetched, not what's kept)
