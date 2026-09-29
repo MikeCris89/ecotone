@@ -80,3 +80,5 @@
 - **Detections withdrawn upstream stay:** if FIRMS drops or reprocesses an NRT detection within the window, the old row isn't removed (same shape as the iNaturalist deleted-records gap)
 - **No fire-type flag in NRT:** live detections can be industrial or other static heat sources; the UI and agent must not call them fires
 - **`source_url` deep-link format:** check a stored link actually opens the FIRMS map at the right date and place
+- **FIRMS coverage margin is a typical latency, not a guarantee:** `covered_until` stops 3 hours before each poll, but a slow day can publish passes later than that
+- **No staleness guard in the FIRMS upsert (before Phase 9):** unlike the iNaturalist upsert, the last write wins. If the standard-product (SP) import shares source IDs with live NRT rows, a later NRT poll could overwrite SP values such as `fire_type` with null. Decide which product wins before importing SP

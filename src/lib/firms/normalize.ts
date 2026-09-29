@@ -5,6 +5,9 @@ const decimal = z
 	.string()
 	.regex(/^-?\d+(\.\d+)?$/)
 	.transform(Number);
+// Mirrors the table's checks: rows are upserted in one statement, so a row the database rejects
+// would fail the whole response rather than just itself.
+const positiveDecimal = decimal.pipe(z.number().positive());
 
 const SATELLITES = { N: "snpp", N20: "noaa20", N21: "noaa21" } as const;
 const CONFIDENCE = { l: "low", n: "nominal", h: "high" } as const;
@@ -24,8 +27,8 @@ const detectionSchema = z.object({
 	bright_ti4: decimal,
 	bright_ti5: decimal,
 	frp: decimal,
-	scan: decimal,
-	track: decimal,
+	scan: positiveDecimal,
+	track: positiveDecimal,
 	daynight: z.enum(["D", "N"]),
 	// Standard product only.
 	type: z.enum(["0", "1", "2", "3"]).optional(),

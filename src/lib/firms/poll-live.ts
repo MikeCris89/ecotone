@@ -9,6 +9,10 @@ import { finishRun, recordRunProgress, startRun, type RunProgress, type RunStatu
 // there's no cursor: every poll is a full snapshot of the window, and re-fetched detections are
 // harmless upserts.
 const DAYS = 2;
+// Typical delay between a satellite pass and its NRT detections appearing in FIRMS. The window is
+// on acquisition time, so a complete response still can't vouch for the last few hours: passes
+// in them may not be published yet. Typical, not guaranteed; a slower day can exceed it.
+const NRT_LATENCY_MS = 3 * 60 * 60_000;
 
 export type ProductPollSummary = RunProgress & {
 	runId: string;
@@ -88,8 +92,10 @@ async function pollProduct(
 		progress.recordsInserted = inserted;
 		progress.recordsUpdated = updated;
 		progress.recordsSkipped = results.length - rows.size;
-		// The whole window was read in one response.
-		progress.coveredUntil = windowEnd;
+		// The whole window was read in one response, but only detections acquired before the
+		// latency margin can be treated as complete. The window always spans more than a day, so
+		// this never falls before its start.
+		progress.coveredUntil = new Date(windowEnd.getTime() - NRT_LATENCY_MS);
 		// The next poll re-fetches the same window, but an invalid row fails there again, so it
 		// stays missing until normalization is fixed.
 		if (invalid > 0) return await finish("partial", `${invalid} records failed validation and were not stored`);

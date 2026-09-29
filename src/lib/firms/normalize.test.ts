@@ -73,6 +73,12 @@ describe("normalizeDetection", () => {
 		expect(normalize({ latitude: "91.2" })).toEqual({ status: "invalid" });
 	});
 
+	it("rejects pixel sizes the table would reject, so they can't fail the whole batch", () => {
+		expect(normalize({ scan: "0" })).toEqual({ status: "invalid" });
+		expect(normalize({ scan: "-0.4" })).toEqual({ status: "invalid" });
+		expect(normalize({ track: "0" })).toEqual({ status: "invalid" });
+	});
+
 	it("excludes provisional real-time detections, which FIRMS replaces with NRT", () => {
 		expect(normalize({ version: "2.0URT" })).toEqual({ status: "excluded" });
 		expect(normalize({ version: "2.0RT" })).toEqual({ status: "excluded" });

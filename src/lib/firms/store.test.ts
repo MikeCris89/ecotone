@@ -33,19 +33,22 @@ function row(overrides: Partial<FirmsDetectionRow> = {}): FirmsDetectionRow {
 }
 
 let runId: string;
+let laterRunId: string;
 
 beforeAll(async () => {
 	const dataset = await getDataset("live-california");
-	runId = await startRun({
-		source: "firms",
+	const run = {
+		source: "firms" as const,
 		datasetId: dataset.id,
-		mode: "backfill",
+		mode: "backfill" as const,
 		bbox: dataset,
 		windowStart: new Date("2026-09-28T00:00:00Z"),
 		windowEnd: new Date("2026-09-29T00:00:00Z"),
-		timeField: "observed",
+		timeField: "observed" as const,
 		filters: { test: "store.test.ts" },
-	});
+	};
+	runId = await startRun(run);
+	laterRunId = await startRun(run);
 });
 
 beforeEach(async () => {
@@ -54,13 +57,13 @@ beforeEach(async () => {
 
 afterAll(async () => {
 	await sql`delete from firms_detections where source_id = ${TEST_ID}`;
-	await sql`delete from ingestion_runs where id = ${runId}`;
+	await sql`delete from ingestion_runs where id in ${sql([runId, laterRunId])}`;
 	await sql.end();
 });
 
 async function stored() {
 	return sql`
-		select first_retrieved_at, retrieved_at, fire_type,
+		select first_retrieved_at, retrieved_at, confidence, frp_mw, fire_type, ingestion_run_id,
 			extensions.st_x(location::extensions.geometry) as longitude,
 			extensions.st_y(location::extensions.geometry) as latitude
 		from firms_detections
@@ -78,11 +81,15 @@ describe("upsertDetections", () => {
 		expect(rows[0]).toMatchObject({ longitude: -122.3243, latitude: 40.73764, fire_type: null });
 	});
 
-	it("keeps the first retrieval time while refreshing the latest one", async () => {
+	it("overwrites values and provenance with the latest fetch, but keeps the first retrieval time", async () => {
 		await upsertDetections([row()], runId);
-		await upsertDetections([row({ retrieved_at: "2026-09-29T15:15:00.000Z" })], runId);
+		await upsertDetections(
+			[row({ retrieved_at: "2026-09-29T15:15:00.000Z", confidence: "high", frp_mw: 12.5, fire_type: 0 })],
+			laterRunId,
+		);
 
 		const [detection] = await stored();
+		expect(detection).toMatchObject({ confidence: "high", frp_mw: 12.5, fire_type: 0, ingestion_run_id: laterRunId });
 		expect(detection.first_retrieved_at.toISOString()).toBe("2026-09-29T15:00:00.000Z");
 		expect(detection.retrieved_at.toISOString()).toBe("2026-09-29T15:15:00.000Z");
 	});

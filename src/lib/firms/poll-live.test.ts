@@ -48,6 +48,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+	vi.useRealTimers();
 	vi.unstubAllGlobals();
 	vi.unstubAllEnvs();
 	await sql`delete from firms_detections where acquired_at::date = ${TEST_DATE}`;
@@ -60,6 +61,9 @@ afterAll(async () => {
 
 describe("pollLiveDetections", () => {
 	it("stores each satellite's detections under its own run covering yesterday and today (UTC)", async () => {
+		// Just after UTC midnight, where "yesterday" is easiest to get wrong.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-09-29T00:05:00Z"));
 		const urls = mockFirms({
 			VIIRS_SNPP_NRT: new Response(toCsv(detections("VIIRS_SNPP_NRT", 2))),
 			VIIRS_NOAA20_NRT: new Response(toCsv(detections("VIIRS_NOAA20_NRT", 3))),
@@ -67,9 +71,8 @@ describe("pollLiveDetections", () => {
 
 		const runs = await poll();
 
-		const yesterday = new Date(Date.now() - 24 * 60 * 60_000).toISOString().slice(0, 10);
 		expect(urls).toHaveLength(3);
-		for (const url of urls) expect(url.endsWith(`/2/${yesterday}`)).toBe(true);
+		for (const url of urls) expect(url.endsWith("/2/2026-09-28")).toBe(true);
 		expect(runs.VIIRS_SNPP_NRT).toMatchObject({ status: "succeeded", recordsInserted: 2 });
 		expect(runs.VIIRS_NOAA20_NRT).toMatchObject({ status: "succeeded", recordsInserted: 3 });
 		// No detections is a successful, complete answer, not a failure.
@@ -78,9 +81,10 @@ describe("pollLiveDetections", () => {
 		const [run] = await sql<{ window_start: Date; time_field: string; covered_until: Date }[]>`
 			select window_start, time_field, covered_until from ingestion_runs where id = ${runs.VIIRS_SNPP_NRT.runId}
 		`;
-		expect(run.window_start.toISOString()).toBe(`${yesterday}T00:00:00.000Z`);
+		expect(run.window_start.toISOString()).toBe("2026-09-28T00:00:00.000Z");
 		expect(run.time_field).toBe("observed");
-		expect(run.covered_until).not.toBeNull();
+		// Detections from the last few hours may not be published yet, so coverage stops short of now.
+		expect(run.covered_until.toISOString()).toBe("2026-09-28T21:05:00.000Z");
 	});
 
 	it("updates rather than duplicates detections a later poll fetches again", async () => {
@@ -116,18 +120,45 @@ describe("pollLiveDetections", () => {
 	it("reports a response with invalid rows as partial, while storing the valid ones", async () => {
 		mockFirms({
 			VIIRS_SNPP_NRT: new Response(
-				toCsv([...detections("VIIRS_SNPP_NRT", 2), ...detections("VIIRS_SNPP_NRT", 1, { acq_time: "2460" })]),
+				// A zero pixel size would violate the table's check and fail the whole batch if it got through.
+				toCsv([...detections("VIIRS_SNPP_NRT", 2), ...detections("VIIRS_SNPP_NRT", 1, { scan: "0" })]),
 			),
 		});
 
 		const runs = await poll();
 
-		expect(runs.VIIRS_SNPP_NRT).toMatchObject({
+		expect(runs.VIIRS_SNPP_NRT).toMatchObject({ status: "partial", recordsInserted: 2, recordsSkipped: 1 });
+		const [run] = await sql`
+			select status, records_fetched, records_inserted, records_skipped, error
+			from ingestion_runs where id = ${runs.VIIRS_SNPP_NRT.runId}
+		`;
+		expect(run).toEqual({
 			status: "partial",
-			recordsInserted: 2,
-			recordsSkipped: 1,
+			records_fetched: 3,
+			records_inserted: 2,
+			records_skipped: 1,
 			error: "1 records failed validation and were not stored",
 		});
+		expect(await storedCount()).toBe(2);
+	});
+
+	it("succeeds without storing anything when every row is provisional", async () => {
+		mockFirms({ VIIRS_SNPP_NRT: new Response(toCsv(detections("VIIRS_SNPP_NRT", 2, { version: "2.0URT" }))) });
+
+		const runs = await poll();
+
+		expect(runs.VIIRS_SNPP_NRT).toMatchObject({ status: "succeeded", recordsFetched: 2, recordsSkipped: 2 });
+		expect(await storedCount()).toBe(0);
+	});
+
+	it("stores a detection listed twice in one response once", async () => {
+		const duplicate = detections("VIIRS_SNPP_NRT", 1);
+		mockFirms({ VIIRS_SNPP_NRT: new Response(toCsv([...duplicate, ...duplicate])) });
+
+		const runs = await poll();
+
+		expect(runs.VIIRS_SNPP_NRT).toMatchObject({ status: "succeeded", recordsInserted: 1, recordsSkipped: 1 });
+		expect(await storedCount()).toBe(1);
 	});
 
 	it("fails without storing anything when every row is invalid", async () => {
