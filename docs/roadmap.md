@@ -29,8 +29,7 @@
 ## Phase 5: Seed live window
 
 - [x] Backfill last 7 days for all three sources
-  - Verified against the real APIs locally (2026-09-29): all 15 runs succeeded. Open-Meteo 30,589 readings (169 points × 181 hours) in one run; FIRMS 3,218 detections in 6 runs; iNaturalist 31,526 records over 8 dates, at most 32 pages per date. Re-running Open-Meteo and iNaturalist 2026-09-22 inserted nothing and updated every record. Run the same calls against production after merge
-  - Weather: Open-Meteo served 8+ days of past HRRR hours without gaps on the same forecast endpoint (tested 2026-09-29), so the live poll's code can backfill with a larger `past_hours` (one call per point up to two weeks)
+  - Verified against the real APIs locally (2026-09-29): all 15 runs succeeded. Open-Meteo 30,589 readings (169 points × 181 hours) in one run; FIRMS 3,218 detections in 6 runs; iNaturalist 31,526 records over 8 dates, at most 32 pages per date. Re-running Open-Meteo and iNaturalist 2026-09-22 inserted nothing and updated every record. The same calls run against production after merge; the next PR confirms the results
 
 ## Phase 6: Map (Live)
 
@@ -81,7 +80,7 @@
 
 ### Known limitations from Phase 2 (check later)
 
-- **Stuck `running` runs:** a poll killed mid-flight (e.g. the database hangs while saving) leaves its run `running` forever. It doesn't block the next poll, which resumes from `max(covered_until)` with no lock, but Phase 8's feed-health view must treat old `running` rows as failed
+- **Stuck `running` runs:** a poll killed mid-flight (e.g. the database hangs while saving) leaves its run `running` forever. It doesn't block the next poll, which resumes from `max(covered_until)` with no lock, but Phase 8's feed-health view must show old `running` rows as interrupted (see the Phase 8 statements), not as still running
 - **Deleted or re-scoped upstream records:** observations deleted on iNaturalist, or re-identified out of Animalia, never reach an updated-since poll, so their rows stay. The Phase 5 backfill doesn't reconcile them either: it upserts what it finds and never deletes. Reconciling would mean deleting stored rows for a date that a complete backfill run didn't return
 - **Invalid records are skipped, not retried:** when only some records on a page fail validation, the cursor moves past them and the run is marked `partial`. Recovering them needs a fix plus a re-run of the iNaturalist backfill for the affected dates (live window only; older dates are outside it). (A page where *every* record fails pauses the feed instead)
 - **Tie-scan gap:** when more than a full page of records shares one `updated_at` second, the poll steps through it by page number. If a tied record is updated again mid-scan, another tied record can be missed until it next changes
