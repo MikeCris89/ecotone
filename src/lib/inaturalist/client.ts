@@ -69,22 +69,31 @@ export async function fetchObservationsPage(
 		const remaining = query.deadline - Date.now();
 		if (remaining <= 0) throw new Error("iNaturalist request deadline reached");
 
-		const response = await fetch(`${API_URL}?${params}`, {
-			headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
-			cache: "no-store",
-			signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, remaining)),
-		});
+		// fetch throws on network-level failures (connection reset, DNS, timeout), which are as
+		// transient as a 5xx, so they share its retry.
+		let response: Response | undefined;
+		let networkError: unknown;
+		try {
+			response = await fetch(`${API_URL}?${params}`, {
+				headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+				cache: "no-store",
+				signal: AbortSignal.timeout(Math.min(REQUEST_TIMEOUT_MS, remaining)),
+			});
+		} catch (error) {
+			networkError = error;
+		}
 		// Back off on rate limiting and transient upstream errors, as iNaturalist asks, but only
 		// if the retry can still finish before the deadline.
 		const retryDelay = RETRY_DELAY_MS * (attempt + 1);
 		if (
-			(response.status === 429 || response.status >= 500) &&
+			(!response || response.status === 429 || response.status >= 500) &&
 			attempt < MAX_RETRIES &&
 			Date.now() + retryDelay < query.deadline
 		) {
 			await sleep(retryDelay);
 			continue;
 		}
+		if (!response) throw networkError;
 		if (!response.ok) throw new Error(`iNaturalist responded ${response.status}`);
 		return pageSchema.parse(await response.json()).results;
 	}
