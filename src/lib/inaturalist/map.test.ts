@@ -124,6 +124,7 @@ describe("getInatMapLayer", () => {
 			"Insecta",
 			25000,
 			true,
+			0, // research
 		]);
 		// Pacific Daylight Time: the date runs from 07:00Z up to 07:00Z the next day. Unknown
 		// accuracy stays null.
@@ -133,7 +134,9 @@ describe("getInatMapLayer", () => {
 			"Insecta",
 			null,
 			false,
+			0,
 		]);
+		expect(rows.find(([id]) => id === NEEDS_ID_AT_START)?.[8]).toBe(1);
 	});
 
 	it("leaves out a date-only record whose date ends exactly when the window starts", async () => {
