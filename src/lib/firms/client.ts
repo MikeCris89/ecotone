@@ -46,16 +46,22 @@ export async function fetchDetections(query: {
 	if (!mapKey) throw new Error("FIRMS_MAP_KEY is not set");
 
 	const { west, south, east, north } = query.bbox;
-	// The key is part of the path, so the URL must never end up in an error message or log.
 	const url = `${API_URL}/${mapKey}/${query.product}/${west},${south},${east},${north}/${query.days}/${query.from}`;
-	const response = await fetch(url, {
-		cache: "no-store",
-		signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-	});
-	const body = await response.text();
-	// Errors come back as a short plain-text message, e.g. 400 "Invalid MAP_KEY."
-	if (!response.ok) throw new Error(`FIRMS responded ${response.status}: ${body.trim().slice(0, 200)}`);
-	return parseCsv(body);
+	try {
+		const response = await fetch(url, {
+			cache: "no-store",
+			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+		});
+		const body = await response.text();
+		// FIRMS's own errors are a short plain-text message, e.g. 400 "Invalid MAP_KEY."
+		if (!response.ok) throw new Error(`FIRMS responded ${response.status}: ${body.trim().slice(0, 200)}`);
+		return parseCsv(body);
+	} catch (error) {
+		// The key is part of the path, and a gateway error page can echo the URL back. Errors end up
+		// in ingestion_runs and the cron response, so they never carry the key.
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(message.replaceAll(mapKey, "[MAP_KEY]"));
+	}
 }
 
 /** Parses FIRMS CSV, which has a header row and no quoted fields. */

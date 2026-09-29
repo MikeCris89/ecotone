@@ -52,6 +52,17 @@ describe("fetchDetections", () => {
 		expect((error as Error).message).not.toContain(MAP_KEY);
 	});
 
+	it("redacts the key when an error page echoes the request URL", async () => {
+		vi.stubEnv("FIRMS_MAP_KEY", MAP_KEY);
+		const page = `<html>502 Bad Gateway: /api/area/csv/${MAP_KEY}/VIIRS_NOAA20_NRT</html>`;
+		vi.stubGlobal("fetch", vi.fn(async () => new Response(page, { status: 502 })));
+		await expect(fetchDetections(query)).rejects.toThrow("502 Bad Gateway: /api/area/csv/[MAP_KEY]/");
+
+		// Same for a page served with 200, which fails CSV parsing instead.
+		vi.stubGlobal("fetch", vi.fn(async () => new Response(page)));
+		await expect(fetchDetections(query)).rejects.toThrow("/api/area/csv/[MAP_KEY]/");
+	});
+
 	it("fails without a key instead of calling FIRMS", async () => {
 		vi.stubEnv("FIRMS_MAP_KEY", "");
 		const fetch = vi.fn();
