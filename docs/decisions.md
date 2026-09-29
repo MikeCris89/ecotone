@@ -111,8 +111,17 @@ The AI SDK gives Zod-typed tools, a bounded multi-step tool loop, and streaming 
 
 Live polling asks for records changed since the last poll. If casual were filtered out upstream, a record later downgraded to casual (e.g. marked captive) would simply stop appearing, leaving a stale "needs ID" row. Storing every grade keeps rows truthful, and the display default stays a query-time choice that can be identical in Live and CZU. The real API (September 2026, California animals, last 7 days) was about 57% research, 41% needs ID and 2% casual, with needs ID outnumbering research in the most recent 24 hours. At ~55 changed records per 5 minutes, one request per poll suffices. Normalized columns plus `source_url` cover provenance without raw payloads. **Tradeoff:** ~2% extra rows, and every query must apply the grade filter.
 
-## 14. Open decisions
+## 14. FIRMS live ingestion
+
+**Decision:** Poll VIIRS near-real-time data from all three satellites (S-NPP, NOAA-20, NOAA-21) every 15 minutes, re-fetching yesterday and today (UTC) each time. Store only NRT detections, at every confidence level, with one ingestion run per satellite per poll.
+
+**Considered:** S-NPP only (matches the CZU product); adding MODIS; storing the provisional ultra-real-time (URT) detections that FIRMS publishes within minutes for the US.
+
+Each satellite passes over California about twice a day, so three satellites give ~6 passes instead of 2, which is what makes the live timeline worth scrubbing. MODIS has 1 km pixels and a different confidence scale. FIRMS deletes URT detections once their NRT version arrives (1 to 3 hours later) and nothing links the two, so storing URT would leave stale duplicates unless every poll deleted rows missing from the latest response. With only a few passes a day, the extra latency costs little. FIRMS has no detection IDs or "changed since" query, so the key is built from satellite, time and coordinates, and each poll is a full snapshot rather than a cursor. **Tradeoffs:** live detections lag passes by hours; Live and CZU counts differ in satellite coverage unless filtered to S-NPP; NRT has no fire-type flag, so live detections can include industrial heat sources.
+
+## 15. Open decisions
 
 - **Default quality-grade filter** for display and analysis (all grades are stored, see 13): research-only matches the GBIF-verified CZU counts but thins the most recent live data; including "needs ID" gives a richer live feed. Must be the same in both modes
+- **Default FIRMS confidence filter** (all levels are stored, see 14): nominal + high is the usual choice; low is ~4% of live detections
 - Live weather sampling strategy
-- Charting library, client data fetching (TanStack Query or not), and cron cadences for FIRMS and Open-Meteo given upstream rate limits (on Vercel Pro, so per-minute schedules are available)
+- Charting library, client data fetching (TanStack Query or not), and the Open-Meteo cron cadence given upstream rate limits (on Vercel Pro, so per-minute schedules are available)

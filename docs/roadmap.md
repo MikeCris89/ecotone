@@ -18,7 +18,8 @@
 
 ## Phase 3: FIRMS live ingestion
 
-- [ ] Table, adapter (Area API), cron
+- [x] Table, adapter (Area API), cron
+  - Verified against the real API's CSV locally; production accumulation to be confirmed after merge (three `succeeded` runs every 15 min)
 
 ## Phase 4: Open-Meteo live ingestion
 
@@ -71,3 +72,11 @@
 - **Very large ties stall:** a tie bigger than one run's 20-page cap (~3,800 records in the live window in one second) restarts from page 1 each run and never finishes. Fix would be storing the page number on the run
 - **Introduced/native flags:** which place iNaturalist computes them for is unconfirmed; verify before the UI highlights introduced species
 - **`records_updated` overstates changes:** the 2-minute cursor overlap re-fetches ~40 unchanged records per poll, counted as updated because `retrieved_at` is refreshed
+
+### Known limitations from Phase 3 (check later)
+
+- **FIRMS `records_updated` is re-fetches, not changes:** every poll re-reads two days, so each run reports every already-stored detection (~600 on a quiet day) as updated
+- **URT detections aren't stored:** live detections appear with NRT latency (hours), not within minutes of a pass. Storing URT needs snapshot reconciliation (delete provisional rows missing from a complete response); confirm first that the Area API returns URT for California shortly after a pass
+- **Detections withdrawn upstream stay:** if FIRMS drops or reprocesses an NRT detection within the window, the old row isn't removed (same shape as the iNaturalist deleted-records gap)
+- **No fire-type flag in NRT:** live detections can be industrial or other static heat sources; the UI and agent must not call them fires
+- **`source_url` deep-link format:** check a stored link actually opens the FIRMS map at the right date and place
