@@ -1,14 +1,24 @@
-import { getDataset, LIVE_DATASET_SLUG, type Dataset } from "@/lib/datasets";
+import { getDataset, LIVE_DATASET_SLUG, liveWindowStart, type Dataset } from "@/lib/datasets";
 import { fetchDetections, LIVE_PRODUCTS, type Product } from "@/lib/firms/client";
 import { normalizeDetection, type FirmsDetectionRow } from "@/lib/firms/normalize";
 import { upsertDetections } from "@/lib/firms/store";
-import { finishRun, recordRunProgress, startRun, type RunProgress, type RunStatus } from "@/lib/ingestion-runs";
+import {
+	finishRun,
+	recordRunProgress,
+	startRun,
+	type RunMode,
+	type RunProgress,
+	type RunStatus,
+} from "@/lib/ingestion-runs";
 
+const DAY_MS = 24 * 60 * 60_000;
 // Each poll re-fetches yesterday and today (UTC). NRT detections reach FIRMS hours after the
 // pass, so the previous UTC day can still be filling in. FIRMS has no "changed since" query, so
 // there's no cursor: every poll is a full snapshot of the window, and re-fetched detections are
 // harmless upserts.
 const DAYS = 2;
+// FIRMS's limit per request.
+const MAX_DAYS = 5;
 // Typical delay between a satellite pass and its NRT detections appearing in FIRMS. The window is
 // on acquisition time, so a complete response still can't vouch for the last few hours: passes
 // in them may not be published yet. Typical, not guaranteed; a slower day can exceed it.
@@ -29,27 +39,51 @@ export type ProductPollSummary = RunProgress & {
 export async function pollLiveDetections(): Promise<ProductPollSummary[]> {
 	const dataset = await getDataset(LIVE_DATASET_SLUG);
 	const now = new Date();
-	const windowStart = new Date(
-		Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (DAYS - 1)),
-	);
-	return Promise.all(LIVE_PRODUCTS.map((product) => pollProduct(product, dataset, windowStart, now)));
+	const from = new Date(startOfUtcDay(now) - (DAYS - 1) * DAY_MS);
+	return Promise.all(LIVE_PRODUCTS.map((product) => pollProduct(product, dataset, "live", from, DAYS, now)));
 }
 
+/**
+ * Seeds the Live California window: every UTC date from the one the window's first local date
+ * starts on through today, in requests of up to five days, for each satellite. Each request is
+ * its own backfill run. Re-running is safe: it's the same snapshot upsert as the live poll.
+ */
+export async function backfillLiveDetections(): Promise<ProductPollSummary[]> {
+	const dataset = await getDataset(LIVE_DATASET_SLUG);
+	const now = new Date();
+	const today = startOfUtcDay(now);
+	const chunks: { from: Date; days: number }[] = [];
+	for (let from = startOfUtcDay(liveWindowStart(dataset, now).instant); from <= today; from += MAX_DAYS * DAY_MS) {
+		chunks.push({ from: new Date(from), days: Math.min(MAX_DAYS, (today - from) / DAY_MS + 1) });
+	}
+	return Promise.all(
+		chunks.flatMap(({ from, days }) =>
+			LIVE_PRODUCTS.map((product) => pollProduct(product, dataset, "backfill", from, days, now)),
+		),
+	);
+}
+
+// Fetches the UTC dates `from` .. `from + days - 1` as one run.
 async function pollProduct(
 	product: Product,
 	dataset: Dataset,
-	windowStart: Date,
-	windowEnd: Date,
+	mode: RunMode,
+	from: Date,
+	days: number,
+	now: Date,
 ): Promise<ProductPollSummary> {
+	const windowStart = from;
+	// A window that includes today ends now.
+	const windowEnd = new Date(Math.min(from.getTime() + days * DAY_MS, now.getTime()));
 	const runId = await startRun({
 		source: "firms",
 		datasetId: dataset.id,
-		mode: "live",
+		mode,
 		bbox: dataset,
 		windowStart,
 		windowEnd,
 		timeField: "observed",
-		filters: { product, days: DAYS },
+		filters: { product, days },
 	});
 	const progress: RunProgress = {
 		pagesFetched: 0,
@@ -70,7 +104,7 @@ async function pollProduct(
 			product,
 			bbox: dataset,
 			from: windowStart.toISOString().slice(0, 10),
-			days: DAYS,
+			days,
 		});
 		const retrievedAt = new Date();
 		progress.pagesFetched = 1;
@@ -93,9 +127,11 @@ async function pollProduct(
 		progress.recordsUpdated = updated;
 		progress.recordsSkipped = results.length - rows.size;
 		// The whole window was read in one response, but only detections acquired before the
-		// latency margin can be treated as complete. The window always spans more than a day, so
-		// this never falls before its start.
-		progress.coveredUntil = new Date(windowEnd.getTime() - NRT_LATENCY_MS);
+		// latency margin can be treated as complete. A window that ends well in the past is
+		// complete to its end; one that started within the margin covers nothing yet.
+		progress.coveredUntil = new Date(
+			Math.max(windowStart.getTime(), Math.min(windowEnd.getTime(), now.getTime() - NRT_LATENCY_MS)),
+		);
 		// The next poll re-fetches the same window, but an invalid row fails there again, so it
 		// stays missing until normalization is fixed.
 		if (invalid > 0) return await finish("partial", `${invalid} records failed validation and were not stored`);
@@ -104,4 +140,9 @@ async function pollProduct(
 		// Nothing from this run was stored; earlier detections are untouched.
 		return await finish("failed", error instanceof Error ? error.message : String(error));
 	}
+}
+
+// The start of the instant's UTC date, in epoch ms.
+function startOfUtcDay(instant: Date): number {
+	return Math.floor(instant.getTime() / DAY_MS) * DAY_MS;
 }
