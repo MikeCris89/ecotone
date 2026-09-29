@@ -91,7 +91,7 @@
 ### Known limitations from Phase 3 (check later)
 
 - **FIRMS `records_updated` is re-fetches, not changes:** every poll re-reads two days, so each run reports every already-stored detection (~600 on a quiet day) as updated
-- **URT detections aren't stored:** live detections appear with NRT latency (hours), not within minutes of a pass. Storing URT needs snapshot reconciliation (delete provisional rows missing from a complete response); confirm first that the Area API returns URT for California shortly after a pass
+- **URT detections aren't stored:** live detections appear with NRT latency (hours), not within minutes of a pass. The Area API does return URT rows for California (confirmed 2026-09-29). Open question before storing them: does a URT row's acquisition time and coordinates match its NRT replacement exactly? If not, the derived `source_id` changes, and superseded provisional rows would need deleting (snapshot reconciliation)
 - **Detections withdrawn upstream stay:** if FIRMS drops or reprocesses an NRT detection within the window, the old row isn't removed (same shape as the iNaturalist deleted-records gap)
 - **No fire-type flag in NRT:** live detections can be industrial or other static heat sources; the UI and agent must not call them fires
 - **`source_url` deep-link format:** check a stored link actually opens the FIRMS map at the right date and place

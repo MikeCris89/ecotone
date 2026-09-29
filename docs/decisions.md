@@ -119,6 +119,8 @@ Live polling asks for records changed since the last poll. If casual were filter
 
 Each satellite passes over California about twice a day, so three satellites give ~6 passes instead of 2, which is what makes the live timeline worth scrubbing. MODIS has 1 km pixels and a different confidence scale. FIRMS deletes URT detections once their NRT version arrives (1 to 3 hours later) and nothing links the two, so storing URT would leave stale duplicates unless every poll deleted rows missing from the latest response. With only a few passes a day, the extra latency costs little. FIRMS has no detection IDs or "changed since" query, so the key is built from satellite, time and coordinates, and each poll is a full snapshot rather than a cursor. **Tradeoffs:** live detections lag passes by hours; Live and CZU counts differ in satellite coverage unless filtered to S-NPP; NRT has no fire-type flag, so live detections can include industrial heat sources.
 
+**URT check (2026-09-29, 21:29 UTC):** that day's California Area API responses included URT rows (VIIRS_SNPP_NRT 45, NOAA-20 30, NOAA-21 37), so storing them is possible. Live ingestion stays NRT-only for now; see roadmap "Later".
+
 ## 15. Open-Meteo live ingestion
 
 **Decision:** Sample modeled conditions at a fixed ~0.5° grid of 169 points inside California, from NOAA's HRRR model (pinned), hourly values only. Poll hourly (at :20), re-fetching the last 24 hours, and never store forecast hours.
