@@ -8,6 +8,10 @@ const WINDOW_HOURS = { "24h": 24, "3d": 72, "7d": 168 } as const;
 
 export type MapQuery = { bbox: Bbox; start: Date; end: Date };
 
+// Layers change only when a poll lands (every 5 minutes at most), so Vercel's CDN can answer
+// repeat requests: fresh for a minute, then served stale for up to 5 more while it refetches.
+export const MAP_CACHE_HEADERS = { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" };
+
 export const MAP_QUERY_ERROR =
 	"Expected window=24h|3d|7d (default 7d), and optionally all four of west, south, east, north in degrees";
 

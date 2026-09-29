@@ -1,6 +1,6 @@
 import { getDataset, LIVE_DATASET_SLUG } from "@/lib/datasets";
 import { getInatMapLayer } from "@/lib/inaturalist/map";
-import { MAP_QUERY_ERROR, parseMapQuery } from "@/lib/map-query";
+import { MAP_CACHE_HEADERS, MAP_QUERY_ERROR, parseMapQuery } from "@/lib/map-query";
 
 /**
  * Recorded observations for the Live California map: GET /api/map/inaturalist?window=24h|3d|7d,
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 		if (!query) return Response.json({ ok: false, error: MAP_QUERY_ERROR }, { status: 400 });
 
 		const layer = await getInatMapLayer({ ...query, timezone: dataset.timezone });
-		return Response.json({ ok: true, ...query, ...layer });
+		return Response.json({ ok: true, ...query, ...layer }, { headers: MAP_CACHE_HEADERS });
 	} catch (error) {
 		console.error("iNaturalist map query failed", error);
 		return Response.json({ ok: false, error: "iNaturalist map query failed" }, { status: 500 });
