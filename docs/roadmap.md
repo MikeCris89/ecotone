@@ -19,7 +19,7 @@
 ## Phase 3: FIRMS live ingestion
 
 - [x] Table, adapter (Area API), cron
-  - Verified against the real API's CSV locally; production accumulation to be confirmed after merge (three `succeeded` runs every 15 min)
+  - Verified against the real API's CSV locally. Migration pushed and `FIRMS_MAP_KEY` set in production; accumulation to be confirmed after merge (three `succeeded` runs, one per satellite, every 15 min)
 
 ## Phase 4: Open-Meteo live ingestion
 
