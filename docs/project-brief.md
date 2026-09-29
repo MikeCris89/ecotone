@@ -67,7 +67,7 @@ The app opens here. This mode is what satisfies the "real-time feeds" requiremen
 
 - **Region:** California (approximate bounding box: lat 32.5 to 42.0, lon -124.5 to -114.1; refine as needed)
 - **Time window:** a fixed retention window (e.g. 7 days) with selectable sub-ranges (24h / 3 days / 7 days). The window is **seeded from upstream recent history** at setup, then kept current by scheduled polling. Seeded records keep their original observation times
-- **Bounded loading:** the browser only loads data for the current viewport and time window, never the whole statewide dataset
+- **Bounded loading:** the browser loads the Live window (California, 7 days) once per layer, capped per layer, and narrows it locally. The API routes accept a viewport bbox and time window, for when the data outgrows one load (see decisions.md, 18)
 - **Shows:** recent FIRMS thermal detections, recent iNaturalist wildlife observations, current and recent weather context
 - **Freshness is visible:** each source shows when it was last successfully ingested and how old its newest record is
 - Much of the time there may be little thermal activity. That is fine. Empty results are reported honestly, not hidden
@@ -167,7 +167,7 @@ The exact schema is **open for discussion**, but these constraints are decided:
 - **Time columns are distinct and explicit.** At minimum: when the thing happened (`observed_at` / acquisition time), when the source published or created it (where available), and when we retrieved it (`retrieved_at`). Never turn an old observation into a current one because it was downloaded today
 - **Provenance on every record:** source name, source record ID, source URL (link to the original observation or dataset), license/attribution, ingestion run ID. License and attribution that apply to a whole source live in `data_sources`, reached through the record's ingestion run; licenses that vary per record (iNaturalist) are stored on the record (see decisions.md, 16)
 - **Positional uncertainty** is stored when available and treated as unknown (not zero) when missing
-- **Quality grade** (iNaturalist) is stored on every record. The default display/analysis filter must be **the same in both modes** so Live and CZU are comparable. Note: fresh live observations are mostly "needs ID," while GBIF-derived CZU counts were research-grade only. All grades are ingested (see decisions.md, 13). **Which default filter to use is open for discussion**
+- **Quality grade** (iNaturalist) is stored on every record. The default display/analysis filter must be **the same in both modes** so Live and CZU are comparable. Note: fresh live observations are mostly "needs ID," while GBIF-derived CZU counts were research-grade only. All grades are ingested (see decisions.md, 13). The default is research + needs ID (see decisions.md, 18)
 - **Mode/dataset membership:** a way to associate records with the Live region or the CZU case study (e.g. a datasets/presets table with bbox, time window, period boundaries)
 - **Pre-aggregated time buckets** (e.g. hourly or daily counts per source, per animal group) to keep timeline scrubbing fast
 
@@ -314,13 +314,13 @@ This honesty is a deliberate strength of the submission, not a weakness to minim
 - **Anthropic Claude** via the **Vercel AI SDK** for the agent
 - **Raw parameterized SQL** with **postgres.js** and plain `.sql` migrations (no ORM)
 - **Supabase CLI + Docker** for local development
+- **TanStack Query** for client data fetching
 
 See [decisions.md](./decisions.md) for alternatives and tradeoffs.
 
 ### Open for discussion
 
 - Charting library for timeline and metrics
-- Data fetching/caching on the client (Mike knows TanStack Query)
 
 ### Secrets / environment
 

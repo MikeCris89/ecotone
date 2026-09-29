@@ -147,8 +147,14 @@ Per-record columns would repeat one constant on thousands of rows. A dataset (e.
 
 **Tradeoff:** Vercel's function time limit forces per-date calls, and seeding is a manual step.
 
-## 18. Open decisions
+## 18. Map loading and default filters
 
-- **Default quality-grade filter** for display and analysis (all grades are stored, see 13): research-only matches the GBIF-verified CZU counts but thins the most recent live data; including "needs ID" gives a richer live feed. Must be the same in both modes
-- **Default FIRMS confidence filter** (all levels are stored, see 14): nominal + high is the usual choice; low is ~4% of live detections
-- Charting library and client data fetching (TanStack Query or not)
+**Decision:** The map loads each layer's whole Live window (California, 7 days) once, as compact rows capped per layer, and narrows it to 24h / 3 days / 7 days on the client. TanStack Query refreshes each layer on its source's poll cadence. The API routes still accept a bbox and window. Default filters, shared by the map and the agent tools: iNaturalist research + needs ID, FIRMS nominal + high confidence. A record with only an observation date counts in every window its Los Angeles calendar date overlaps. Basemap: OpenFreeMap, with the style URL in an environment variable.
+
+**Considered:** refetching the viewport on every pan; plain `fetch`; research-only observations; including low-confidence detections; placing date-only records at midnight.
+
+The Live window is bounded (~32,000 recorded observations a week, ~2 MB as compact rows), so one load makes switching windows and scrubbing the timeline instant, where per-pan refetches would re-download nearly the same data at statewide zoom. Per-layer caps (50,000 observations, 30,000 detections, 50,000 weather readings) keep each response under Vercel's 4.5 MB limit, and a capped layer reports its full count. Research + needs ID is iNaturalist's "verifiable" set; research-only would thin the newest live data, which is mostly needs ID. Low confidence is ~4% of live detections. A midnight time would invent precision, while the whole date keeps the record in every window it could belong to. OpenFreeMap needs no key but has no SLA, so switching to e.g. Carto is a configuration change. **Tradeoffs:** the one-load approach only works while the window stays this size; much more data would need the bbox parameters or server-side aggregation. CZU counts under this filter won't match the GBIF research-only figures in the brief. The agent tools must state the defaults in their limitations, or their numbers won't match the map.
+
+## 19. Open decisions
+
+- Charting library for the timeline and metrics
