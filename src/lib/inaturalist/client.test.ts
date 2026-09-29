@@ -42,6 +42,18 @@ describe("fetchObservationsPage", () => {
 		expect(fetch).toHaveBeenCalledTimes(3);
 	});
 
+	it("reports the network error behind a failed fetch", async () => {
+		vi.useFakeTimers();
+		const cause = Object.assign(new Error("other side closed"), { code: "UND_ERR_SOCKET" });
+		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed", { cause })));
+
+		const page = fetchObservationsPage({ ...query, deadline: Date.now() + 60_000 });
+		const assertion = expect(page).rejects.toThrow("fetch failed: other side closed (UND_ERR_SOCKET)");
+		await vi.runAllTimersAsync();
+
+		await assertion;
+	});
+
 	it("doesn't retry when the backoff would run past the deadline", async () => {
 		const fetch = vi.fn(async () => new Response(null, { status: 429 }));
 		vi.stubGlobal("fetch", fetch);
