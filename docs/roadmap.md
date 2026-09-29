@@ -24,15 +24,17 @@
 ## Phase 4: Open-Meteo live ingestion
 
 - [x] Decide sampling strategy, table, adapter, cron
-  - Verified against the real API locally: one poll stored 169 points × 25 hours in under a second. After merge: push the two migrations, weather and `data_sources` (`supabase db push`) and confirm one `succeeded` run per hour at :20 in production
+  - Verified against the real API locally: one poll stored 169 points × 25 hours in under a second. Both migrations (weather, `data_sources`) pushed to production; after merge, confirm one `succeeded` run per hour at :20
 
 ## Phase 5: Seed live window
 
 - [ ] Backfill last 7 days for all three sources
+  - Weather: Open-Meteo served 8+ days of past HRRR hours without gaps on the same forecast endpoint (tested 2026-09-29), so the live poll's code can backfill with a larger `past_hours` (one call per point up to two weeks)
 
 ## Phase 6: Map (Live)
 
 - [ ] Map with three layers, viewport- and window-bounded API routes
+  - Show each source's `attribution_text` from `data_sources`; Open-Meteo's CC BY 4.0 needs its link next to wherever weather is displayed
 
 ## Phase 7: Timeline
 
