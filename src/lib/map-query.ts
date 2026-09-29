@@ -1,10 +1,10 @@
 import { z } from "zod";
 import type { Bbox, Dataset } from "@/lib/datasets";
 import { sql } from "@/lib/db";
+import { WINDOW_HOURS } from "@/lib/map-layers";
 
 // Every window ends now. The map loads the widest once and narrows it on the client, so switching
 // windows (and, later, scrubbing) never waits on the network.
-const WINDOW_HOURS = { "24h": 24, "3d": 72, "7d": 168 } as const;
 
 export type MapQuery = { bbox: Bbox; start: Date; end: Date };
 

@@ -1,0 +1,192 @@
+"use client";
+
+import "maplibre-gl/dist/maplibre-gl.css";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import Map, { Layer, Source } from "react-map-gl/maplibre";
+import { MapPanel, type LayerVisibility } from "@/components/map-panel";
+import {
+	DETECTION_COLOR,
+	NO_VALUE_COLOR,
+	OBSERVATION_COLOR,
+	OBSERVATION_DENSE_COLOR,
+	TEMPERATURE_STOPS,
+} from "@/components/map-colors";
+import type { FirmsMapRow } from "@/lib/firms/map";
+import type { InatMapRow } from "@/lib/inaturalist/map";
+import {
+	firmsGeoJson,
+	inatGeoJson,
+	inatWindowFilter,
+	instantWindowFilter,
+	type MapLayerResponse,
+	type MapWindow,
+	type PointCollection,
+	type WeatherLayerResponse,
+	weatherGeoJson,
+	windowBounds,
+} from "@/lib/map-layers";
+
+const MAP_STYLE_URL = process.env.NEXT_PUBLIC_MAP_STYLE_URL || "https://tiles.openfreemap.org/styles/positron";
+
+// The live-california dataset's bbox.
+const CALIFORNIA: [[number, number], [number, number]] = [
+	[-124.5, 32.5],
+	[-114.1, 42],
+];
+
+// Sources stay mounted with no features until their data arrives, so the layers keep their
+// stacking order whichever response lands first.
+const EMPTY: PointCollection<never> = { type: "FeatureCollection", features: [] };
+
+async function fetchLayer<T>(source: string): Promise<T> {
+	const response = await fetch(`/api/map/${source}`);
+	if (!response.ok) throw new Error(`${source} map layer: HTTP ${response.status}`);
+	return response.json();
+}
+
+// Each layer refreshes on its source's poll cadence. The query key never changes (the window is
+// applied on the client), so a refetch, or a failed one, keeps showing the previous data without
+// needing placeholderData.
+function useMapLayer<T>(source: string, minutes: number) {
+	return useQuery({
+		queryKey: ["map-layer", source],
+		queryFn: () => fetchLayer<T>(source),
+		refetchInterval: minutes * 60_000,
+		staleTime: minutes * 60_000,
+	});
+}
+
+export function LiveMap() {
+	const [mapWindow, setMapWindow] = useState<MapWindow>("7d");
+	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: true });
+
+	const inaturalist = useMapLayer<MapLayerResponse<InatMapRow>>("inaturalist", 5);
+	const firms = useMapLayer<MapLayerResponse<FirmsMapRow>>("firms", 15);
+	const weather = useMapLayer<WeatherLayerResponse>("weather", 60);
+
+	// Built once per response; a new object here is what makes MapLibre re-read the data.
+	const inatData = useMemo(() => (inaturalist.data ? inatGeoJson(inaturalist.data.rows) : EMPTY), [inaturalist.data]);
+	const firmsData = useMemo(() => (firms.data ? firmsGeoJson(firms.data.rows) : EMPTY), [firms.data]);
+	const weatherData = useMemo(
+		() => (weather.data ? weatherGeoJson(weather.data.points, weather.data.rows) : EMPTY),
+		[weather.data],
+	);
+
+	// Changing the window only swaps these filters; the data stays as loaded.
+	const inatFilter = inaturalist.data && inatWindowFilter(windowBounds(inaturalist.data.end, mapWindow));
+	const firmsFilter = firms.data && instantWindowFilter(windowBounds(firms.data.end, mapWindow));
+	const weatherFilter = weather.data && instantWindowFilter(windowBounds(weather.data.end, mapWindow));
+	const visibility = (layer: keyof LayerVisibility) => (visible[layer] ? "visible" : "none");
+
+	return (
+		<div className="relative h-dvh w-full">
+			<Map
+				initialViewState={{ bounds: CALIFORNIA, fitBoundsOptions: { padding: 40 } }}
+				mapStyle={MAP_STYLE_URL}
+				style={{ width: "100%", height: "100%" }}
+			>
+				<Source id="weather" type="geojson" data={weatherData}>
+					<Layer
+						id="weather-points"
+						type="circle"
+						filter={weatherFilter}
+						layout={{ visibility: visibility("weather") }}
+						paint={{
+							"circle-radius": 6,
+							"circle-color": [
+								"case",
+								["==", ["get", "temperatureC"], null],
+								NO_VALUE_COLOR,
+								["interpolate", ["linear"], ["get", "temperatureC"], ...TEMPERATURE_STOPS.flat()],
+							],
+							"circle-stroke-color": "#ffffff",
+							"circle-stroke-width": 1,
+						}}
+					/>
+				</Source>
+				<Source id="inaturalist" type="geojson" data={inatData}>
+					{/* Density at statewide zooms, fading out as individual records take over. */}
+					<Layer
+						id="inaturalist-heat"
+						type="heatmap"
+						maxzoom={9}
+						filter={inatFilter}
+						layout={{ visibility: visibility("inaturalist") }}
+						paint={{
+							"heatmap-radius": ["interpolate", ["linear"], ["zoom"], 4, 6, 9, 18],
+							"heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 4, 0.6, 9, 1.5],
+							"heatmap-color": [
+								"interpolate",
+								["linear"],
+								["heatmap-density"],
+								0,
+								"rgba(27, 175, 122, 0)",
+								0.2,
+								"rgba(27, 175, 122, 0.35)",
+								0.6,
+								"rgba(27, 175, 122, 0.7)",
+								1,
+								OBSERVATION_DENSE_COLOR,
+							],
+							"heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 7, 1, 9, 0],
+						}}
+					/>
+					{/*
+					 * Precise records are filled; unknown accuracy is a hollow ring; obscured records are
+					 * larger and faint, because their location was randomized within a ~0.2 degree cell.
+					 */}
+					<Layer
+						id="inaturalist-points"
+						type="circle"
+						minzoom={7}
+						filter={inatFilter}
+						layout={{ visibility: visibility("inaturalist") }}
+						paint={{
+							"circle-radius": ["match", ["get", "precision"], "obscured", 8, 4],
+							"circle-color": OBSERVATION_COLOR,
+							"circle-opacity": [
+								"interpolate",
+								["linear"],
+								["zoom"],
+								7,
+								0,
+								8,
+								["match", ["get", "precision"], "precise", 0.9, "obscured", 0.2, 0],
+							],
+							"circle-stroke-color": [
+								"match",
+								["get", "precision"],
+								"unknown-accuracy",
+								OBSERVATION_COLOR,
+								"#ffffff",
+							],
+							"circle-stroke-width": ["match", ["get", "precision"], "unknown-accuracy", 1.5, "precise", 1, 0],
+							"circle-stroke-opacity": ["interpolate", ["linear"], ["zoom"], 7, 0, 8, 1],
+						}}
+					/>
+				</Source>
+				<Source id="firms" type="geojson" data={firmsData}>
+					<Layer
+						id="firms-points"
+						type="circle"
+						filter={firmsFilter}
+						layout={{ visibility: visibility("firms") }}
+						paint={{
+							"circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 3, 10, 6],
+							"circle-color": DETECTION_COLOR,
+							"circle-stroke-color": "#ffffff",
+							"circle-stroke-width": 1,
+						}}
+					/>
+				</Source>
+			</Map>
+			<MapPanel
+				mapWindow={mapWindow}
+				onWindowChange={setMapWindow}
+				visible={visible}
+				onVisibleChange={setVisible}
+			/>
+		</div>
+	);
+}
