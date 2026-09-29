@@ -2,9 +2,16 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDataset } from "@/lib/datasets";
 import { sql } from "@/lib/db";
+import { finishRun } from "@/lib/ingestion-runs";
 import { backfillLiveWeather, BATCH_SIZE, PAST_HOURS, pollLiveWeather } from "@/lib/open-meteo/poll-live";
 import { getWeatherPoints } from "@/lib/open-meteo/store";
 import { hourlyAt, rawLocation } from "@/lib/open-meteo/test-fixtures";
+
+// Wraps the real finishRun so a test can make one call fail, as a dropped connection would.
+vi.mock("@/lib/ingestion-runs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/lib/ingestion-runs")>();
+	return { ...actual, finishRun: vi.fn(actual.finishRun) };
+});
 
 // Valid around 2001-01-01, so the test never touches ingested readings (or the store test's, in 2000).
 const NOW = new Date("2001-01-01T12:20:00Z");
@@ -161,6 +168,17 @@ describe("pollLiveWeather", () => {
 		expect(run).toMatchObject({ status: "failed", pagesFetched: 0 });
 		expect(run.error).toContain(`${requestCount} of ${requestCount} batches failed: Open-Meteo responded 429`);
 		expect(await storedRun(run.runId)).toMatchObject({ status: "failed", covered_until: null });
+		expect(await storedCount()).toBe(pointCount * HOURS);
+	});
+
+	it("reports a run as partial, not failed, when recording its outcome fails after storing", async () => {
+		vi.mocked(finishRun).mockRejectedValueOnce(new Error("connection lost"));
+		mockOpenMeteo();
+
+		const run = await poll();
+
+		expect(run).toMatchObject({ status: "partial", error: "connection lost", recordsInserted: pointCount * HOURS });
+		expect((await storedRun(run.runId)).status).toBe("partial");
 		expect(await storedCount()).toBe(pointCount * HOURS);
 	});
 

@@ -137,8 +137,11 @@ async function pollProduct(
 		if (invalid > 0) return await finish("partial", `${invalid} records failed validation and were not stored`);
 		return await finish("succeeded");
 	} catch (error) {
-		// Nothing from this run was stored; earlier detections are untouched.
-		return await finish("failed", error instanceof Error ? error.message : String(error));
+		// Usually nothing from this run was stored. But if recording the outcome failed after the
+		// upsert, detections were, and "failed" must keep meaning nothing was stored. Earlier
+		// detections are untouched either way.
+		const stored = progress.recordsInserted + progress.recordsUpdated > 0;
+		return await finish(stored ? "partial" : "failed", error instanceof Error ? error.message : String(error));
 	}
 }
 

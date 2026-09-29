@@ -3,6 +3,13 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { sql } from "@/lib/db";
 import { backfillLiveDetections, pollLiveDetections } from "@/lib/firms/poll-live";
 import { rawDetection, toCsv } from "@/lib/firms/test-fixtures";
+import { finishRun } from "@/lib/ingestion-runs";
+
+// Wraps the real finishRun so a test can make one call fail, as a dropped connection would.
+vi.mock("@/lib/ingestion-runs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/lib/ingestion-runs")>();
+	return { ...actual, finishRun: vi.fn(actual.finishRun) };
+});
 
 // Acquired in 2001, so the test never touches ingested detections.
 const TEST_DATE = "2001-01-01";
@@ -159,6 +166,23 @@ describe("pollLiveDetections", () => {
 
 		expect(runs.VIIRS_SNPP_NRT).toMatchObject({ status: "succeeded", recordsInserted: 1, recordsSkipped: 1 });
 		expect(await storedCount()).toBe(1);
+	});
+
+	it("reports a run as partial, not failed, when recording its outcome fails after storing", async () => {
+		vi.mocked(finishRun).mockRejectedValueOnce(new Error("connection lost"));
+		mockFirms({
+			VIIRS_SNPP_NRT: new Response(toCsv(detections("VIIRS_SNPP_NRT", 2))),
+			VIIRS_NOAA20_NRT: new Response(toCsv(detections("VIIRS_NOAA20_NRT", 2))),
+			VIIRS_NOAA21_NRT: new Response(toCsv(detections("VIIRS_NOAA21_NRT", 2))),
+		});
+
+		const runs = Object.values(await poll());
+
+		// Whichever satellite finished first lost its outcome write; its detections are stored.
+		expect(runs.filter((run) => run.status !== "succeeded")).toEqual([
+			expect.objectContaining({ status: "partial", error: "connection lost", recordsInserted: 2 }),
+		]);
+		expect(await storedCount()).toBe(6);
 	});
 
 	it("fails without storing anything when every row is invalid", async () => {

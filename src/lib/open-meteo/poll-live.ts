@@ -133,8 +133,11 @@ async function pollWeather(dataset: Dataset, mode: RunMode, pastHours: number, n
 		if (problems.length > 0) return await finish("partial", problems.join("; "));
 		return await finish("succeeded");
 	} catch (error) {
-		// Nothing from this run was stored; earlier readings are untouched.
-		return await finish("failed", error instanceof Error ? error.message : String(error));
+		// Usually nothing from this run was stored. But if recording the outcome failed after the
+		// upserts, readings were, and "failed" must keep meaning nothing was stored. Earlier
+		// readings are untouched either way.
+		const stored = progress.recordsInserted + progress.recordsUpdated > 0;
+		return await finish(stored ? "partial" : "failed", error instanceof Error ? error.message : String(error));
 	}
 }
 
