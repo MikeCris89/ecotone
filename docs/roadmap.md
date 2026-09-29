@@ -28,7 +28,8 @@
 
 ## Phase 5: Seed live window
 
-- [ ] Backfill last 7 days for all three sources
+- [x] Backfill last 7 days for all three sources
+  - Verified against the real APIs locally (2026-09-29): all 15 runs succeeded. Open-Meteo 30,589 readings (169 points × 181 hours) in one run; FIRMS 3,218 detections in 6 runs; iNaturalist 31,526 records over 8 dates, at most 32 pages per date. Re-running Open-Meteo and iNaturalist 2026-09-22 inserted nothing and updated every record. Run the same calls against production after merge
   - Weather: Open-Meteo served 8+ days of past HRRR hours without gaps on the same forecast endpoint (tested 2026-09-29), so the live poll's code can backfill with a larger `past_hours` (one call per point up to two weeks)
 
 ## Phase 6: Map (Live)
@@ -47,7 +48,8 @@
     - `succeeded`: "complete through 14:00"
     - `partial`, `covered_until` set: "read through 14:00", plus the run's reason, e.g. "some records rejected" or "next poll continues". No exact rejected count (no column for it; `records_skipped` also counts records excluded on purpose)
     - `partial`, `covered_until` null: "incomplete, cut off partway"
-    - `failed`, and stale `running` runs: "failed, nothing stored from this run"
+    - `failed`: "failed, nothing stored from this run". Every source keeps that true: a run that stored anything before failing is `partial`
+    - stale `running` runs: "interrupted, may be incomplete". The run died without recording an outcome, possibly after storing some pages
 
 ## Phase 9: CZU case study
 
@@ -60,6 +62,7 @@
   - Weather tool results must include the distance from the queried location to the weather point used
   - Evidence carries each record's license and attribution: the record's own for iNaturalist, otherwise its source's (record -> ingestion run -> `data_sources`)
   - Coverage follows the Phase 8 rule: tools never return a bare `covered_until`, only the statement combined with `status`
+  - Recorded-observation counts track observer effort and upload lag (see Phase 5 limitations): tools must not present day-to-day differences as changes in wildlife, and must flag the most recent 1–2 days as undercounted
 
 ## Phase 11: Agent UI
 
@@ -113,3 +116,5 @@
 - **Coverage can span several runs:** a FIRMS backfill splits each satellite's window into two runs. `max(covered_until)` across runs would report full coverage even when one of them failed; Phase 8's coverage view must check each run's `status`, not just the latest `covered_until`
 - **Weather backfill depends on Open-Meteo's HRRR retention:** it asks for up to 191 past hours (all 192 were served with no gaps on 2026-09-29). If Open-Meteo keeps fewer, the oldest hours come back missing and the run is `partial`
 - **Seeding is manual:** the backfill routes aren't scheduled; iNaturalist takes one call per date
+- **Counts reflect observer effort, not wildlife abundance:** Saturday 2026-09-26 had 6,226 recorded observations and Sunday 4,863, against ~4,000–4,500 on each weekday. Day-to-day differences track when people go out. Flagged for Phase 10
+- **The latest days are undercounted:** uploads lag observations, so the most recent 1–2 days are incomplete when seeded (Monday 2026-09-28 had 3,068, below every other weekday). The live poll's updated-since cursor adds late uploads as they arrive. Flagged for Phase 10
