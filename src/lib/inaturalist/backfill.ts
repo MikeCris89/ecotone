@@ -69,8 +69,13 @@ export async function backfillObservations(dataset: Dataset, date: string): Prom
 	try {
 		while (true) {
 			if (progress.pagesFetched > 0) {
+				// Not resumable: a re-run starts the date over, so it only helps when this run was slowed
+				// by something transient. A California date needs ~30 pages; the budget allows ~100.
 				if (Date.now() - startedAt > TIME_BUDGET_MS) {
-					return await finish("partial", `Stopped after ${progress.pagesFetched} pages; re-run this date to finish`);
+					return await finish(
+						"partial",
+						`Stopped at the time budget after ${progress.pagesFetched} pages; a re-run starts the date over`,
+					);
 				}
 				await sleep(REQUEST_INTERVAL_MS);
 			}
@@ -98,6 +103,8 @@ export async function backfillObservations(dataset: Dataset, date: string): Prom
 			progress.recordsSkipped += results.length - rows.length;
 
 			// A short page is the last one. Records uploaded after it are the live poll's to catch.
+			// As on every run, covered_until says how far the date was read and status says whether
+			// everything read was stored: invalid records still make this run partial, not complete.
 			if (results.length < PER_PAGE) {
 				progress.coveredUntil = windowEnd;
 				return await finish("succeeded");

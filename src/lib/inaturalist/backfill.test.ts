@@ -133,7 +133,7 @@ describe("backfillObservations", { timeout: 15_000 }, () => {
 		expect(await storedRun(summary.runId)).toMatchObject({ status: "failed", covered_until: null });
 	});
 
-	it("stops as partial when the time budget runs out, so the date can be re-run", async () => {
+	it("stops as partial when the time budget runs out", async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		// Each request appears to take four minutes.
 		const requests = mockApi([records(0, PER_PAGE), records(PER_PAGE, 5)], () =>
@@ -143,7 +143,10 @@ describe("backfillObservations", { timeout: 15_000 }, () => {
 		const summary = await backfill();
 
 		expect(requests).toHaveLength(1);
-		expect(summary).toMatchObject({ status: "partial", error: "Stopped after 1 pages; re-run this date to finish" });
+		expect(summary).toMatchObject({
+			status: "partial",
+			error: "Stopped at the time budget after 1 pages; a re-run starts the date over",
+		});
 		expect(await storedRun(summary.runId)).toMatchObject({ covered_until: null });
 	});
 
