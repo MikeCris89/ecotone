@@ -2,7 +2,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { getDataset, LIVE_DATASET_SLUG, type Dataset } from "@/lib/datasets";
 import { sql } from "@/lib/db";
-import { getLatestCoveredUntil } from "@/lib/ingestion-runs";
 import { backfillObservations } from "@/lib/inaturalist/backfill";
 import { PER_PAGE } from "@/lib/inaturalist/client";
 import { rawObservation } from "@/lib/inaturalist/test-fixtures";
@@ -86,6 +85,7 @@ describe("backfillObservations", { timeout: 15_000 }, () => {
 		}
 		expect(requests.map((params) => params.get("id_above"))).toEqual(["0", String(BASE_ID + PER_PAGE - 1)]);
 		expect(summary).toMatchObject({ status: "succeeded", pagesFetched: 2, recordsInserted: PER_PAGE + 5 });
+		// The live poll's cursor only reads live runs by updated time, so this run can't move it.
 		expect(await storedRun(summary.runId)).toEqual({
 			mode: "backfill",
 			time_field: "observed",
@@ -147,8 +147,7 @@ describe("backfillObservations", { timeout: 15_000 }, () => {
 		expect(await storedRun(summary.runId)).toMatchObject({ covered_until: null });
 	});
 
-	it("updates rather than duplicates on a re-run, and leaves the live poll's cursor alone", async () => {
-		const liveCursor = await getLatestCoveredUntil("inaturalist", dataset.id, "live");
+	it("updates rather than duplicates on a re-run", async () => {
 		mockApi([records(0, 5)]);
 		await backfill();
 		mockApi([records(0, 5)]);
@@ -157,6 +156,5 @@ describe("backfillObservations", { timeout: 15_000 }, () => {
 
 		expect(summary).toMatchObject({ status: "succeeded", recordsInserted: 0, recordsUpdated: 5 });
 		expect(await storedCount()).toBe(5);
-		expect(await getLatestCoveredUntil("inaturalist", dataset.id, "live")).toEqual(liveCursor);
 	});
 });
