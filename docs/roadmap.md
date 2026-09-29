@@ -43,6 +43,8 @@
 ## Phase 8: Freshness and data quality UI
 
 - [ ] Feed health vs data recency per source, upload-lag zone, empty states
+  - Never show `covered_until` on its own. Combine it with the run's `status` into one plain statement: "complete through 14:00" (`succeeded`), "read through 14:00, 12 records rejected" (`partial`, `covered_until` set), "incomplete, cut off partway" (`partial`, `covered_until` null)
+  - The rejected count isn't a column yet: `records_skipped` also counts records excluded on purpose (no public coordinates, provisional FIRMS rows), and the validation failures are only in `error`
 
 ## Phase 9: CZU case study
 
@@ -54,6 +56,7 @@
 - [ ] Deterministic tools with the tool contract, count guardrails, tests
   - Weather tool results must include the distance from the queried location to the weather point used
   - Evidence carries each record's license and attribution: the record's own for iNaturalist, otherwise its source's (record -> ingestion run -> `data_sources`)
+  - Coverage follows the Phase 8 rule: tools never return a bare `covered_until`, only the statement combined with `status` ("complete through 14:00", "read through 14:00, 12 records rejected", "incomplete, cut off partway")
 
 ## Phase 11: Agent UI
 
@@ -73,8 +76,8 @@
 ### Known limitations from Phase 2 (check later)
 
 - **Stuck `running` runs:** a poll killed mid-flight (e.g. the database hangs while saving) leaves its run `running` forever. It doesn't block the next poll, which resumes from `max(covered_until)` with no lock, but Phase 8's feed-health view must treat old `running` rows as failed
-- **Deleted or re-scoped upstream records:** observations deleted on iNaturalist, or re-identified out of Animalia, never reach an updated-since poll, so their rows stay. A periodic re-backfill of the live window (Phase 5 path) would reconcile them
-- **Invalid records are skipped, not retried:** when only some records on a page fail validation, the cursor moves past them and the run is marked `partial`. Recovering them needs a fix plus a backfill of the window. (A page where *every* record fails pauses the feed instead)
+- **Deleted or re-scoped upstream records:** observations deleted on iNaturalist, or re-identified out of Animalia, never reach an updated-since poll, so their rows stay. The Phase 5 backfill doesn't reconcile them either: it upserts what it finds and never deletes. Reconciling would mean deleting stored rows for a date that a complete backfill run didn't return
+- **Invalid records are skipped, not retried:** when only some records on a page fail validation, the cursor moves past them and the run is marked `partial`. Recovering them needs a fix plus a re-run of the iNaturalist backfill for the affected dates (live window only; older dates are outside it). (A page where *every* record fails pauses the feed instead)
 - **Tie-scan gap:** when more than a full page of records shares one `updated_at` second, the poll steps through it by page number. If a tied record is updated again mid-scan, another tied record can be missed until it next changes
 - **Very large ties stall:** a tie bigger than one run's 20-page cap (~3,800 records in the live window in one second) restarts from page 1 each run and never finishes. Fix would be storing the page number on the run
 - **Introduced/native flags:** which place iNaturalist computes them for is unconfirmed; verify before the UI highlights introduced species
