@@ -135,6 +135,7 @@ Exactly three providers for the MVP. Each supports both **live polling** and **h
 - Useful variables: temperature, relative humidity, precipitation, wind speed/direction, wind gusts, surface soil moisture
 - **Values are modeled for a grid cell, not measured at a point.** The API returns the grid coordinates and elevation it actually used, which can differ from the requested point by kilometres. Store the requested point, returned point, model, units, and elevation
 - For historical comparisons, pin a specific model (e.g. ERA5) so the series basis doesn't change
+- **Live:** NOAA HRRR (pinned), hourly, at a fixed ~0.5° grid of 169 points inside California, polled hourly. HRRR has no soil moisture. See decisions.md, 15
 - For CZU: 2 or 3 labeled representative locations within the analysis region, hourly, across the full window
 
 ### 4.4 Explicitly out of scope as sources
@@ -320,8 +321,6 @@ See [decisions.md](./decisions.md) for alternatives and tradeoffs.
 
 - Charting library for timeline and metrics
 - Data fetching/caching on the client (Mike knows TanStack Query)
-- How live weather covers California (fixed grid of sample points, points near thermal clusters, on-demand for clicked locations, or a mix)
-- Exact cron cadence for Open-Meteo given rate limits and Vercel function limits (iNaturalist polls every 5 minutes and FIRMS every 15; raw upstream payloads are not stored; see decisions.md, 13 and 14)
 
 ### Secrets / environment
 

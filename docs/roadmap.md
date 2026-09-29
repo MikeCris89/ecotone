@@ -23,7 +23,8 @@
 
 ## Phase 4: Open-Meteo live ingestion
 
-- [ ] Decide sampling strategy, table, adapter, cron
+- [x] Decide sampling strategy, table, adapter, cron
+  - Verified against the real API locally: one poll stored 169 points × 25 hours in under a second. After merge: push the migration (`supabase db push`) and confirm one `succeeded` run per hour at :20 in production
 
 ## Phase 5: Seed live window
 
@@ -49,6 +50,7 @@
 ## Phase 10: Agent tools
 
 - [ ] Deterministic tools with the tool contract, count guardrails, tests
+  - Weather tool results must include the distance from the queried location to the weather point used
 
 ## Phase 11: Agent UI
 
@@ -62,6 +64,8 @@
 
 - (stretch ideas go here)
 - Prune live records that fall outside the retention window (polling only bounds what's fetched, not what's kept)
+- Extra weather points near thermal-detection clusters, on top of the fixed grid
+- Live soil moisture (needs a pinned model that provides it; HRRR doesn't)
 
 ### Known limitations from Phase 2 (check later)
 
@@ -82,3 +86,12 @@
 - **`source_url` deep-link format:** check a stored link actually opens the FIRMS map at the right date and place
 - **FIRMS coverage margin is a typical latency, not a guarantee:** `covered_until` stops 3 hours before each poll, but a slow day can publish passes later than that
 - **No staleness guard in the FIRMS upsert (before Phase 9):** unlike the iNaturalist upsert, the last write wins. If the standard-product (SP) import shares source IDs with live NRT rows, a later NRT poll could overwrite SP values such as `fire_type` with null. Decide which product wins before importing SP
+
+### Known limitations from Phase 4 (check later)
+
+- **A weather point is not the queried place:** values describe one ~3 km model cell, and the nearest sample point can be ~35 km away. Open-Meteo sometimes picks a neighbouring cell: up to 4.7 km from the requested point in the first local poll. The UI and agent must state the distance
+- **Coastal gaps:** grid cells whose centre falls offshore of the simplified state outline aren't sampled, so coastal places rely on the nearest inland point
+- **Recent hours get revised:** each poll re-fetches 24 hours, so values can change as newer HRRR runs arrive. They settle once they're older than a day. `first_retrieved_at` records when an hour first appeared
+- **`records_updated` is re-fetches, not changes:** every poll reports ~4,000 already-stored readings as updated
+- **Per-point call counting is assumed:** Open-Meteo's docs don't say how multi-point requests count against limits. Budgeting assumes one call per point; watch for 429s once the poll runs in production
+- **Shared outgoing IPs:** Vercel functions share IPs, and Open-Meteo limits by IP, so rate limiting can come from other tenants. A poll that gets rate-limited is `partial` or `failed`; the next hourly poll re-fetches the gap

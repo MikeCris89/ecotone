@@ -119,9 +119,18 @@ Live polling asks for records changed since the last poll. If casual were filter
 
 Each satellite passes over California about twice a day, so three satellites give ~6 passes instead of 2, which is what makes the live timeline worth scrubbing. MODIS has 1 km pixels and a different confidence scale. FIRMS deletes URT detections once their NRT version arrives (1 to 3 hours later) and nothing links the two, so storing URT would leave stale duplicates unless every poll deleted rows missing from the latest response. With only a few passes a day, the extra latency costs little. FIRMS has no detection IDs or "changed since" query, so the key is built from satellite, time and coordinates, and each poll is a full snapshot rather than a cursor. **Tradeoffs:** live detections lag passes by hours; Live and CZU counts differ in satellite coverage unless filtered to S-NPP; NRT has no fire-type flag, so live detections can include industrial heat sources.
 
-## 15. Open decisions
+## 15. Open-Meteo live ingestion
+
+**Decision:** Sample modeled conditions at a fixed ~0.5° grid of 169 points inside California, from NOAA's HRRR model (pinned), hourly values only. Poll hourly (at :20), re-fetching the last 24 hours, and never store forecast hours.
+
+**Considered:** ~30 hand-labelled places; points that follow thermal-detection clusters; fetching weather when a user clicks; Open-Meteo's default `best_match` model; 15-minute "current" values; polling every 30 minutes.
+
+A fixed grid gives every point an unbroken series and keeps anywhere in California within ~35 km of a sample point, whether or not anything is burning. Points that follow detections would come and go, and fetching on click would make agent answers unreproducible. `best_match` blends models per variable without saying which, so the stored model would be a guess; HRRR's 3 km cells suit California's terrain. Hourly values match ERA5 for CZU and the timeline's buckets, so polling faster buys nothing. Re-fetching 24 hours fills gaps from missed polls at no extra cost, since Open-Meteo counts up to two weeks for one point as one call. **Tradeoffs:** a value describes one model cell near the queried place, not the place itself, and the cell Open-Meteo picks can be ~5 km from the requested point; no soil moisture in Live (HRRR doesn't provide it); Live (HRRR, 3 km) and CZU (ERA5, ~25 km) aren't the same basis; "current" conditions can be up to an hour old.
+
+**Terms and limits:** the free tier is non-commercial. That's fine for this demo, but a commercial deployment would need a paid plan (Professional for historical data). The free limits are 10,000 calls/day and 300,000/month, and each point counts as a call, so polling uses ~4,100/day (~122,000/month). Limits apply per IP and Vercel functions share outgoing IPs, so a 429 can come from other tenants' traffic; the poll is then recorded as failed or partial and stored data stays. The data is CC BY 4.0, which requires visible Open-Meteo attribution in the UI.
+
+## 16. Open decisions
 
 - **Default quality-grade filter** for display and analysis (all grades are stored, see 13): research-only matches the GBIF-verified CZU counts but thins the most recent live data; including "needs ID" gives a richer live feed. Must be the same in both modes
 - **Default FIRMS confidence filter** (all levels are stored, see 14): nominal + high is the usual choice; low is ~4% of live detections
-- Live weather sampling strategy
-- Charting library, client data fetching (TanStack Query or not), and the Open-Meteo cron cadence given upstream rate limits (on Vercel Pro, so per-minute schedules are available)
+- Charting library and client data fetching (TanStack Query or not)
