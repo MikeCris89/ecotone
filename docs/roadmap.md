@@ -92,7 +92,7 @@
 
 ### Known limitations from Phase 4 (check later)
 
-- **A weather point is not the queried place:** values describe one ~3 km model cell, and the nearest sample point can be ~35 km away. Open-Meteo sometimes picks a neighbouring cell: up to 4.7 km from the requested point in the first local poll. The UI and agent must state the distance
+- **A weather point is not the queried place:** values describe one ~3 km model cell, and the nearest sample point can be ~35 km away (farther near the coast, see below). Open-Meteo sometimes picks a neighbouring cell: up to 4.7 km from the requested point in the first local poll. The UI and agent must state the distance
 - **Coastal gaps:** grid cells whose centre falls offshore of the simplified state outline aren't sampled, so coastal places rely on the nearest inland point
 - **Recent hours get revised:** each poll re-fetches 24 hours, so values can change as newer HRRR runs arrive. They settle once they're older than a day. `first_retrieved_at` records when an hour first appeared
 - **`records_updated` is re-fetches, not changes:** every poll reports ~4,000 already-stored readings as updated
