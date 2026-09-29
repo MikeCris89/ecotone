@@ -1,7 +1,13 @@
 "$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
 
-# .env.local is copied from the repository root into new workspaces by Conductor's default
-# `.env*` files-to-copy pattern, so nothing needs configuring for it here.
+# Gitignored files copied from the main checkout into each new workspace. Setting this replaces
+# Conductor's default `.env*` pattern, so it's listed explicitly. supabase/.temp holds what
+# `supabase link` writes (the hosted project ref and connection metadata): link the main checkout
+# once and every new workspace can `supabase db push` without relinking.
+file_include_globs = """
+.env*
+supabase/.temp/**
+"""
 
 [scripts]
 setup = "pnpm install"

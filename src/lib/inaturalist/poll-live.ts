@@ -1,4 +1,4 @@
-import { getDataset } from "@/lib/datasets";
+import { getDataset, LIVE_DATASET_SLUG } from "@/lib/datasets";
 import { localDate } from "@/lib/dates";
 import {
 	finishRun,
@@ -12,7 +12,6 @@ import { fetchObservationsPage, PER_PAGE, sleep } from "@/lib/inaturalist/client
 import { normalizeObservation, type InatObservationRow } from "@/lib/inaturalist/normalize";
 import { upsertObservations } from "@/lib/inaturalist/store";
 
-const LIVE_DATASET_SLUG = "live-california";
 // Start slightly before where the last run got to, in case iNaturalist's search index lags
 // behind its updated_at timestamps. Re-fetched records are harmless upserts.
 const CURSOR_OVERLAP_MS = 2 * 60_000;

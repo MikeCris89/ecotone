@@ -1,5 +1,7 @@
 import { sql } from "@/lib/db";
 
+export const LIVE_DATASET_SLUG = "live-california";
+
 export type Bbox = { west: number; south: number; east: number; north: number };
 
 export type Dataset = Bbox & {

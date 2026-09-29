@@ -321,7 +321,7 @@ See [decisions.md](./decisions.md) for alternatives and tradeoffs.
 - Charting library for timeline and metrics
 - Data fetching/caching on the client (Mike knows TanStack Query)
 - How live weather covers California (fixed grid of sample points, points near thermal clusters, on-demand for clicked locations, or a mix)
-- Exact cron cadences for FIRMS and Open-Meteo given rate limits and Vercel function limits (iNaturalist polls every 5 minutes; raw upstream payloads are not stored, see decisions.md, 13)
+- Exact cron cadence for Open-Meteo given rate limits and Vercel function limits (iNaturalist polls every 5 minutes and FIRMS every 15; raw upstream payloads are not stored; see decisions.md, 13 and 14)
 
 ### Secrets / environment
 
