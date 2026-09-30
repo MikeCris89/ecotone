@@ -14,11 +14,11 @@ const attributions = {
 	firms: { name: "NASA FIRMS", license: "CC0 1.0" },
 	weather: { name: "Open-Meteo", license: "CC BY 4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/" },
 };
-// Fresh for about a third of the source's poll interval, then stale for up to one more interval.
+// Fresh for about a third of the source's poll interval, then stale for as long again.
 const cacheControl = {
-	inaturalist: "public, s-maxage=120, stale-while-revalidate=300",
-	firms: "public, s-maxage=300, stale-while-revalidate=900",
-	weather: "public, s-maxage=1200, stale-while-revalidate=3600",
+	inaturalist: "public, s-maxage=120, stale-while-revalidate=120",
+	firms: "public, s-maxage=300, stale-while-revalidate=300",
+	weather: "public, s-maxage=1200, stale-while-revalidate=1200",
 };
 // In the Pacific, where no source has data: the responses stay small.
 const OCEAN = "west=-130.5&south=29.5&east=-129.5&north=30.5";

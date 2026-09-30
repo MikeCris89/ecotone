@@ -8,8 +8,8 @@ export type MapQuery = { bbox: Bbox; start: Date; end: Date };
 // Layers change only when their source's poll lands, so Vercel's CDN can answer repeat requests
 // without touching the database. Durations per layer are in LAYER_REFRESH_MINUTES.
 export function mapCacheHeaders(layer: MapLayerName) {
-	const { poll, cdnFresh } = LAYER_REFRESH_MINUTES[layer];
-	return { "Cache-Control": `public, s-maxage=${cdnFresh * 60}, stale-while-revalidate=${poll * 60}` };
+	const { cdnFresh } = LAYER_REFRESH_MINUTES[layer];
+	return { "Cache-Control": `public, s-maxage=${cdnFresh * 60}, stale-while-revalidate=${cdnFresh * 60}` };
 }
 
 const WINDOWS = Object.keys(WINDOW_HOURS) as [MapWindow, ...MapWindow[]];
