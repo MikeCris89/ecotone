@@ -207,6 +207,17 @@ describe("answerNotes", () => {
 		});
 	});
 
+	it("keeps the same statement from two sources", () => {
+		const message = assistant([
+			toolPart("c1", { coverage: coverage([["firms", "Read 24 of 24 hours."]]) }),
+			toolPart("c2", { coverage: coverage([["open-meteo", "Read 24 of 24 hours."]]) }),
+		]);
+		expect(answerNotes(message).statements).toEqual([
+			{ source: "firms", statement: "Read 24 of 24 hours." },
+			{ source: "open-meteo", statement: "Read 24 of 24 hours." },
+		]);
+	});
+
 	it("is empty without tool results", () => {
 		expect(answerNotes(assistant([{ type: "text", text: "Hello." }]))).toEqual({ statements: [], limitations: [] });
 	});

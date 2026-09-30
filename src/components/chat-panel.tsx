@@ -168,7 +168,7 @@ function AnswerNotes({ notes }: { notes: ReturnType<typeof answerNotes> }) {
 			<summary className="cursor-pointer text-zinc-500 hover:text-zinc-900">Coverage and limitations</summary>
 			<ul className="mt-1 list-disc space-y-0.5 pl-4">
 				{notes.statements.map(({ source, statement }) => (
-					<li key={statement}>
+					<li key={`${source}:${statement}`}>
 						<span className="font-medium">{SOURCE_NAMES[source]}:</span> {statement}
 					</li>
 				))}

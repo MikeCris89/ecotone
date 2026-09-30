@@ -106,7 +106,11 @@ export function answerNotes(message: UIMessage): { statements: { source: Source;
 	const statements = results.flatMap((result) => result?.coverage?.sources ?? []);
 	return {
 		statements: statements
-			.filter(({ statement }, index) => statements.findIndex((other) => other.statement === statement) === index)
+			// By source too: statements don't name their source, so two can read the same ("Read 24 of 24 hours.").
+			.filter(
+				({ source, statement }, index) =>
+					statements.findIndex((other) => other.source === source && other.statement === statement) === index,
+			)
 			.map(({ source, statement }) => ({ source, statement })),
 		limitations: [...new Set(results.flatMap((result) => result?.limitations ?? []))],
 	};
