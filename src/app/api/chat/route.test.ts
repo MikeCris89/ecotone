@@ -206,6 +206,33 @@ describe("POST /api/chat", () => {
 		expect(JSON.stringify(model.doStreamCalls[6].prompt)).not.toContain("used all your tool calls");
 	});
 
+	it("gives each earlier question the view it was asked with, and the newest the current context", async () => {
+		const model = new MockLanguageModelV4({ doStream: [textStep("Nothing there.")] });
+		mocks.model = model;
+		const before = { view: { west: -123, south: 37, east: -121, north: 38 }, window: "7d", hour: null, end: null };
+		const moved = { view: { west: -100, south: 40, east: -95, north: 42 }, window: "24h", hour: null, end: null };
+		const asked = (text: string, context: unknown) => ({ ...question(text), metadata: { context } });
+		const answer = { id: "a", role: "assistant", parts: [{ type: "step-start" }, { type: "text", text: "Cluster at 38.1, -122." }] };
+
+		await chunks(await POST(chatRequest([asked("Any detections?", before), answer, asked("And here?", moved)], moved)));
+
+		const [system, current, ...history] = model.doStreamCalls[0].prompt;
+		expect(system.role).toBe("system");
+		expect(current.content).toContain("entirely outside California");
+		expect(history.map((message) => message.content)).toEqual([
+			[
+				{
+					type: "text",
+					text:
+						'[Asked with: map view clipped to California {"west":-123,"south":37,"east":-121,"north":38}; ' +
+						"last 7 days; whole window]\n\nAny detections?",
+				},
+			],
+			[{ type: "text", text: "Cluster at 38.1, -122." }],
+			[{ type: "text", text: "And here?" }],
+		]);
+	});
+
 	it("answers after an earlier question was rejected", async () => {
 		const model = new MockLanguageModelV4({ doStream: [textStep("Hello.")] });
 		mocks.model = model;

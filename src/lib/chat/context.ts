@@ -85,6 +85,27 @@ const json = (value: unknown) => JSON.stringify(value);
 const describe = ({ start, end }: Range) =>
 	`${json({ start, end })} (${formatTime(Date.parse(start))} to ${formatTime(Date.parse(end))})`;
 
+const earlierSchema = z.object({ context: chatContextSchema });
+
+/**
+ * What an earlier question was asked with, from the context the panel stored on it: the area (the
+ * view clipped to California, as "here" meant then), the window and the timeline's position. Written
+ * here from validated numbers, never from client text, so earlier answers read against the view
+ * they described. Null when the message has no valid context.
+ */
+export function earlierContextNote(metadata: unknown, california: Bbox): string | null {
+	const parsed = earlierSchema.safeParse(metadata);
+	if (!parsed.success) return null;
+	const { view, window, hour, end } = parsed.data.context;
+	const area = clipToBbox(view, california);
+	const parts = [
+		area ? `map view clipped to California ${json(area)}` : "map view entirely outside California",
+		`${WINDOW_NAMES[window]}${end ? ` to ${formatTime(Date.parse(end))}` : ""}`,
+		hour === null ? "whole window" : `timeline handle at ${formatTime(hour * 1000)}`,
+	];
+	return `[Asked with: ${parts.join("; ")}]`;
+}
+
 /** The context as the model reads it: every default area and range, ready to pass to a tool. */
 export function contextPrompt(context: ResolvedContext): string {
 	const lines = [

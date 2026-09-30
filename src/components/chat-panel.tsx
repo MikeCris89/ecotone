@@ -156,7 +156,12 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions }: ChatP
 	const send = (text: string) => {
 		const question = text.trim();
 		if (!question || busy) return;
-		void sendMessage({ text: question }, { body: { context: context() }, headers: reviewerHeaders() });
+		const asked = context();
+		// Stored on the question too, so later turns can say which view its answer described.
+		void sendMessage(
+			{ text: question, metadata: { context: asked } },
+			{ body: { context: asked }, headers: reviewerHeaders() },
+		);
 		setInput("");
 	};
 	const onSubmit = (event: FormEvent) => {

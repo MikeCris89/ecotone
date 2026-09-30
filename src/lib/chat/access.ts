@@ -3,11 +3,14 @@
 // sets a cookie so a later visit without it stays in the reviewer bucket. The browser never sends
 // a bucket it chose: only a key the server checks.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { REVIEWER_HEADER } from "@/lib/chat/context";
+import { type ChatContext, REVIEWER_HEADER } from "@/lib/chat/context";
 
 export type Bucket = "public" | "reviewer";
-/** What the chat client reads from each reply's metadata: the bucket, for the "Reviewer access" label. */
-export type ChatMetadata = { bucket: Bucket };
+/**
+ * Message metadata. A reply's carries the bucket, for the "Reviewer access" label; a question's, the
+ * context it was asked with, so later turns can say which view an earlier answer described.
+ */
+export type ChatMetadata = { bucket?: Bucket; context?: ChatContext };
 
 const REVIEWER_COOKIE = "reviewer_access";
 const COOKIE_MAX_AGE_S = 30 * 24 * 60 * 60;

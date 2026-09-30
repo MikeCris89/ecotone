@@ -41,14 +41,19 @@ export function answerText(parts: Part[]) {
  * only if an answer followed it: one the route rejected (blank, too long) stays in the client's
  * history, and would otherwise make every later request fail too.
  */
-export function toModelMessages(messages: ChatMessage[]): TextMessage[] {
+export function toModelMessages(
+	messages: ChatMessage[],
+	// A note on the view an earlier question was asked with, from its metadata; null if it has none.
+	contextNote: (metadata: unknown) => string | null = () => null,
+): TextMessage[] {
 	const turns: TextMessage[][] = [];
 	for (let i = 0; i < messages.length - 2; i++) {
 		const [question, answer] = [messages[i], messages[i + 1]];
 		const text = textOf(question.parts).slice(0, MAX_MESSAGE_CHARS);
 		if (question.role !== "user" || answer.role !== "assistant" || text.length === 0) continue;
+		const note = contextNote(question.metadata);
 		turns.push([
-			{ role: "user", content: text },
+			{ role: "user", content: note ? `${note}\n\n${text}` : text },
 			{ role: "assistant", content: answerText(answer.parts) || NO_ANSWER },
 		]);
 	}
