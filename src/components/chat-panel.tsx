@@ -154,7 +154,7 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions }: ChatP
 	const access = useQuery({ queryKey: ACCESS_KEY, queryFn: fetchAccess, staleTime: Infinity });
 	// Each request uses up a question, so the count is fetched again once it's done.
 	const refreshAccess = () => void queryClient.invalidateQueries({ queryKey: ACCESS_KEY });
-	const { messages, sendMessage, status, error } = useChat<ChatMessage>({
+	const { messages, sendMessage, setMessages, clearError, status, error } = useChat<ChatMessage>({
 		transport,
 		onFinish: refreshAccess,
 		onError: refreshAccess,
@@ -195,8 +195,22 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions }: ChatP
 			aria-label="Chat"
 			className="pointer-events-auto flex min-h-0 w-96 flex-col rounded-lg bg-white/95 text-sm text-zinc-900 shadow-md"
 		>
-			<header className="flex items-center justify-between gap-2 px-3 pt-3">
-				<h2 className="font-semibold">Ask about the data</h2>
+			<header className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3">
+				<div className="flex items-center gap-2">
+					<h2 className="font-semibold">Ask about the data</h2>
+					{/* Clears the conversation and brings the suggestions back; not mid-reply. */}
+					<button
+						type="button"
+						onClick={() => {
+							setMessages([]);
+							clearError();
+						}}
+						disabled={busy || (messages.length === 0 && !error)}
+						className="rounded border border-zinc-200 px-1.5 py-0.5 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 disabled:hover:bg-transparent"
+					>
+						New chat
+					</button>
+				</div>
 				<div className="flex items-center gap-2 text-xs">
 					{remaining && <span className="text-zinc-500">{remaining}</span>}
 					{bucket === "reviewer" && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600">Reviewer access</span>}
