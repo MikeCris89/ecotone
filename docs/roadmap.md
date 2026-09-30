@@ -182,8 +182,15 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
     - A New chat button; `GET /api/chat/access` confirms the bucket on load (and sets the reviewer cookie) and returns the questions left this hour and today, shown as whichever runs out first; a 429's reset is shown in the user's time ("Try again in 38 min (1:02 PM)"), the route's PT message as fallback
     - The renderer reads `*italic*`, `_italic_` and `#` headings; animal groups carry English labels ("Animalia" is "other animals": mostly crabs, woodlice, anemones and sea stars, not records identified only as animals, as the 10a prompt said); the prompt never answers yes or no to "is this a fire?"; questions are capped at 500 characters
     - Found on the way: the limits' count had no upper time bound, so real local chat rows broke the 2001-dated limit tests
-  - Verified (2026-09-30): tests (325 passing on the last full run), typecheck, lint. Across three full runs, the known flaky weather poll test (issue #9) failed once, and `observations.test` failed once without reproducing alone or in two later runs (cause unknown). Not seen in a browser by Claude
+  - Verified (2026-09-30): tests (325 passing on the last full run), typecheck, lint. Across three full runs, the known flaky weather poll test (issue #9) failed once, and `observations.test` failed once without reproducing alone or in two later runs (cause unknown; see "Known issues")
+  - Browser re-test (Mike, locally, 2026-09-30), all passed: moving the map between questions (no retraction), a follow-up (cluster 1 carried over), the stale weather fallback, New chat, the questions-left counter, the reviewer label on load, and a 429 with the local time
+  - Post-deploy checks (Mike, after merge):
+    - Weather "right now" asked between :00 and :19 past the hour, before that hour's poll lands (the within-3 h branch: current, with its age)
+    - Close a tab mid-answer, then check its `chat_requests` row has tokens (whether `onAbort` fires on Vercel)
+    - The reviewer link in a private window shows "Reviewer access" and the questions left on load
 - [ ] 10c: Evidence on the map
+  - First: `get_conditions` still refuses a range under 80% read. For weather, report the readings that exist plus the latest reading's age instead: the 80% rule protects counts and rates, and point-in-time readings aren't biased by missing hours. Then update decisions.md 36 to match
+  - Citations rendered as short labels ("detection", "#1"), not raw IDs: FIRMS IDs are very long (`parseAnswer` already returns each citation's source and ID)
   - Evidence from the turn's tool results highlighted on the map by ID (iNaturalist and FIRMS IDs match the map's; weather evidence carries the sample point's ID), clicking one flies to it and opens its popup and source link. Evidence outside the loaded window is listed with its link instead. Inline `[source:id]` citations become links only if `validCitations` keeps them
   - An answer's coverage and limitations shown compactly under it
 - [ ] 10d: Clip "California" to the state outline (after 10c, before Phase 11)
@@ -201,7 +208,11 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - [ ] 10–15 questions with expected behaviour (answers, refuses, flags stale data, picks the right tool), run by `pnpm eval` against the deployed model. Graded by code, not an LLM. Kept out of `pnpm test`: it calls the real API
   - Include a question hard enough to use all 8 steps, checking the reply still ends with text (the last-step instruction works), alongside the `chat_requests` no-answer flag in production
   - Include a fire question, checking the answer leads with the largest clusters rather than the closest pairs statewide
-  - From the 10b browser tests: "is this a fire?" never gets a yes or no; moving the map between questions doesn't make the model retract an earlier answer; "conditions right now" before the hour's poll answers from the latest reading with its age
+  - From the 10b browser tests:
+    - "Is this a fire?" never gets a yes or no, only "consistent with" and the evidence
+    - After a map move, the model never retracts an earlier answer
+    - The "right now" weather fallback labels an old reading as the last available, not current, and states its age
+    - Only offer actions the tools can do now (it offered "I can check again later")
 - [ ] Trim the tool schemas' ISO date patterns (~3k of the ~9k cached prefix, see "Known limitations from Phase 10")
 
 ## Phase 12: Weather on the map
@@ -213,7 +224,8 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 ## Phase 13: README and submission
 
 - [ ] README (including how the system would evolve: on-demand history fetching), decisions review, final deploy check
-  - Include: one big fire becomes one detection cluster, since DBSCAN chains nearby detections (650 in one near Yosemite, Sep 2026); known issues, including the flaky weather poll test (issue #9)
+  - Include: one big fire becomes one detection cluster, since DBSCAN chains nearby detections (650 in one near Yosemite, Sep 2026); known issues, including the flaky tests (issue #9)
+- [ ] Before submitting: check the Supabase database's size growth per day and its egress, and confirm whether rows outside the live window are ever pruned (the "Later" list says they aren't; check the code and the table sizes). Note the answer in the README's scaling section
 
 ## Phase 14 (stretch): CZU for the agent
 
@@ -233,7 +245,8 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - Derive the map's 7-day window from the dataset's `retention_days` instead of hardcoding 168 hours (the routes' default, and the loaded window in `src/components/live-map.tsx`)
 - A weather details lookup (like iNaturalist's and FIRMS's) so a popup for an earlier reading shows that reading's own retrieval times, not "not loaded"
 - Incremental map refreshes (e.g. a `since` parameter) instead of re-downloading each whole layer on every refetch (~2 MB of iNaturalist every 5 minutes per open tab)
-- Fix the flaky weather poll test (issue #9)
+- Fix the flaky tests (issue #9): the weather poll test, and a one-off `observations.test` failure (6 tests, 2026-09-30). Hypothesis: tests and local dev share one database (the limit-count bug was dev chat rows leaking into tests), with parallel test files and connection exhaustion still suspects. Fix to try: a separate test database through `TEST_DATABASE_URL`
+- Data timestamps in the viewer's local time (today PT everywhere except the chat's rate-limit reset)
 - Record why records failed validation (the first failing record's ID and Zod issue paths) on the ingestion run, so a paused iNaturalist feed can be diagnosed from the run alone
 - Filter persistent static heat sources out of the detection tools: the same pixel lighting up on most nights (industrial sites, flares). Today they're only stated in limitations and pushed down by ranking clusters by size
 - Draw each precise recorded observation's accuracy radius at its ground size when zoomed in (the map rows already carry positional accuracy)
