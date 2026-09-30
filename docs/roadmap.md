@@ -44,17 +44,22 @@
   - Each `/api/map/*` response carries its source's attribution and license from `data_sources`, so `/` stays static. The legend shows counts in the window, empty states, failed refreshes, and a capped layer's cutoff ("the oldest N records, from … and earlier, aren't loaded")
   - maplibre-gl is pinned to v5: v6's worker doesn't load under Turbopack (decisions.md, 10)
   - Verified locally (2026-09-29): tests, then in the browser with `pnpm dev` and `pnpm build && pnpm start`: `/` is static, all layers render, toggles work, and switching windows makes no requests. To confirm after merge: the production map shows live data with attribution
-- [ ] 6c: Click details
+- [x] 6c: Click details
   - `GET /api/map/inaturalist/[id]` and `/api/map/firms/[id]` return one record's details for a popup with its source link. Weather popups use the row's values, the model, and the distance from the requested point to the grid cell (both are in `WeatherMapPoint`)
   - Notes from 6b, a guide rather than requirements:
     - The map's GeoJSON features don't carry record IDs yet (`src/lib/map-layers.ts` keeps only what filters and styles use); the rows have them (iNaturalist ID, FIRMS `source_id`, weather point ID)
     - Weather circles sit at the model grid cell, so the popup's distance runs from the sample point to that cell. The model is in the response's `filters.model`, not on each row
     - The iNaturalist popup could show positional accuracy in metres and whether it's precise by `PRECISE_ACCURACY_M` ("unknown" when missing, never 0), flag obscured locations, and leave out introduced/native status until it's verified (Phase 2 limitations)
+  - Built: detail lookups ignore the default filters (a record that changed since the layer loaded comes back as stored). `WeatherMapPoint` gained `gridDistanceM` (PostGIS `st_distance` on geography, the rule the agent tools will share) and `retrievedAt`. Popups show observed, uploaded and retrieved times separately, and only CC-licensed photos (iNaturalist's 75 px square). An all-rights-reserved photo is an empty box linking to the observation. Only the topmost record opens, with a "+N more records here" count. The selection is kept by ID, so a popup closes whenever its record leaves the map; an open popup refetches its details on its layer's cadence
+  - CDN caching is now per source, fresh for about a third of the poll interval and stale for up to one more (`LAYER_REFRESH_MINUTES` in `src/lib/map-layers.ts`, decisions.md, 18)
+  - Verified locally (2026-09-29): tests (159 passing), typecheck, lint, and popups for all three layers in the browser
+  - The map-layers tests evaluate filters with `@maplibre/maplibre-gl-style-spec` (dev dependency, approved 2026-09-29), at 24.10.0, the version maplibre-gl 5.24.0 resolves. maplibre-gl's browser bundle compiles in its own copy (declared `^24.8.1`), so bump the two together
 
 ## Phase 7: Timeline
 
 - [ ] Time buckets, scrubbing and playback over loaded data
   - Weather follows the scrubber (6b shows each point's latest hour in the window)
+  - The map recounts every loaded feature (up to ~80,000) and scans for the selected one on each render (`src/components/live-map.tsx`). Fine for clicks and window changes, but scrubbing re-renders constantly: memoize per window or bucket
 
 ## Phase 8: Freshness and data quality UI
 
@@ -102,6 +107,9 @@
 - Fix the flaky weather poll test (issue #9)
 - Draw each precise recorded observation's accuracy radius at its ground size when zoomed in (the map rows already carry positional accuracy)
 - Upgrade maplibre-gl to v6 once the worker loads under Turbopack, or by serving its worker files ourselves (decisions.md, 10)
+- Stable source links for settled weather readings through Open-Meteo's Historical Forecast API, if its archived HRRR values match the stored ones. Not for the newest hours, which HRRR still revises (Phase 4 limitations), so it suits the timeline and agent evidence more than the latest-hour popup
+- List every record under a click instead of only the topmost plus a count
+- Protect the map routes from CDN bypass: any new query string (an arbitrary bbox, or a junk parameter) misses the cache and runs a full layer query. Rounding the bbox alone doesn't help, since unknown parameters also change the cache key; the fix is rate limiting (e.g. Vercel's firewall) or ignoring unknown parameters in the cache key
 
 ### Known limitations from Phase 2 (check later)
 
