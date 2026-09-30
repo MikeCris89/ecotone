@@ -53,6 +53,16 @@ describe("toModelMessages", () => {
 		expect(toModelMessages([answer("a1"), question("q2")]).map((message) => message.content)).toEqual(["q2"]);
 	});
 
+	it("drops earlier questions that got no answer, such as ones the route rejected", () => {
+		const history = [question("q1"), answer("a1"), question(""), question("x".repeat(MAX_MESSAGE_CHARS + 1)), question("q2")];
+		expect(toModelMessages(history).map((message) => message.content)).toEqual(["q1", "a1", "q2"]);
+	});
+
+	it("drops an earlier blank question even with an answer, and truncates a long one", () => {
+		const history = [question(" "), answer("a1"), question("x".repeat(MAX_MESSAGE_CHARS + 50)), answer("a2"), question("q3")];
+		expect(toModelMessages(history).map((message) => message.content.length)).toEqual([MAX_MESSAGE_CHARS, 2, 2]);
+	});
+
 	it("marks an answer that has no text", () => {
 		const cutOff = { role: "assistant" as const, parts: [{ type: "step-start" }, { type: "tool-get_data_status" }] };
 		expect(toModelMessages([question("q1"), cutOff, question("q2")])[1]).toEqual({
@@ -63,14 +73,16 @@ describe("toModelMessages", () => {
 });
 
 describe("messagesError", () => {
-	it("accepts a question up to the limit and rejects a longer one anywhere in the history", () => {
+	it("accepts a new question up to the limit and rejects a longer one", () => {
 		expect(messagesError(toModelMessages([question("x".repeat(MAX_MESSAGE_CHARS))]))).toBeNull();
 		expect(messagesError(toModelMessages([question("x".repeat(MAX_MESSAGE_CHARS + 1))]))).toBe(
 			"Messages can be at most 2,000 characters.",
 		);
-		expect(
-			messagesError(toModelMessages([question("x".repeat(MAX_MESSAGE_CHARS + 1)), answer("a"), question("q")])),
-		).not.toBeNull();
+	});
+
+	it("checks only the new question: a rejected earlier one doesn't block later ones", () => {
+		expect(messagesError(toModelMessages([question("x".repeat(MAX_MESSAGE_CHARS + 1)), question("q")]))).toBeNull();
+		expect(messagesError(toModelMessages([question(" "), question("q")]))).toBeNull();
 	});
 
 	it("rejects a history that doesn't end with a question", () => {

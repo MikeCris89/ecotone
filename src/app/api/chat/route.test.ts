@@ -133,7 +133,7 @@ describe("POST /api/chat", () => {
 		expect(JSON.stringify(prompt)).not.toContain("matched");
 	});
 
-	it("takes tools away on the last step, so the reply ends with an answer", async () => {
+	it("tells the model to answer on the last step, keeping the tools its history refers to", async () => {
 		const steps = Array.from({ length: 7 }, (_, i) => toolCallStep(`call-${i}`));
 		const model = new MockLanguageModelV4({ doStream: [...steps, textStep("Done.")] });
 		mocks.model = model;
@@ -141,8 +141,28 @@ describe("POST /api/chat", () => {
 		await chunks(await POST(chatRequest([question("Keep going")])));
 
 		expect(model.doStreamCalls).toHaveLength(8);
-		expect(model.doStreamCalls[6].toolChoice).toEqual({ type: "auto" });
-		expect(model.doStreamCalls[7].toolChoice).toEqual({ type: "none" });
+		const lastStep = model.doStreamCalls[7];
+		// Anthropic rejects a history with tool calls but no tool definitions, and its provider
+		// implements toolChoice "none" by removing them.
+		expect(lastStep.tools).toHaveLength(6);
+		expect(lastStep.toolChoice).toEqual({ type: "auto" });
+		expect(lastStep.prompt.filter((message) => message.role === "system")).toHaveLength(3);
+		expect(JSON.stringify(lastStep.prompt)).toContain("used all your tool calls");
+		expect(JSON.stringify(model.doStreamCalls[6].prompt)).not.toContain("used all your tool calls");
+	});
+
+	it("answers after an earlier question was rejected", async () => {
+		const model = new MockLanguageModelV4({ doStream: [textStep("Hello.")] });
+		mocks.model = model;
+
+		// useChat keeps a rejected message in its history.
+		const response = await POST(chatRequest([question("x".repeat(2001)), question("  "), question("Hi")]));
+
+		expect(response.status).toBe(200);
+		await chunks(response);
+		expect(model.doStreamCalls[0].prompt.slice(2)).toEqual([
+			{ role: "user", content: [{ type: "text", text: "Hi" }], providerOptions: undefined },
+		]);
 	});
 
 	it("rejects a long message, a missing question and a bad context without calling the model", async () => {
