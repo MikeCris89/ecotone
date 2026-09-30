@@ -38,7 +38,7 @@ Ecotone Explorer: a California wildfire + wildlife explorer (Inversa take-home, 
 - **Unknown ≠ zero:** missing positional accuracy is unknown.
 - **Ingestion:** idempotent upserts on source + source ID; record every ingestion run; partial retrieval is never presented as complete; failures never delete valid data. Live and backfill share normalization and storage contracts (retrieval can differ).
 - **Data model:** separate typed tables per source, not a generic event/value table. PostGIS `geography` columns with spatial indexes.
-- **Agent:** the LLM picks from deterministic, Zod-validated tools. It never writes SQL or receives raw datasets. Tools return `{ result, evidence, coverage, limitations, insufficient? }`. Guardrails (e.g. minimum counts) live in tool code, not the prompt.
+- **Agent:** the LLM picks from deterministic, Zod-validated tools. It never writes SQL or receives raw datasets. Tools return `{ result, evidence, coverage, limitations, insufficient? }`. Guardrails (e.g. minimum counts) live in tool code, not the prompt. The chat panel shows `limitations` and coverage statements to users, so write them as plain statements: no instructions to the model and no field names. What the model should do with a result goes in the tool's description.
 - **Timeline:** scrubbing uses already-loaded data. No provider or LLM call per scrub.
 
 ## Tech decisions
