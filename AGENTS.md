@@ -55,6 +55,8 @@ Run tests with `pnpm test` (Vitest). Database tests need the local Supabase stac
 
 Before handing off a phase, run the full `pnpm test` and report the result.
 
+Typecheck with `pnpm exec tsc --noEmit`. In a fresh workspace, run `pnpm exec next typegen` first: route types such as `LayoutProps` and `RouteContext` are generated into `.next/`, and `tsc` fails without them.
+
 Nothing polls the local stack (Vercel Cron only runs in production), so local data stops at the last local backfill while production keeps growing. Compare route output and SQL against the same database.
 
 ## After substantial work
