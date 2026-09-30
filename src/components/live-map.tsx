@@ -84,7 +84,7 @@ const EMPTY: PointCollection<never> = { type: "FeatureCollection", features: [] 
 // records: clicking one zooms in until it splits) and the answer's evidence markers.
 const INTERACTIVE_LAYERS = ["evidence-points", "firms-clusters", "firms-points", "inaturalist-points", "weather-points"];
 
-// The zoom a picked record is flown to, unless the map is already closer.
+// The zoom a picked record is flown to, unless the map is already zoomed in further.
 const EVIDENCE_ZOOM = 10;
 // Neutral, since the temperature scale owns the weather layer's colours.
 const WEATHER_EVIDENCE_COLOR = "#71717a";
