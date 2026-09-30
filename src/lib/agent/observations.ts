@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
 	ANIMAL_GROUPS,
 	animalGroupLabel,
+	labelGroups,
 	areaSchema,
 	type Coverage,
 	DEFAULT_FILTERS,
@@ -181,7 +182,7 @@ async function groupsIn(area: Bbox, window: Window, filter: Filter) {
 		group by iconic_taxon
 		order by count desc, iconic_taxon
 	`;
-	return groups.map(({ group, count }) => ({ group, label: animalGroupLabel(group), count }));
+	return labelGroups(groups);
 }
 
 function dateOnlyLimitations(dateOnly: number): string[] {

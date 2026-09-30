@@ -86,6 +86,11 @@ export function animalGroupLabel(group: string | null): string {
 	return ANIMAL_GROUP_LABELS[group as AnimalGroup] ?? group;
 }
 
+/** Group counts as the tools return them: iNaturalist's iconic taxon with its English label. */
+export function labelGroups(groups: readonly { group: string | null; count: number }[]) {
+	return groups.map(({ group, count }) => ({ group, label: animalGroupLabel(group), count }));
+}
+
 /** One record behind a result, with what's needed to follow it to its source and show it on the map. */
 export type Evidence = {
 	source: Source;
