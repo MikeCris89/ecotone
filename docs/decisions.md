@@ -2,6 +2,8 @@
 
 How I interpreted the challenge, what I considered, and why I landed on the current scope. The full product spec lives in [project-brief.md](./project-brief.md).
 
+I made these decisions working with Claude Code. Entries marked "Suggested by Claude; I agreed" started as its proposals. I reviewed every entry and can explain the tradeoffs behind each.
+
 ---
 
 ## 1. Where the agent adds value
@@ -247,7 +249,7 @@ The map's data comes through a CDN cache up to 40 minutes old, so the server clo
 
 ## 30. Reviewer access through a link
 
-**Decision:** Reviewers open the demo with `?key=…`. The server checks the key and sets a cookie holding its hash, which puts them in a separate rate-limit bucket from the public. Suggested by Claude; I agreed.
+**Decision:** Reviewers open the demo with `?key=…`. The server checks the key and sets a cookie holding its hash, which puts them in a separate rate-limit bucket from the public.
 
 **Considered:** a code typed into a form; real auth (a brief non-goal); one shared bucket.
 
