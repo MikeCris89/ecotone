@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { getToolOrDynamicToolName, isToolUIPart, type UIMessage } from "ai";
+import { DefaultChatTransport, getToolOrDynamicToolName, isToolUIPart, type UIMessage } from "ai";
 import { type FormEvent, Fragment, memo, useEffect, useRef, useState } from "react";
 import type { ChatMetadata } from "@/lib/chat/access";
 import { type ChatContext, REVIEWER_HEADER } from "@/lib/chat/context";
@@ -13,6 +13,17 @@ type ChatMessage = UIMessage<ChatMetadata>;
 const NO_ANSWER = "Couldn't finish this one. Try a narrower question.";
 // The character count shows once a question gets this close to the limit.
 const COUNTER_FROM = MAX_MESSAGE_CHARS - 400;
+
+// The route reads only the last two answered turns; a few more cover questions it turned away in
+// between. Sending just these keeps each request small, and a long session under the route's
+// 200-message cap.
+const SENT_MESSAGES = 10;
+const transport = new DefaultChatTransport<ChatMessage>({
+	prepareSendMessagesRequest: ({ messages, body, headers }) => ({
+		body: { ...body, messages: messages.slice(-SENT_MESSAGES) },
+		headers,
+	}),
+});
 
 // Reviewers open the demo with ?key=…; after the first answer the route's cookie also carries it.
 function reviewerHeaders(): Record<string, string> {
@@ -119,7 +130,7 @@ type ChatPanelProps = {
 
 // Memoized: the map re-renders on every pointer move over it.
 export const ChatPanel = memo(function ChatPanel({ context, suggestions }: ChatPanelProps) {
-	const { messages, sendMessage, status, error } = useChat<ChatMessage>();
+	const { messages, sendMessage, status, error } = useChat<ChatMessage>({ transport });
 	const [input, setInput] = useState("");
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const busy = status === "submitted" || status === "streaming";
