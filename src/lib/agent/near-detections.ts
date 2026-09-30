@@ -322,14 +322,13 @@ export async function observationsNearDetections(
 		limitations: [
 			`Counts recorded observations inside the area within ${radiusKm} km of a detection's pixel centre, observed up to ` +
 				`${withinHours} h before or after it. Only precisely located, timed records count (known accuracy within 1 km, ` +
-				"not obscured); the others are counted in `excluded`. A detection near the area's edge may have observations " +
+				"not obscured); the others are counted as excluded. A detection near the area's edge may have observations " +
 				"just outside it that aren't counted.",
-			"`observations.total` counts each observation once. One can be both before one detection and after another, " +
-				"so beforeDetection + afterDetection can exceed it: never add them up. The same holds across the listed clusters: an " +
-				"observation near two of them counts in each. otherClusters.observations only counts observations near " +
-				"none of them.",
+			"The total counts each recorded observation once. One can be before one detection and after another, so the " +
+				"before and after counts can add up to more than the total. Likewise, an observation near two of the largest " +
+				"clusters counts for each, and the count near the smaller clusters only includes observations near none of the largest.",
 			"Distances are from the detection's pixel centre; the heat source can be anywhere in its pixel (~375 m, wider at the swath edge).",
-			`Clusters join detections within ${clusterDistanceKm} km of each other and are ranked by size, as summarize_detections ranks them.`,
+			`Clusters join detections within ${clusterDistanceKm} km of each other and are ranked by size, largest first.`,
 			DETECTION_LIMITATIONS.notFires,
 			DETECTION_LIMITATIONS.staticSources,
 			LIMITATIONS.effort,

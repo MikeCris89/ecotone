@@ -296,18 +296,8 @@ export async function getConditions(
 			...(!fallback && readings.length < requestedHours
 				? [missingHoursLimitation(readings.length, requestedHours, latest.validAt, window.end)]
 				: []),
-			...(days?.some((day) => day.partial)
-				? [
-						"Days marked partial are missing readings for some of their hours in the range, so their highs, lows and " +
-							"gusts cover only the hours read, and they get no precipitation total.",
-					]
-				: []),
-			...(days?.some((day) => day.hoursInRange < day.hoursInDay)
-				? [
-						"A day with hoursInRange below hoursInDay is cut by the range's start or end: its values cover only the " +
-							"hours in the range, and nothing is missing unless it's also marked partial.",
-					]
-				: []),
+			...(days?.some((day) => day.partial) ? [CONDITIONS_LIMITATIONS.partialDays] : []),
+			...(days?.some((day) => day.hoursInRange < day.hoursInDay) ? [CONDITIONS_LIMITATIONS.cutDays] : []),
 			`Modeled conditions from ${point.model} for one grid cell whose centre is ${distanceKm} km from the place asked about; ` +
 				"not measured there. Terrain between them can make real conditions differ.",
 			"Wind direction is where the wind blows from. Gusts are the strongest over each hour; precipitation is each hour's total.",
@@ -321,10 +311,21 @@ function fallbackLimitation({ validAt, ageHours, current }: NonNullable<Conditio
 	const when = `${formatTime(Date.parse(validAt))}, ${ageHours} h before the range's last hour`;
 	return current
 		? `No reading is stored for the range yet. These are the latest modeled conditions, valid ${when}: recent enough ` +
-				`to count as current (up to ${WEATHER_MAX_AGE_HOURS} h, as on the map). Say how old they are.`
+				`to count as current (up to ${WEATHER_MAX_AGE_HOURS} h, as on the map).`
 		: `The weather feed is behind: no reading is stored for the range, and the latest is from ${when}. These are ` +
-				"the last available modeled conditions, not current ones: say so, and don't describe them as current.";
+				"the last available modeled conditions, not current ones.";
 }
+
+// Limitations are shown to users under the answer, so they're plain statements; what the model
+// should do with them is in the tool's description.
+export const CONDITIONS_LIMITATIONS = {
+	partialDays:
+		"Some days are missing readings for part of their hours: their highs, lows and gusts cover only the hours with " +
+		"readings, and they have no precipitation total.",
+	cutDays:
+		"The range starts or ends partway through a day, so that day's values cover only its hours inside the range. " +
+		"That alone doesn't mean readings are missing.",
+};
 
 /** The hour marks in [start, end) (epoch ms): the hours that can have a reading. */
 const hourMarks = (start: number, end: number) =>
@@ -339,7 +340,7 @@ function missingHoursLimitation(hours: number, requestedHours: number, latestAt:
 	const ageHours = (lastHourOf(end) - latestAt.getTime() / 1000) / HOUR;
 	return (
 		`Readings for ${hours} of ${requestedHours} hours in the range; the rest aren't stored. The summary, the driest ` +
-		"and gustiest hours and the prevailing wind cover only those hours, so they can miss the range's extremes: say so." +
+		"and gustiest hours and the prevailing wind cover only those hours, so they can miss the range's extremes." +
 		(ageHours > 0
 			? ` The newest reading is from ${formatTime(latestAt.getTime())}, ${ageHours} h before the range's last hour.`
 			: "")

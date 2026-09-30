@@ -91,8 +91,9 @@ export const CHAT_TOOLS = {
 			"Satellite thermal detections (NASA FIRMS, VIIRS) in an area and range: the count, per satellite, and clusters of " +
 			"detections within clusterDistanceKm of each other (default 2 km), largest first, with centre, radius, fire radiative " +
 			"power, and first and last times. Only the maxClusters largest are listed; clusterCount is the total, so say " +
-			'"the N largest of M clusters". A cluster is not a fire, a perimeter or burned area. Optional minFrpMw leaves out ' +
-			"weaker detections (fire radiative power in MW).",
+			'"the N largest of M clusters". A cluster is not a fire, a perimeter or burned area. Clusters are spatial only, so ' +
+			"one can span several days: check its dates and first and last times before describing it. Optional minFrpMw " +
+			"leaves out weaker detections (fire radiative power in MW).",
 		inputSchema: summarizeDetectionsInput,
 		execute: (input) => run("summarize_detections", () => summarizeDetections(input)),
 		toModelOutput: ({ output }) => forModel(output),
@@ -116,8 +117,13 @@ export const CHAT_TOOLS = {
 			"Modeled conditions (Open-Meteo, NOAA HRRR model) at a location over a range: temperature, humidity, precipitation, " +
 			"wind and gusts, from the ~3 km grid cell of the nearest sample point. Returns the grid cell's distance from the " +
 			"location: always state it. Refused past 50 km. Hour by hour up to 48 readings, otherwise by day. When hours are " +
-			"missing, it answers from the ones stored and says how many (hours of requestedHours). For an area, pass its " +
-			"centre, or a cluster centre from summarize_detections.",
+			"missing, it answers from the ones stored: say how many (hours of requestedHours), and that the summary and the " +
+			"driest and gustiest hours can miss the range's extremes. By day, a day is partial only when readings are missing " +
+			"from its hours in the range (hours < hoursInRange), and then has no precipitation total; hoursInRange below " +
+			"hoursInDay only means the range cuts the day, so don't call that missing data. When a range reaching the present " +
+			"has no reading yet, fallback holds the latest one: always give its age, and when fallback.current is false, say " +
+			"these are the last available conditions, not current ones. For an area, pass its centre, or a cluster centre " +
+			"from summarize_detections.",
 		inputSchema: getConditionsInput,
 		execute: (input) => run("get_conditions", () => getConditions(input)),
 		toModelOutput: ({ output }) => forModel(output),

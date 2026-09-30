@@ -2,7 +2,7 @@
 // Pacific under the CZU dataset, so live weather polls and map tests never see it, and its
 // readings are in 2003.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getConditions, prevailingWindFrom } from "@/lib/agent/conditions";
+import { CONDITIONS_LIMITATIONS, getConditions, prevailingWindFrom } from "@/lib/agent/conditions";
 import { getDataset } from "@/lib/datasets";
 import { sql } from "@/lib/db";
 import { finishRun, recordRunProgress, startRun } from "@/lib/ingestion-runs";
@@ -237,8 +237,8 @@ describe("getConditions", () => {
 			day("2003-06-15", 6, true, null),
 		]);
 		expect(limitations[0]).toMatch(/^Readings for 78 of 96 hours/);
-		expect(limitations[1]).toMatch(/^Days marked partial/);
-		expect(limitations.some((limitation) => limitation.includes("hoursInRange below hoursInDay"))).toBe(false);
+		expect(limitations[1]).toBe(CONDITIONS_LIMITATIONS.partialDays);
+		expect(limitations).not.toContain(CONDITIONS_LIMITATIONS.cutDays);
 	});
 
 	it("doesn't call a day cut by the range's start or end partial when its hours in the range are read", async () => {
@@ -256,8 +256,9 @@ describe("getConditions", () => {
 			expect.objectContaining({ date: "2003-06-15", hours: 6, hoursInRange: 6, hoursInDay: 24, partial: false }),
 		]);
 		expect(result!.daily![0].precipitationMm).toBe(6);
-		expect(limitations.some((limitation) => /^(Readings for|Days marked partial)/.test(limitation))).toBe(false);
-		expect(limitations[0]).toMatch(/^A day with hoursInRange below hoursInDay is cut by the range's start or end/);
+		expect(limitations.some((limitation) => limitation.startsWith("Readings for"))).toBe(false);
+		expect(limitations).not.toContain(CONDITIONS_LIMITATIONS.partialDays);
+		expect(limitations[0]).toBe(CONDITIONS_LIMITATIONS.cutDays);
 	});
 
 	it("is insufficient where no weather was read and nothing was stored before", async () => {
