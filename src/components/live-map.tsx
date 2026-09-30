@@ -81,7 +81,7 @@ function summarize<Row>(
 	return {
 		loading: query.isPending,
 		failed: query.isError,
-		loadedAt: data ? query.dataUpdatedAt : null,
+		dataAsOf: data ? Date.parse(data.end) : null,
 		inWindow,
 		omitted: data ? data.total - data.rows.length : 0,
 		oldestLoaded: lastRow ? time(lastRow) : null,

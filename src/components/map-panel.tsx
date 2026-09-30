@@ -18,8 +18,9 @@ export type LayerSummary = {
 	loading: boolean;
 	// The latest fetch failed; earlier data, if any, is still on the map.
 	failed: boolean;
-	// When the data on the map was fetched, epoch ms. Null until a fetch succeeds.
-	loadedAt: number | null;
+	// When the server read the data on the map (the response's `end`), epoch ms: a CDN-cached
+	// response can be minutes older than the browser's fetch. Null until a fetch succeeds.
+	dataAsOf: number | null;
 	inWindow: number;
 	// Older records past the layer's cap, which the route left out, all from `oldestLoaded` (epoch
 	// seconds) or earlier. Null when nothing was left out.
@@ -140,7 +141,7 @@ type LayerEntryProps = {
 };
 
 function LayerEntry({ label, swatch, checked, onChange, summary, count, emptyText, children }: LayerEntryProps) {
-	const loaded = summary.loadedAt !== null;
+	const loaded = summary.dataAsOf !== null;
 	const { attribution } = summary;
 
 	return (
@@ -157,7 +158,7 @@ function LayerEntry({ label, swatch, checked, onChange, summary, count, emptyTex
 				{summary.failed && !loaded && <p className="text-red-700">Couldn&apos;t load this layer.</p>}
 				{summary.failed && loaded && (
 					<p className="text-amber-800">
-						Couldn&apos;t refresh; showing data loaded {formatTime(summary.loadedAt!)}.
+						Couldn&apos;t refresh; showing data as of {formatTime(summary.dataAsOf!)}.
 					</p>
 				)}
 				{loaded && summary.inWindow === 0 && <p>{emptyText}</p>}
