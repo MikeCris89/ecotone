@@ -80,7 +80,12 @@ function Chip({ entry, onPick }: { entry: NumberedEvidence; onPick: OnPick }) {
 		);
 	}
 	return (
-		<button type="button" title={title} onClick={() => onPick(entry)} className={`${className} hover:bg-zinc-200`}>
+		<button
+			type="button"
+			title={title}
+			onClick={() => onPick(entry)}
+			className={`${className} cursor-pointer hover:bg-zinc-200`}
+		>
 			{citationLabel(record.source, number)}
 		</button>
 	);
@@ -149,7 +154,11 @@ function EvidenceList({ numbered, onPick }: { numbered: NumberedEvidence[]; onPi
 		return (
 			<li key={entry.key}>
 				{onPick ? (
-					<button type="button" onClick={() => onPick(entry)} className="text-left hover:text-zinc-900 hover:underline">
+					<button
+						type="button"
+						onClick={() => onPick(entry)}
+						className="cursor-pointer text-left hover:text-zinc-900 hover:underline"
+					>
 						{label}
 					</button>
 				) : (
