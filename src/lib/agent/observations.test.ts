@@ -1,9 +1,9 @@
 // Runs against the local Supabase stack (see vitest.config.mts). Records and runs sit in the
-// Pacific in 2003, so neither real data nor other tests' fixtures overlap them: coverage only
+// Sierra foothills (inside California's outline, which the tools count within) in 2003, so neither real data nor other tests' fixtures overlap them: coverage only
 // counts runs whose bbox contains the requested area.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ZodError } from "zod";
-import { LIMITATIONS } from "@/lib/agent/contract";
+import { LIMITATIONS, OUTSIDE_CALIFORNIA } from "@/lib/agent/contract";
 import { getDataStatus } from "@/lib/agent/data-status";
 import { comparePeriods, summarizeObservations } from "@/lib/agent/observations";
 import { getDataset } from "@/lib/datasets";
@@ -13,8 +13,8 @@ import type { InatObservationRow } from "@/lib/inaturalist/normalize";
 import { upsertObservations } from "@/lib/inaturalist/store";
 
 const FIRST_ID = 9_000_000_001_001;
-const AREA = { west: -140.5, south: 20.5, east: -139.5, north: 21.5 };
-const RUN_BBOX = { west: -141, south: 20, east: -139, north: 22 };
+const AREA = { west: -120.5, south: 36.5, east: -119.5, north: 37.5 };
+const RUN_BBOX = { west: -121, south: 36, east: -119, north: 38 };
 // California dates: Jun 2 runs from 07:00Z to Jun 3 07:00Z (PDT).
 const day = (date: string) => ({ start: `${date}T07:00:00Z` });
 const JUN_2 = day("2003-06-02").start;
@@ -38,8 +38,8 @@ function row(overrides: Partial<InatObservationRow>): InatObservationRow {
 		uploaded_at: "2003-06-12T00:00:00.000Z",
 		source_updated_at: "2003-06-12T00:00:00.000Z",
 		retrieved_at: "2003-06-12T00:00:00.000Z",
-		longitude: -140,
-		latitude: 21,
+		longitude: -120,
+		latitude: 37,
 		positional_accuracy_m: 10,
 		obscured: false,
 		geoprivacy: null,
@@ -87,15 +87,24 @@ const rows = [
 	row({ observed_on: "2003-06-10", observed_at: "2003-06-10T09:00:00.000Z" }),
 	// Never counted: casual, outside the area, before every range.
 	row({ observed_on: "2003-06-02", observed_at: "2003-06-02T20:00:00.000Z", quality_grade: "casual" }),
-	row({ observed_on: "2003-06-02", observed_at: "2003-06-02T20:00:00.000Z", longitude: -142 }),
+	row({ observed_on: "2003-06-02", observed_at: "2003-06-02T20:00:00.000Z", longitude: -120.7 }),
 	row({ observed_on: "2003-06-01", observed_at: "2003-06-01T12:00:00.000Z" }),
+	// Either side of the Nevada line, which runs at ~-117.9 at this latitude.
+	row({ observed_on: "2003-06-02", observed_at: "2003-06-02T18:00:00.000Z", longitude: -118.1, latitude: 37.5 }),
+	row({ observed_on: "2003-06-02", observed_at: "2003-06-02T18:00:00.000Z", longitude: -117.5, latitude: 37.5 }),
 ];
 
+// Read by their own run: an area crossing the Nevada line, and one wholly in Nevada.
+const BORDER_RUN_BBOX = { west: -118.3, south: 37.3, east: -117.3, north: 37.7 };
+const BORDER_AREA = { west: -118.2, south: 37.4, east: -117.4, north: 37.6 };
+const NEVADA_AREA = { west: -117.6, south: 37.4, east: -117.4, north: 37.6 };
+
 // A corner of the run's bbox that a live poll with rejected records also covers.
-const REJECTED_AREA = { west: -139.3, south: 21.7, east: -139.2, north: 21.8 };
+const REJECTED_AREA = { west: -119.3, south: 37.7, east: -119.2, north: 37.8 };
 
 let runId: string;
 let rejectingRunId: string;
+let borderRunId: string;
 
 beforeAll(async () => {
 	const dataset = await getDataset("live-california");
@@ -127,7 +136,7 @@ beforeAll(async () => {
 		source: "inaturalist",
 		datasetId: dataset.id,
 		mode: "live",
-		bbox: { west: -139.4, south: 21.6, east: -139.1, north: 21.9 },
+		bbox: { west: -119.4, south: 37.6, east: -119.1, north: 37.9 },
 		windowStart: new Date("2003-06-03T00:00:00Z"),
 		windowEnd: new Date("2003-06-03T00:05:00Z"),
 		timeField: "updated",
@@ -135,11 +144,31 @@ beforeAll(async () => {
 	});
 	await finishRun(rejectingRunId, "partial", "3 records failed validation and were not stored");
 	await sql`update ingestion_runs set started_at = '2003-06-03T00:05:00Z' where id = ${rejectingRunId}`;
+
+	borderRunId = await startRun({
+		source: "inaturalist",
+		datasetId: dataset.id,
+		mode: "backfill",
+		bbox: BORDER_RUN_BBOX,
+		windowStart: new Date(RUN_START),
+		windowEnd: new Date(RUN_END),
+		timeField: "observed",
+		filters: { test: "agent/observations.test.ts" },
+	});
+	await recordRunProgress(borderRunId, {
+		pagesFetched: 1,
+		recordsFetched: 0,
+		recordsInserted: 0,
+		recordsUpdated: 0,
+		recordsSkipped: 0,
+		coveredUntil: new Date(RUN_END),
+	});
+	await finishRun(borderRunId, "succeeded");
 });
 
 afterAll(async () => {
 	await sql`delete from inat_observations where inat_id in ${sql(rows.map((r) => r.inat_id))}`;
-	await sql`delete from ingestion_runs where id in ${sql([runId, rejectingRunId])}`;
+	await sql`delete from ingestion_runs where id in ${sql([runId, rejectingRunId, borderRunId])}`;
 	await sql.end();
 });
 
@@ -247,7 +276,7 @@ describe("summarizeObservations", () => {
 			range: { start: "2003-06-09T07:00:00Z", end: "2003-06-12T07:00:00Z" },
 		});
 		const elsewhere = await summarizeObservations({
-			area: { west: -150.5, south: 20.5, east: -149.5, north: 21.5 },
+			area: { west: -122, south: 38.5, east: -121, north: 39.5 },
 			range: { start: JUN_2, end: JUN_5 },
 		});
 
@@ -275,13 +304,38 @@ describe("summarizeObservations", () => {
 	});
 
 	it("only counts runs whose bbox contains the whole area", async () => {
-		// Straddles the run's east edge (-139): part of it was never requested.
+		// Straddles the run's east edge (-119): part of it was never requested.
 		const { insufficient } = await summarizeObservations({
-			area: { west: -139.5, south: 20.5, east: -138.5, north: 21.5 },
+			area: { west: -119.5, south: 36.5, east: -118.5, north: 37.5 },
 			range: { start: JUN_2, end: JUN_5 },
 		});
 
 		expect(insufficient?.reason).toBe("No stored inaturalist data covers this area and range.");
+	});
+
+	it("counts only records inside California, and says when the area extends beyond it", async () => {
+		const [summary, comparison] = await Promise.all([
+			summarizeObservations({ area: BORDER_AREA, range: { start: JUN_2, end: JUN_5 } }),
+			comparePeriods({ area: BORDER_AREA, before: { start: JUN_2, end: JUN_3 }, after: { start: JUN_3, end: JUN_4 } }),
+		]);
+
+		expect(summary.result!.matched).toBe(1);
+		expect(summary.limitations[0]).toBe(LIMITATIONS.beyondCalifornia);
+		expect(comparison.result!.before.matched).toBe(1);
+		expect(comparison.limitations[0]).toBe(LIMITATIONS.beyondCalifornia);
+	});
+
+	it("refuses an area outside California rather than answering zero", async () => {
+		// Read, and holding a stored record, but in Nevada.
+		const [summary, comparison] = await Promise.all([
+			summarizeObservations({ area: NEVADA_AREA, range: { start: JUN_2, end: JUN_5 } }),
+			comparePeriods({ area: NEVADA_AREA, before: { start: JUN_2, end: JUN_3 }, after: { start: JUN_3, end: JUN_4 } }),
+		]);
+
+		expect(summary.result).toBeNull();
+		expect(summary.insufficient?.reason).toBe(OUTSIDE_CALIFORNIA);
+		expect(comparison.result).toBeNull();
+		expect(comparison.insufficient?.reason).toBe(OUTSIDE_CALIFORNIA);
 	});
 
 	it("is insufficient for a range in the future", async () => {
@@ -295,7 +349,7 @@ describe("summarizeObservations", () => {
 
 	it("rejects an inverted area, or a range shorter than an hour or longer than the maximum", async () => {
 		await expect(
-			summarizeObservations({ area: { ...AREA, west: -139, east: -141 }, range: { start: JUN_2, end: JUN_5 } }),
+			summarizeObservations({ area: { ...AREA, west: -119, east: -121 }, range: { start: JUN_2, end: JUN_5 } }),
 		).rejects.toThrow(ZodError);
 		await expect(
 			summarizeObservations({ area: AREA, range: { start: "2003-05-01T00:00:00Z", end: "2003-06-05T00:00:00Z" } }),

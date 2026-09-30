@@ -120,7 +120,7 @@ export function contextPrompt(context: ResolvedContext): string {
 		context.area
 			? `- The map view, clipped to California ("here", "this area", or no area named): ${json(context.area)}`
 			: "- The map view is entirely outside California, where there is no data. If the question needs an area, say the app only covers California and ask the user to move the map there, or use all of California if they asked about it.",
-		`- All of California: ${json(context.california)}`,
+		`- All of California (a rectangle around the state; the tools only count records inside the state, coastal waters included): ${json(context.california)}`,
 		"",
 		"Ranges (they end when the map's data was loaded, which can be a few minutes before now):",
 		`- Selected on the map (use when no time is named): ${WINDOW_NAMES[context.window]}, ${describe(context.windows[context.window])}`,

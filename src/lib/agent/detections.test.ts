@@ -1,7 +1,9 @@
 // Runs against the local Supabase stack (see vitest.config.mts). Detections, observations and
-// runs sit in the Pacific in 2003, apart from the other agent tests' fixtures.
+// runs sit in Anza-Borrego (inside California's outline, which the tools count within) in 2003,
+// apart from the other agent tests' fixtures.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ZodError } from "zod";
+import { LIMITATIONS, OUTSIDE_CALIFORNIA } from "@/lib/agent/contract";
 import { summarizeDetections } from "@/lib/agent/detections";
 import { observationsNearDetections } from "@/lib/agent/near-detections";
 import { getDataset } from "@/lib/datasets";
@@ -13,12 +15,12 @@ import { finishRun, recordRunProgress, type Source, startRun } from "@/lib/inges
 import type { InatObservationRow } from "@/lib/inaturalist/normalize";
 import { upsertObservations } from "@/lib/inaturalist/store";
 
-const AREA = { west: -140.5, south: 30.5, east: -139.5, north: 31.5 };
-const RUN_BBOX = { west: -141, south: 30, east: -139, north: 32 };
+const AREA = { west: -116.5, south: 32.7, east: -115.5, north: 33.7 };
+const RUN_BBOX = { west: -117, south: 32.2, east: -115, north: 34.2 };
 // Jun 2 and Jun 3, California dates.
 const RANGE = { start: "2003-06-02T07:00:00Z", end: "2003-06-04T07:00:00Z" };
 // ~0.0045 degrees of latitude is 500 m.
-const LAT = 31;
+const LAT = 33.2;
 
 function detection(id: string, overrides: Partial<FirmsDetectionRow>): FirmsDetectionRow {
 	return {
@@ -29,7 +31,7 @@ function detection(id: string, overrides: Partial<FirmsDetectionRow>): FirmsDete
 		acquired_at: "2003-06-02T10:00:00.000Z",
 		daynight: "night",
 		retrieved_at: "2003-06-02T15:00:00.000Z",
-		longitude: -140,
+		longitude: -116,
 		latitude: LAT,
 		scan_km: 0.41,
 		track_km: 0.37,
@@ -46,12 +48,16 @@ function detection(id: string, overrides: Partial<FirmsDetectionRow>): FirmsDete
 const detections = [
 	// One place, ~475 m apart: a cluster spanning Jun 2 and Jun 3.
 	detection("a1", {}),
-	detection("a2", { longitude: -140.005, frp_mw: 20, satellite: "noaa20", product: "VIIRS_NOAA20_NRT" }),
-	detection("a3", { longitude: -140.01, acquired_at: "2003-06-03T10:00:00.000Z", frp_mw: 8 }),
+	detection("a2", { longitude: -116.005, frp_mw: 20, satellite: "noaa20", product: "VIIRS_NOAA20_NRT" }),
+	detection("a3", { longitude: -116.01, acquired_at: "2003-06-03T10:00:00.000Z", frp_mw: 8 }),
 	// ~19 km east: its own cluster.
-	detection("b1", { longitude: -139.8, frp_mw: 50 }),
+	detection("b1", { longitude: -115.8, frp_mw: 50 }),
 	// Low confidence: never counted.
 	detection("low", { confidence: "low" }),
+	// South of AREA, either side of the Mexican border (~32.63 here): ~2.6 km inside California, and
+	// ~14 km into Mexico.
+	detection("border", { latitude: 32.65 }),
+	detection("mexico", { latitude: 32.5 }),
 ];
 
 let nextId = 9_000_000_002_001;
@@ -65,7 +71,7 @@ function observation(overrides: Partial<InatObservationRow>): InatObservationRow
 		uploaded_at: "2003-06-12T00:00:00.000Z",
 		source_updated_at: "2003-06-12T00:00:00.000Z",
 		retrieved_at: "2003-06-12T00:00:00.000Z",
-		longitude: -140,
+		longitude: -116,
 		latitude: LAT,
 		positional_accuracy_m: 10,
 		obscured: false,
@@ -100,7 +106,13 @@ const observations = [
 	// Too far (~10 km), and too late (3 days).
 	observation({ latitude: LAT + 0.09, observed_at: "2003-06-02T11:00:00.000Z" }),
 	observation({ latitude: LAT + 0.002, observed_at: "2003-06-06T11:00:00.000Z", observed_on: "2003-06-06" }),
+	// In Mexico, ~5.6 km south of the "border" detection, an hour after it.
+	observation({ latitude: 32.6, observed_at: "2003-06-02T11:00:00.000Z" }),
 ];
+
+// AREA stretched south into Mexico, and an area wholly in Mexico. RUN_BBOX covers both.
+const CROSSING_AREA = { ...AREA, south: 32.3 };
+const MEXICO_AREA = { west: -116.5, south: 32.3, east: -115.5, north: 32.5 };
 
 const runIds: string[] = [];
 
@@ -170,7 +182,7 @@ describe("summarizeDetections", () => {
 			lastAt: "2003-06-03T10:00:00.000Z",
 			dates: ["2003-06-02", "2003-06-03"],
 		});
-		expect(a.longitude).toBeCloseTo(-140.005, 5);
+		expect(a.longitude).toBeCloseTo(-116.005, 5);
 		expect(a.radiusKm).toBeCloseTo(0.5, 1);
 		expect(b).toMatchObject({ rank: 2, detections: 1, maxFrpMw: 50, radiusKm: 0 });
 		expect(limitations.some((limitation) => limitation.includes("spatial only"))).toBe(true);
@@ -229,7 +241,7 @@ describe("observationsNearDetections", () => {
 		expect(result!.clusters).toEqual([
 			{
 				rank: 1,
-				longitude: expect.closeTo(-140.005, 5),
+				longitude: expect.closeTo(-116.005, 5),
 				latitude: expect.closeTo(LAT, 5),
 				detections: 3,
 				maxFrpMw: 20,
@@ -244,7 +256,7 @@ describe("observationsNearDetections", () => {
 			},
 			{
 				rank: 2,
-				longitude: expect.closeTo(-139.8, 5),
+				longitude: expect.closeTo(-115.8, 5),
 				latitude: expect.closeTo(LAT, 5),
 				detections: 1,
 				maxFrpMw: 50,
@@ -342,7 +354,7 @@ describe("observationsNearDetections", () => {
 
 	it("only counts observations inside the area, where coverage was checked", async () => {
 		// Ends just north of the detections: BEFORE and AFTER are within 5 km of them, but outside.
-		const { result } = await observationsNearDetections({ area: { ...AREA, north: 31.003 }, range: RANGE });
+		const { result } = await observationsNearDetections({ area: { ...AREA, north: 33.203 }, range: RANGE });
 
 		expect(result).toMatchObject({
 			detections: 4,
@@ -354,5 +366,37 @@ describe("observationsNearDetections", () => {
 	it("rejects a radius over 25 km or a window over 72 hours", async () => {
 		await expect(observationsNearDetections({ area: AREA, range: RANGE, radiusKm: 30 })).rejects.toThrow(ZodError);
 		await expect(observationsNearDetections({ area: AREA, range: RANGE, withinHours: 96 })).rejects.toThrow(ZodError);
+	});
+});
+
+describe("California's outline", () => {
+	it("counts only detections and recorded observations inside California, and says the area extends beyond it", async () => {
+		const [summary, near] = await Promise.all([
+			summarizeDetections({ area: CROSSING_AREA, range: RANGE }),
+			observationsNearDetections({ area: CROSSING_AREA, range: RANGE, radiusKm: 10 }),
+		]);
+
+		// a1 to a3, b1 and the border detection; not the one in Mexico.
+		expect(summary.result).toMatchObject({ matched: 5, clusterCount: 3 });
+		expect(summary.evidence.map(({ id }) => id)).not.toContain("test:agent:mexico");
+		expect(summary.limitations[0]).toBe(LIMITATIONS.beyondCalifornia);
+		// The recorded observation in Mexico is within 10 km and an hour of the border detection.
+		const border = near.result!.clusters.find(({ latitude }) => latitude === 32.65);
+		expect(border).toMatchObject({ detections: 1, observations: { total: 0 }, closest: null });
+		expect(near.result!.detections).toBe(5);
+		expect(near.limitations[0]).toBe(LIMITATIONS.beyondCalifornia);
+	});
+
+	it("refuses an area outside California rather than answering zero", async () => {
+		// Read, and holding a stored detection, but in Mexico.
+		const [summary, near] = await Promise.all([
+			summarizeDetections({ area: MEXICO_AREA, range: RANGE }),
+			observationsNearDetections({ area: MEXICO_AREA, range: RANGE }),
+		]);
+
+		expect(summary.result).toBeNull();
+		expect(summary.insufficient?.reason).toBe(OUTSIDE_CALIFORNIA);
+		expect(near.result).toBeNull();
+		expect(near.insufficient?.reason).toBe(OUTSIDE_CALIFORNIA);
 	});
 });

@@ -64,6 +64,22 @@ export function inBbox(column: string, bbox: Bbox) {
 }
 
 /**
+ * Whether the point in a geography column falls inside California's outline (state waters
+ * included). Records are read by bbox, which reaches into the neighbouring states and Mexico; this
+ * decides which ones count. Run after the bbox filter, which uses the tables' indexes.
+ *
+ * Against the whole outline rather than ST_Subdivide pieces: PostGIS prepares (indexes the edges of)
+ * a polygon used row after row in one query, so each test is fast. On 31,565 local recorded
+ * observations it added ~10 ms to the bbox filter's ~18; indexed pieces added ~38 ms.
+ */
+export function inCalifornia(column: string) {
+	return sql`extensions.st_intersects(
+		(select outline from boundaries where slug = 'california'),
+		${sql(column)}::extensions.geometry
+	)`;
+}
+
+/**
  * What a map layer response carries besides its rows. `total` counts every matching record, so a
  * truncated layer can say how many it left out.
  */

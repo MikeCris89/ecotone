@@ -7,9 +7,11 @@ import { getInatMapDetails, getInatMapLayer } from "@/lib/inaturalist/map";
 import type { InatObservationRow } from "@/lib/inaturalist/normalize";
 import { upsertObservations } from "@/lib/inaturalist/store";
 
-// Far above real iNaturalist IDs, in the Pacific, in 2002: the test never touches ingested data.
+// Far above real iNaturalist IDs and dated 2002: the test never touches ingested data. They sit
+// inside California's outline, which the layer counts within.
 const FIRST_ID = 9_000_000_000_101;
-const BBOX = { west: -130.5, south: 29.5, east: -129.5, north: 30.5 };
+// Reaches into Nevada, whose line runs at ~-116.0 here, like the Live bbox does.
+const BBOX = { west: -118.5, south: 35.5, east: -115.5, north: 36.5 };
 const TIMEZONE = "America/Los_Angeles";
 
 function row(offset: number, overrides: Partial<InatObservationRow>): InatObservationRow {
@@ -22,8 +24,8 @@ function row(offset: number, overrides: Partial<InatObservationRow>): InatObserv
 		uploaded_at: "2002-06-12T00:00:00.000Z",
 		source_updated_at: "2002-06-12T00:00:00.000Z",
 		retrieved_at: "2002-06-12T00:00:00.000Z",
-		longitude: -130.1234567,
-		latitude: 30.1234567,
+		longitude: -118.1234567,
+		latitude: 36.1234567,
 		positional_accuracy_m: null,
 		obscured: false,
 		geoprivacy: null,
@@ -65,11 +67,13 @@ const rows = [
 	// Its Los Angeles date ends at 2002-06-10T07:00Z.
 	row(4, { observed_on: "2002-06-09" }),
 	row(5, { observed_at: "2002-06-10T20:00:00.000Z", quality_grade: "casual" }),
-	row(6, { observed_at: "2002-06-10T20:00:00.000Z", longitude: -131 }),
+	row(6, { observed_at: "2002-06-10T20:00:00.000Z", longitude: -119 }),
 	// Exactly at the main test window's end, which is exclusive.
 	row(7, { observed_at: "2002-06-11T12:00:00.000Z" }),
 	// Exactly at the main test window's start, which is inclusive.
 	row(8, { observed_at: "2002-06-10T12:00:00.000Z", quality_grade: "needs_id" }),
+	// In the bbox, but in Nevada: never counted.
+	row(9, { observed_at: "2002-06-10T20:00:00.000Z", longitude: -115.8 }),
 ];
 
 let runId: string;
@@ -125,8 +129,8 @@ describe("getInatMapLayer", () => {
 
 		expect(rows.find(([id]) => id === TIMED)).toEqual([
 			TIMED,
-			-130.12346,
-			30.12346,
+			-118.12346,
+			36.12346,
 			epoch("2002-06-10T20:00:00Z"),
 			epoch("2002-06-10T20:00:00Z"),
 			"Insecta",

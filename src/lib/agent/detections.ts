@@ -3,6 +3,7 @@
 import { z } from "zod";
 import {
 	areaSchema,
+	californiaExtent,
 	inOrder,
 	type Coverage,
 	EVIDENCE_LIMIT,
@@ -10,6 +11,8 @@ import {
 	getCoverage,
 	insufficientCoverage,
 	isComplete,
+	LIMITATIONS,
+	OUTSIDE_CALIFORNIA,
 	rangeSchema,
 	resolveRange,
 	type ToolResult,
@@ -17,7 +20,7 @@ import {
 import type { Bbox } from "@/lib/datasets";
 import { sql } from "@/lib/db";
 import { DEFAULT_FIRMS_CONFIDENCE } from "@/lib/default-filters";
-import { inBbox } from "@/lib/map-query";
+import { inBbox, inCalifornia } from "@/lib/map-query";
 import { CALIFORNIA_TIME_ZONE } from "@/lib/timeline";
 
 // California Albers: an equal-area projection in metres. Clustering on lon/lat would measure eps
@@ -93,7 +96,7 @@ export async function summarizeDetections(
 		};
 	}
 
-	const sources = await getCoverage(["firms"], area, window, now);
+	const [sources, extent] = await Promise.all([getCoverage(["firms"], area, window, now), californiaExtent(area)]);
 	const coverage: Coverage = {
 		area,
 		range: { start: window.start.toISOString(), end: window.end.toISOString() },
@@ -101,7 +104,7 @@ export async function summarizeDetections(
 		complete: isComplete(sources),
 		sources,
 	};
-	const insufficient = insufficientCoverage(sources);
+	const insufficient = extent === "outside" ? { reason: OUTSIDE_CALIFORNIA } : insufficientCoverage(sources);
 	if (insufficient) return { result: null, evidence: [], coverage, limitations: [], insufficient };
 
 	const [clusters, satellites] = await Promise.all([
@@ -157,6 +160,7 @@ export async function summarizeDetections(
 		evidence: await firmsEvidence(top.slice(0, EVIDENCE_LIMIT).map((cluster) => cluster.strongest)),
 		coverage,
 		limitations: [
+			...(extent === "crossing" ? [LIMITATIONS.beyondCalifornia] : []),
 			DETECTION_LIMITATIONS.notFires,
 			DETECTION_LIMITATIONS.staticSources,
 			DETECTION_LIMITATIONS.passes,
@@ -205,6 +209,7 @@ export function detectionsIn(area: Bbox, { start, end }: { start: Date; end: Dat
 		from firms_detections
 		where confidence in ${sql(DEFAULT_FIRMS_CONFIDENCE)}
 			and ${inBbox("location", area)}
+			and ${inCalifornia("location")}
 			and acquired_at >= ${start} and acquired_at < ${end}
 			${minFrpMw === undefined ? sql`` : sql`and frp_mw >= ${minFrpMw}`}
 	`;

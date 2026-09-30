@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { type Interval, intersect, subtract, union } from "@/lib/coverage";
 import type { Bbox } from "@/lib/datasets";
+import { sql } from "@/lib/db";
 import { DEFAULT_QUALITY_GRADES } from "@/lib/default-filters";
 import {
 	getRunsCovering,
@@ -157,7 +158,27 @@ export const LIMITATIONS = {
 	uploadLag: `The newest ${UPLOAD_LAG_HOURS} hours are likely undercounted: iNaturalist uploads lag observations by hours to days.`,
 	dateOnly: (n: number) =>
 		`${n} recorded observation${n === 1 ? " has" : "s have"} a date but no time; each counts in every range its date overlaps.`,
+	beyondCalifornia: "This area extends beyond California; only records inside the state, its coastal waters included, are counted.",
 };
+
+export const OUTSIDE_CALIFORNIA = "This area is outside California. The app only covers California.";
+
+/**
+ * Where the area lies against California's outline. Records outside the outline aren't counted,
+ * so an area outside it would read as zero where records are in fact stored: tools refuse it, and
+ * state it when the area only crosses the line.
+ */
+export async function californiaExtent(area: Bbox): Promise<"inside" | "crossing" | "outside"> {
+	const [{ intersects, within }] = await sql<{ intersects: boolean; within: boolean }[]>`
+		select
+			extensions.st_intersects(outline, envelope) as intersects,
+			extensions.st_within(envelope, outline) as within
+		from boundaries
+		cross join extensions.st_makeenvelope(${area.west}, ${area.south}, ${area.east}, ${area.north}, 4326) as envelope
+		where slug = 'california'
+	`;
+	return within ? "inside" : intersects ? "crossing" : "outside";
+}
 
 /**
  * The requested range, ending no later than `now`. Null when it starts after `now`: nothing can
