@@ -222,7 +222,7 @@ describe("observationsNearDetections", () => {
 			// AFTER is 2 h after a1 and 22 h before a3, so it counts on both sides.
 			observations: { total: 2, beforeDetection: 2, afterDetection: 1 },
 			excluded: { imprecise: 1, unknownAccuracy: 1, dateOnly: 1 },
-			animalGroups: [{ group: "Aves", count: 2 }],
+			animalGroups: [{ group: "Aves", label: "birds", count: 2 }],
 		});
 		// Both observations are near the largest cluster; the lone detection 19 km east has none.
 		expect(result).toMatchObject({ clusterCount: 2, otherClusters: { clusters: 0, observations: 0 } });

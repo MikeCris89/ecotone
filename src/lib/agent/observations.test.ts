@@ -167,9 +167,9 @@ describe("summarizeObservations", () => {
 				{ date: "2003-06-04", count: 1, readHours: 24 },
 			],
 			animalGroups: [
-				{ group: "Aves", count: 6 },
-				{ group: "Mammalia", count: 2 },
-				{ group: "Insecta", count: 1 },
+				{ group: "Aves", label: "birds", count: 6 },
+				{ group: "Mammalia", label: "mammals", count: 2 },
+				{ group: "Insecta", label: "insects", count: 1 },
 			],
 		});
 		expect(result!.topTaxa[0]).toEqual({
@@ -321,9 +321,9 @@ describe("comparePeriods", () => {
 			percentChange: -16.7,
 			refusedBecause: null,
 			animalGroups: [
-				{ group: "Aves", before: 5, after: 5, percentChange: 0 },
+				{ group: "Aves", label: "birds", before: 5, after: 5, percentChange: 0 },
 				// One rabbit: counts stated, no percent change.
-				{ group: "Mammalia", before: 1, after: 0, percentChange: null },
+				{ group: "Mammalia", label: "mammals", before: 1, after: 0, percentChange: null },
 			],
 		});
 		expect(evidence).toHaveLength(10);
