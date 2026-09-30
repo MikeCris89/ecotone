@@ -134,9 +134,11 @@ export async function getConditions(
 				order by p.location <-> ${place}
 				limit 1
 			`;
-	// None ("right now" before the hour's poll, or a feed that's behind): the nearest point's latest
-	// reading before the range's end, read as a one-hour range of its own.
-	const [newest] = inRange
+	// None, for a range that reaches the present ("right now" before the hour's poll, or a feed that's
+	// behind): the nearest point's latest reading before the range's end, read as a one-hour range of
+	// its own. A past range with no readings is refused: another period's reading doesn't answer it.
+	const reachesNow = window.end.getTime() >= now.getTime() - WEATHER_MAX_AGE_HOURS * HOUR * 1000;
+	const [newest] = inRange || !reachesNow
 		? []
 		: await sql<{ id: string; model: string; validAt: Date }[]>`
 				select p.id, r.model, r.valid_at as "validAt"
