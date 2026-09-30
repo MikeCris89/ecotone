@@ -3,8 +3,9 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import Map, { Layer, Source } from "react-map-gl/maplibre";
+import Map, { Layer, type MapLayerMouseEvent, Popup, Source } from "react-map-gl/maplibre";
 import { type LayerSummary, type LayerVisibility, MapPanel } from "@/components/map-panel";
+import { MapPopupContent, type MapSelection, type WeatherPopupData } from "@/components/map-popup";
 import {
 	DETECTION_COLOR,
 	OBSERVATION_COLOR,
@@ -21,10 +22,12 @@ import {
 	instantInWindow,
 	instantWindowFilter,
 	LAYER_REFRESH_MINUTES,
+	latestWeatherRows,
 	type MapLayerName,
 	type MapLayerResponse,
 	type MapWindow,
 	type PointCollection,
+	type PointFeature,
 	type WeatherLayerResponse,
 	weatherGeoJson,
 	windowBounds,
@@ -41,6 +44,35 @@ const CALIFORNIA: [[number, number], [number, number]] = [
 // Sources stay mounted with no features until their data arrives, so the layers keep their
 // stacking order whichever response lands first.
 const EMPTY: PointCollection<never> = { type: "FeatureCollection", features: [] };
+
+// Clickable layers. Their source IDs match MapSelection's sources.
+const INTERACTIVE_LAYERS = ["firms-points", "inaturalist-points", "weather-points"];
+
+// Zooms over which iNaturalist circles fade in as the heatmap fades out.
+const INAT_POINTS_FADE = { from: 7, to: 8 };
+
+/**
+ * The records under the pointer, topmost first (MapLibre returns them in drawing order).
+ * MapLibre returns iNaturalist circles even while they're transparent, so they only count from
+ * halfway through their fade-in. A point touching several tiles can be returned once per tile.
+ */
+function recordsAt(event: MapLayerMouseEvent): MapSelection[] {
+	const zoom = event.target.getZoom();
+	const seen = new Set<string>();
+	const records: MapSelection[] = [];
+	for (const { source, properties } of event.features ?? []) {
+		if (source === "inaturalist" && zoom < (INAT_POINTS_FADE.from + INAT_POINTS_FADE.to) / 2) continue;
+		const key = `${source}:${properties.id}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		records.push({ source, id: properties.id, more: 0 } as MapSelection);
+	}
+	return records;
+}
+
+function findFeature(features: PointFeature<{ id: number | string }>[], id: number | string) {
+	return features.find(({ properties }) => properties.id === id);
+}
 
 // MapLibre rejects `filter: undefined` when adding a layer and skips it, so a layer gets no filter
 // prop until its data (and window) exists. Every layer is then added at style load, in the order
@@ -91,6 +123,8 @@ function summarize<Row>(
 export function LiveMap() {
 	const [mapWindow, setMapWindow] = useState<MapWindow>("7d");
 	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: false });
+	const [selection, setSelection] = useState<MapSelection | null>(null);
+	const [cursor, setCursor] = useState<string>();
 
 	const inaturalist = useMapLayer<MapLayerResponse<InatMapRow>>("inaturalist");
 	const firms = useMapLayer<MapLayerResponse<FirmsMapRow>>("firms");
@@ -103,6 +137,7 @@ export function LiveMap() {
 		() => (weather.data ? weatherGeoJson(weather.data.points, weather.data.rows) : EMPTY),
 		[weather.data],
 	);
+	const latestWeather = useMemo(() => weather.data && latestWeatherRows(weather.data.rows), [weather.data]);
 
 	// Changing the window only swaps these filters and recounts; the data stays as loaded.
 	const inatWindow = inaturalist.data && windowBounds(inaturalist.data.end, mapWindow);
@@ -124,6 +159,21 @@ export function LiveMap() {
 		: [];
 	const latestHour = weatherShown.length ? Math.max(...weatherShown.map(({ properties }) => properties.time)) : null;
 
+	// The popup shows while its record is on the map. A hidden layer, a window that filters the
+	// record out, or a refresh that drops it hides the popup instead of leaving a stale one.
+	const shown = { inaturalist: inatShown, firms: firmsShown, weather: weatherShown };
+	const selectedFeature =
+		selection && visible[selection.source] ? findFeature(shown[selection.source], selection.id) : undefined;
+
+	// Weather popups read the loaded layer: the point's latest reading, as the map draws it.
+	let weatherPopup: WeatherPopupData | undefined;
+	if (selection?.source === "weather" && weather.data && latestWeather) {
+		const point = weather.data.points.find(([id]) => id === selection.id);
+		const row = latestWeather.get(selection.id);
+		const model = weather.data.filters.model[0];
+		if (point && row) weatherPopup = { point, row, model, attribution: weather.data.attribution };
+	}
+
 	const visibility = (layer: keyof LayerVisibility) => (visible[layer] ? "visible" : "none");
 
 	return (
@@ -132,6 +182,13 @@ export function LiveMap() {
 				initialViewState={{ bounds: CALIFORNIA, fitBoundsOptions: { padding: 40 } }}
 				mapStyle={MAP_STYLE_URL}
 				style={{ width: "100%", height: "100%" }}
+				interactiveLayerIds={INTERACTIVE_LAYERS}
+				cursor={cursor}
+				onMouseMove={(event) => setCursor(recordsAt(event).length ? "pointer" : undefined)}
+				onClick={(event) => {
+					const [top, ...rest] = recordsAt(event);
+					setSelection(top ? { ...top, more: rest.length } : null);
+				}}
 			>
 				<Source id="weather" type="geojson" data={weatherData}>
 					<Layer
@@ -181,7 +238,7 @@ export function LiveMap() {
 					<Layer
 						id="inaturalist-points"
 						type="circle"
-						minzoom={7}
+						minzoom={INAT_POINTS_FADE.from}
 						{...windowFilter(inatFilter)}
 						layout={{ visibility: visibility("inaturalist") }}
 						paint={{
@@ -191,9 +248,9 @@ export function LiveMap() {
 								"interpolate",
 								["linear"],
 								["zoom"],
-								7,
+								INAT_POINTS_FADE.from,
 								0,
-								8,
+								INAT_POINTS_FADE.to,
 								["match", ["get", "precision"], "precise", 0.9, "imprecise", 0.2, 0],
 							],
 							"circle-stroke-color": [
@@ -204,7 +261,15 @@ export function LiveMap() {
 								"#ffffff",
 							],
 							"circle-stroke-width": ["match", ["get", "precision"], "unknown-accuracy", 1.5, "precise", 1, 0],
-							"circle-stroke-opacity": ["interpolate", ["linear"], ["zoom"], 7, 0, 8, 1],
+							"circle-stroke-opacity": [
+								"interpolate",
+								["linear"],
+								["zoom"],
+								INAT_POINTS_FADE.from,
+								0,
+								INAT_POINTS_FADE.to,
+								1,
+							],
 						}}
 					/>
 				</Source>
@@ -222,6 +287,18 @@ export function LiveMap() {
 						}}
 					/>
 				</Source>
+				{selection && selectedFeature && (
+					// The map's click handler opens and closes popups, so MapLibre's own close-on-click stays off.
+					<Popup
+						longitude={selectedFeature.geometry.coordinates[0]}
+						latitude={selectedFeature.geometry.coordinates[1]}
+						closeOnClick={false}
+						maxWidth="none"
+						onClose={() => setSelection(null)}
+					>
+						<MapPopupContent selection={selection} weather={weatherPopup} />
+					</Popup>
+				)}
 			</Map>
 			<MapPanel
 				mapWindow={mapWindow}

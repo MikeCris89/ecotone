@@ -1,7 +1,6 @@
 import { Color, expression, featureFilter, latest } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import { NO_VALUE_COLOR, TEMPERATURE_COLOR } from "@/components/map-colors";
-import type { InatMapRow } from "@/lib/inaturalist/map";
 import {
 	firmsGeoJson,
 	inatGeoJson,
@@ -77,12 +76,8 @@ describe("instant window rule (FIRMS, weather)", () => {
 });
 
 describe("inatPrecision", () => {
-	const row = (accuracy: number | null, obscured: boolean): InatMapRow => [
-		1, -122, 37, start, start, "Aves", accuracy, obscured, 0,
-	];
-
 	it("treats missing accuracy as unknown, not precise", () => {
-		expect(inatPrecision(row(null, false))).toBe("unknown-accuracy");
+		expect(inatPrecision(null, false)).toBe("unknown-accuracy");
 	});
 
 	it.each([
@@ -91,12 +86,26 @@ describe("inatPrecision", () => {
 		[1_001, "imprecise"],
 		[25_000, "imprecise"],
 	])("classifies a known accuracy of %i m as %s (the ≤1 km rule)", (accuracy, expected) => {
-		expect(inatPrecision(row(accuracy, false))).toBe(expected);
+		expect(inatPrecision(accuracy, false)).toBe(expected);
 	});
 
 	it("marks obscured records imprecise whatever accuracy they report", () => {
-		expect(inatPrecision(row(12, true))).toBe("imprecise");
-		expect(inatPrecision(row(null, true))).toBe("imprecise");
+		expect(inatPrecision(12, true)).toBe("imprecise");
+		expect(inatPrecision(null, true)).toBe("imprecise");
+	});
+
+	it("classifies each map feature by its row's accuracy and obscured flag", () => {
+		const { features } = inatGeoJson([
+			[1, -122, 37, start, start, "Aves", 12, false, 0],
+			[2, -122, 37, start, start, "Aves", null, false, 0],
+			[3, -122, 37, start, start, "Aves", 12, true, 0],
+		]);
+
+		expect(features.map(({ properties }) => properties.precision)).toEqual([
+			"precise",
+			"unknown-accuracy",
+			"imprecise",
+		]);
 	});
 });
 

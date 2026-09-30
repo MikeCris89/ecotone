@@ -81,8 +81,7 @@ export function instantWindowFilter({ start, end }: TimeWindow): Filter {
 // randomized location is imprecise whatever accuracy it reports.
 export type InatPrecision = "precise" | "imprecise" | "unknown-accuracy";
 
-export function inatPrecision(row: InatMapRow): InatPrecision {
-	const [, , , , , , accuracy, obscured] = row;
+export function inatPrecision(accuracy: number | null, obscured: boolean): InatPrecision {
 	if (obscured) return "imprecise";
 	if (accuracy === null) return "unknown-accuracy";
 	return accuracy <= PRECISE_ACCURACY_M ? "precise" : "imprecise";
@@ -94,14 +93,11 @@ export function inatGeoJson(
 ): PointCollection<{ id: number; from: number; to: number; precision: InatPrecision }> {
 	return {
 		type: "FeatureCollection",
-		features: rows.map((row) => {
-			const [id, lon, lat, from, to] = row;
-			return {
-				type: "Feature",
-				geometry: { type: "Point", coordinates: [lon, lat] },
-				properties: { id, from, to, precision: inatPrecision(row) },
-			};
-		}),
+		features: rows.map(([id, lon, lat, from, to, , accuracy, obscured]) => ({
+			type: "Feature",
+			geometry: { type: "Point", coordinates: [lon, lat] },
+			properties: { id, from, to, precision: inatPrecision(accuracy, obscured) },
+		})),
 	};
 }
 

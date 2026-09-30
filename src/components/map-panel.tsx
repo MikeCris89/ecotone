@@ -41,7 +41,7 @@ type MapPanelProps = {
 	weather: LayerSummary & { latestHour: number | null };
 };
 
-function formatTime(epochMs: number) {
+export function formatTime(epochMs: number) {
 	return new Date(epochMs).toLocaleString([], {
 		month: "short",
 		day: "numeric",
