@@ -3,7 +3,7 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import Map, { Layer, Source } from "react-map-gl/maplibre";
+import Map, { Layer, Source, type StyleSpecification } from "react-map-gl/maplibre";
 import { type LayerSummary, type LayerVisibility, MapPanel } from "@/components/map-panel";
 import {
 	DETECTION_COLOR,
@@ -11,6 +11,7 @@ import {
 	OBSERVATION_DENSE_COLOR,
 	TEMPERATURE_COLOR,
 } from "@/components/map-colors";
+import { guardMissingNumbers } from "@/lib/basemap-style";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 import {
@@ -45,6 +46,15 @@ const EMPTY: PointCollection<never> = { type: "FeatureCollection", features: [] 
 // written, and later filters go through setFilter on a layer that exists.
 function windowFilter(filter: ReturnType<typeof instantWindowFilter> | undefined) {
 	return filter ? { filter } : {};
+}
+
+// Fetched here rather than by MapLibre so its filters can be patched before the map sees them
+// (react-map-gl doesn't pass MapLibre's transformStyle through). Assumes the style's sprite,
+// glyph and tile URLs are absolute, as OpenFreeMap's are.
+async function fetchBasemapStyle(): Promise<StyleSpecification> {
+	const response = await fetch(MAP_STYLE_URL);
+	if (!response.ok) throw new Error(`Basemap style: HTTP ${response.status}`);
+	return guardMissingNumbers(await response.json());
 }
 
 async function fetchLayer<T>(source: string): Promise<T> {
@@ -92,6 +102,14 @@ export function LiveMap() {
 	const inaturalist = useMapLayer<MapLayerResponse<InatMapRow>>("inaturalist", 5);
 	const firms = useMapLayer<MapLayerResponse<FirmsMapRow>>("firms", 15);
 	const weather = useMapLayer<WeatherLayerResponse>("weather", 60);
+	const basemap = useQuery({
+		queryKey: ["basemap-style", MAP_STYLE_URL],
+		queryFn: fetchBasemapStyle,
+		staleTime: Infinity,
+		retry: false,
+	});
+	// If fetching the style fails, MapLibre loads the URL itself, unpatched.
+	const mapStyle = basemap.data ?? (basemap.isError ? MAP_STYLE_URL : undefined);
 
 	// Built once per response; a new object here is what makes MapLibre re-read the data.
 	const inatData = useMemo(() => (inaturalist.data ? inatGeoJson(inaturalist.data.rows) : EMPTY), [inaturalist.data]);
@@ -125,101 +143,103 @@ export function LiveMap() {
 
 	return (
 		<div className="relative h-dvh w-full">
-			<Map
-				initialViewState={{ bounds: CALIFORNIA, fitBoundsOptions: { padding: 40 } }}
-				mapStyle={MAP_STYLE_URL}
-				style={{ width: "100%", height: "100%" }}
-			>
-				<Source id="weather" type="geojson" data={weatherData}>
-					<Layer
-						id="weather-points"
-						type="circle"
-						{...windowFilter(weatherFilter)}
-						layout={{ visibility: visibility("weather") }}
-						paint={{
-							"circle-radius": 6,
-							"circle-color": TEMPERATURE_COLOR,
-							"circle-stroke-color": "#ffffff",
-							"circle-stroke-width": 1,
-						}}
-					/>
-				</Source>
-				<Source id="inaturalist" type="geojson" data={inatData}>
-					{/* Density at statewide zooms, fading out as individual records take over. */}
-					<Layer
-						id="inaturalist-heat"
-						type="heatmap"
-						maxzoom={9}
-						{...windowFilter(inatFilter)}
-						layout={{ visibility: visibility("inaturalist") }}
-						paint={{
-							"heatmap-radius": ["interpolate", ["linear"], ["zoom"], 4, 6, 9, 18],
-							"heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 4, 0.6, 9, 1.5],
-							"heatmap-color": [
-								"interpolate",
-								["linear"],
-								["heatmap-density"],
-								0,
-								"rgba(27, 175, 122, 0)",
-								0.2,
-								"rgba(27, 175, 122, 0.35)",
-								0.6,
-								"rgba(27, 175, 122, 0.7)",
-								1,
-								OBSERVATION_DENSE_COLOR,
-							],
-							"heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 7, 1, 9, 0],
-						}}
-					/>
-					{/*
-					 * Precise records are filled; unknown accuracy is a hollow ring; imprecise or obscured
-					 * records are larger and faint, since their true location may be kilometres away.
-					 */}
-					<Layer
-						id="inaturalist-points"
-						type="circle"
-						minzoom={7}
-						{...windowFilter(inatFilter)}
-						layout={{ visibility: visibility("inaturalist") }}
-						paint={{
-							"circle-radius": ["match", ["get", "precision"], "imprecise", 8, 4],
-							"circle-color": OBSERVATION_COLOR,
-							"circle-opacity": [
-								"interpolate",
-								["linear"],
-								["zoom"],
-								7,
-								0,
-								8,
-								["match", ["get", "precision"], "precise", 0.9, "imprecise", 0.2, 0],
-							],
-							"circle-stroke-color": [
-								"match",
-								["get", "precision"],
-								"unknown-accuracy",
-								OBSERVATION_COLOR,
-								"#ffffff",
-							],
-							"circle-stroke-width": ["match", ["get", "precision"], "unknown-accuracy", 1.5, "precise", 1, 0],
-							"circle-stroke-opacity": ["interpolate", ["linear"], ["zoom"], 7, 0, 8, 1],
-						}}
-					/>
-				</Source>
-				<Source id="firms" type="geojson" data={firmsData}>
-					<Layer
-						id="firms-points"
-						type="circle"
-						{...windowFilter(firmsFilter)}
-						layout={{ visibility: visibility("firms") }}
-						paint={{
-							"circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 3, 10, 6],
-							"circle-color": DETECTION_COLOR,
-							"circle-stroke-color": "#ffffff",
-							"circle-stroke-width": 1,
-						}}
-					/>
-				</Source>
-			</Map>
+			{mapStyle && (
+				<Map
+					initialViewState={{ bounds: CALIFORNIA, fitBoundsOptions: { padding: 40 } }}
+					mapStyle={mapStyle}
+					style={{ width: "100%", height: "100%" }}
+				>
+					<Source id="weather" type="geojson" data={weatherData}>
+						<Layer
+							id="weather-points"
+							type="circle"
+							{...windowFilter(weatherFilter)}
+							layout={{ visibility: visibility("weather") }}
+							paint={{
+								"circle-radius": 6,
+								"circle-color": TEMPERATURE_COLOR,
+								"circle-stroke-color": "#ffffff",
+								"circle-stroke-width": 1,
+							}}
+						/>
+					</Source>
+					<Source id="inaturalist" type="geojson" data={inatData}>
+						{/* Density at statewide zooms, fading out as individual records take over. */}
+						<Layer
+							id="inaturalist-heat"
+							type="heatmap"
+							maxzoom={9}
+							{...windowFilter(inatFilter)}
+							layout={{ visibility: visibility("inaturalist") }}
+							paint={{
+								"heatmap-radius": ["interpolate", ["linear"], ["zoom"], 4, 6, 9, 18],
+								"heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 4, 0.6, 9, 1.5],
+								"heatmap-color": [
+									"interpolate",
+									["linear"],
+									["heatmap-density"],
+									0,
+									"rgba(27, 175, 122, 0)",
+									0.2,
+									"rgba(27, 175, 122, 0.35)",
+									0.6,
+									"rgba(27, 175, 122, 0.7)",
+									1,
+									OBSERVATION_DENSE_COLOR,
+								],
+								"heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 7, 1, 9, 0],
+							}}
+						/>
+						{/*
+						 * Precise records are filled; unknown accuracy is a hollow ring; imprecise or obscured
+						 * records are larger and faint, since their true location may be kilometres away.
+						 */}
+						<Layer
+							id="inaturalist-points"
+							type="circle"
+							minzoom={7}
+							{...windowFilter(inatFilter)}
+							layout={{ visibility: visibility("inaturalist") }}
+							paint={{
+								"circle-radius": ["match", ["get", "precision"], "imprecise", 8, 4],
+								"circle-color": OBSERVATION_COLOR,
+								"circle-opacity": [
+									"interpolate",
+									["linear"],
+									["zoom"],
+									7,
+									0,
+									8,
+									["match", ["get", "precision"], "precise", 0.9, "imprecise", 0.2, 0],
+								],
+								"circle-stroke-color": [
+									"match",
+									["get", "precision"],
+									"unknown-accuracy",
+									OBSERVATION_COLOR,
+									"#ffffff",
+								],
+								"circle-stroke-width": ["match", ["get", "precision"], "unknown-accuracy", 1.5, "precise", 1, 0],
+								"circle-stroke-opacity": ["interpolate", ["linear"], ["zoom"], 7, 0, 8, 1],
+							}}
+						/>
+					</Source>
+					<Source id="firms" type="geojson" data={firmsData}>
+						<Layer
+							id="firms-points"
+							type="circle"
+							{...windowFilter(firmsFilter)}
+							layout={{ visibility: visibility("firms") }}
+							paint={{
+								"circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 3, 10, 6],
+								"circle-color": DETECTION_COLOR,
+								"circle-stroke-color": "#ffffff",
+								"circle-stroke-width": 1,
+							}}
+						/>
+					</Source>
+				</Map>
+			)}
 			<MapPanel
 				mapWindow={mapWindow}
 				onWindowChange={setMapWindow}
