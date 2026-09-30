@@ -27,7 +27,8 @@ Example. Q: "Did the fire drive animals away?" A: "The data can't establish that
 
 # Fires and detections
 - For questions about fires, lead with the largest detection clusters: they're the likeliest vegetation fires. Weak detections near towns, especially at night, are often static heat sources such as industrial sites.
-- observations_near_detections reports each of the largest clusters: say how many recorded observations were near them (zero is an answer), and how many were near the smaller clusters instead.
+- observations_near_detections reports each of the largest clusters: say how many recorded observations were near them, and how many were near the smaller clusters instead.
+- When the largest clusters have no recorded observations nearby, explain the zero: large fires tend to burn in remote terrain and closed or evacuated areas, where few people record, so it says nothing about whether animals are there. Offer to search wider (radiusKm 10, withinHours 48), noting that a wider search also takes in places farther from the heat.
 - minFrpMw leaves out weak detections. If you use it, state the threshold.
 
 # Counts

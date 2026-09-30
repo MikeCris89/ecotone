@@ -141,6 +141,8 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - After the first real runs (2026-09-30, local data): the proximity tool's statewide "closest pairs" were mostly weak night-time detections near towns, likely static heat sources, while the largest cluster (1,387 detections) never appeared. It now reports the `maxClusters` largest clusters (ranked exactly as `summarize_detections` ranks them, through the shared `clusteredDetections`), each with its counts and closest pair, and the observations near the rest. On the local data, the 5 largest clusters had no precise recorded observations within 5 km and 24 hours: all 1,204 were near smaller clusters. Both detection tools take an optional `minFrpMw` and state that weak detections near towns are often static sources
   - The model sees a trimmed copy of each tool result (`forModel`, through `toModelOutput`): the result, limitations, each source's coverage statement, and evidence as source, ID, label and time. Links, licenses, coordinates and coverage spans only go to the UI (about 40% smaller on the first runs' outputs)
   - Prompt: "Animalia" is "identified only as animals"; places are described by what the tools return, never named from the model's own knowledge
+  - The zero near the largest clusters depends on the defaults (5 km, 24 h): on the local data the largest cluster had 25 precise recorded observations within 10 km and 48 h, 92 within 25 km (the closest 7 km away). At 25 km, 1,756 of 1,825 detections have observations nearby, so the prompt explains a zero (few people record in remote, closed or evacuated terrain) and offers 10 km and 48 h rather than the maximum. 72 h either side of a range starting at the window's start reaches before the stored data and is refused as under 80% read
+  - Review fix: the dataset is looked up before admission, so a failed lookup doesn't use a quota slot
   - The local iNaturalist feed's pause ("all 3 records on the page failed validation") was checked: the same page validates now, and production was healthy (read through the current poll, no rejections)
 - [x] 10a-2: Reviewer access, rate limits and usage log
   - Two separate buckets, so public traffic can't use up the reviewers' quota. Public: 5 per IP per hour, 30 a day in total. Reviewer: 60 per IP per hour, 300 a day. All four are env vars (`CHAT_PUBLIC_HOURLY_PER_IP`, `CHAT_PUBLIC_DAILY`, `CHAT_REVIEWER_HOURLY_PER_IP`, `CHAT_REVIEWER_DAILY`) with those defaults. Hourly is the last 60 minutes; daily resets at midnight PT
@@ -187,6 +189,8 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 ## Phase 14 (stretch): CZU for the agent
 
 - [ ] Backfill iNaturalist, FIRMS CSV import, Open-Meteo archive, so the agent can answer CZU questions. The mode switch and CZU timeline come later
+- Why it matters more after the first agent runs (2026-09-30): the live window gives a fire's "during" with little or no "before" in the same place (the largest live cluster started on the window's first day), and few precise recorded observations close to it. CZU has 30 days before, 38 during and 30 after in one small, heavily recorded area, which is what `compare_periods` needs. It still can't show how wildlife responded: the drop from ~45 to ~16 recorded observations a day is as much evacuations and closures as anything else (brief 7). The README should pitch it as "how recording changed before, during and after", not as a wildlife response
+- Cheapest slice if time allows: iNaturalist only, through the existing backfill path (one call per date, ~100 dates), which already makes `summarize_observations` and `compare_periods` answer for CZU. FIRMS (CSV import) and weather (ERA5 archive) each need a new retrieval path
 
 ## Later
 
@@ -202,6 +206,7 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - Incremental map refreshes (e.g. a `since` parameter) instead of re-downloading each whole layer on every refetch (~2 MB of iNaturalist every 5 minutes per open tab)
 - Fix the flaky weather poll test (issue #9)
 - Record why records failed validation (the first failing record's ID and Zod issue paths) on the ingestion run, so a paused iNaturalist feed can be diagnosed from the run alone
+- Clip "California" to the state outline, not its bounding box: the Live bbox takes in parts of Nevada, Oregon, Arizona and Baja California, so statewide answers include e.g. a 24-detection cluster near 40.82, -114.26 in Nevada (seen 2026-09-30)
 - Filter persistent static heat sources out of the detection tools: the same pixel lighting up on most nights (industrial sites, flares). Today they're only stated in limitations and pushed down by ranking clusters by size
 - Draw each precise recorded observation's accuracy radius at its ground size when zoomed in (the map rows already carry positional accuracy)
 - Upgrade maplibre-gl to v6 once the worker loads under Turbopack, or by serving its worker files ourselves (decisions.md, 10)

@@ -51,8 +51,9 @@ export async function POST(request: Request) {
 	let admission;
 	let dataset: Dataset;
 	try {
-		admission = await admitRequest(bucket, ipHash(request), chatLimits()[bucket]);
+		// The dataset first: a request that fails here shouldn't use up a quota slot.
 		dataset = await getDataset(LIVE_DATASET_SLUG);
+		admission = await admitRequest(bucket, ipHash(request), chatLimits()[bucket]);
 	} catch (error) {
 		console.error("Chat setup failed", error);
 		return Response.json({ ok: false, error: "The chat is unavailable right now" }, { status: 500 });
