@@ -1,9 +1,9 @@
 // The chat panel's logic, kept apart from React so it can be tested: tool step labels, which
-// suggested questions the loaded data can answer, the route's error messages, and the light
-// markdown answers use.
+// suggested questions the loaded data can answer, the route's error messages, the light markdown
+// answers use, and the numbering of an answer's evidence.
 import { APICallError, isToolUIPart, type UIMessage } from "ai";
 import { z } from "zod";
-import type { ToolResult } from "@/lib/agent/contract";
+import type { Evidence, ToolResult } from "@/lib/agent/contract";
 import type { Bucket } from "@/lib/chat/access";
 import { CITATION } from "@/lib/chat/citations";
 import { WINDOW_NAMES } from "@/lib/chat/context";
@@ -12,7 +12,13 @@ import type { CHAT_TOOLS } from "@/lib/chat/tools";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 import type { Source } from "@/lib/ingestion-runs";
-import { inatInWindow, instantInWindow, type MapWindow, windowBounds } from "@/lib/map-layers";
+import {
+	inatInWindow,
+	instantInWindow,
+	type MapWindow,
+	type PointCollection,
+	windowBounds,
+} from "@/lib/map-layers";
 
 const STEP_LABELS: Record<keyof typeof CHAT_TOOLS, string> = {
 	get_data_status: "Checking data freshness and coverage",
@@ -87,6 +93,40 @@ const CITATION_WORDS: Record<Source, string> = { inaturalist: "obs", firms: "det
 /** A citation's chip, and its line in the evidence list: "detection 2". One numbering per answer. */
 export function citationLabel(source: Source, number: number): string {
 	return `${CITATION_WORDS[source]} ${number}`;
+}
+
+/** An evidence record with its number in the answer: the cited records first, as their chips, then the rest. */
+export type NumberedEvidence = { key: string; record: Evidence; number: number; cited: boolean };
+
+export function evidenceKey({ source, id }: { source: Source; id: string }): string {
+	return `${source}:${id}`;
+}
+
+/** One numbering for an answer's chips, its evidence list and its map markers. */
+export function numberedEvidence(evidence: Evidence[], cited: Evidence[]): NumberedEvidence[] {
+	const citedKeys = new Set(cited.map(evidenceKey));
+	return [...cited, ...evidence.filter((record) => !citedKeys.has(evidenceKey(record)))].map((record, index) => ({
+		key: evidenceKey(record),
+		record,
+		number: index + 1,
+		cited: index < cited.length,
+	}));
+}
+
+/** The evidence markers, at each record's own coordinates. The focused one goes last, so it's drawn on top. */
+export function evidenceGeoJson(
+	numbered: NumberedEvidence[],
+	focused: string | null,
+): PointCollection<{ key: string; source: Source; focused: boolean }> {
+	const ordered = [...numbered.filter(({ key }) => key !== focused), ...numbered.filter(({ key }) => key === focused)];
+	return {
+		type: "FeatureCollection",
+		features: ordered.map(({ key, record }) => ({
+			type: "Feature",
+			geometry: { type: "Point", coordinates: [record.longitude, record.latitude] },
+			properties: { key, source: record.source, focused: key === focused },
+		})),
+	};
 }
 
 export const SOURCE_NAMES: Record<Source, string> = {
