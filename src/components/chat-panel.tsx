@@ -1,12 +1,13 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, getToolOrDynamicToolName, isToolUIPart, type UIMessage } from "ai";
 import { type FormEvent, Fragment, memo, useEffect, useRef, useState } from "react";
-import type { ChatMetadata } from "@/lib/chat/access";
+import type { Bucket, ChatMetadata } from "@/lib/chat/access";
 import { type ChatContext, REVIEWER_HEADER } from "@/lib/chat/context";
 import { MAX_MESSAGE_CHARS } from "@/lib/chat/messages";
-import { answerMissing, chatError, type Inline, parseAnswer, stepLabel } from "@/lib/chat/ui";
+import { answerMissing, chatError, type Inline, parseAnswer, remainingNote, stepLabel } from "@/lib/chat/ui";
 
 type ChatMessage = UIMessage<ChatMetadata>;
 
@@ -29,6 +30,16 @@ const transport = new DefaultChatTransport<ChatMessage>({
 function reviewerHeaders(): Record<string, string> {
 	const key = new URLSearchParams(window.location.search).get("key");
 	return key ? { [REVIEWER_HEADER]: key } : {};
+}
+
+type Access = { bucket: Bucket; remaining: { hourly: number; daily: number } | null };
+const ACCESS_KEY = ["chat-access"];
+
+// The server checks the key (or the cookie): the label never shows from ?key= alone.
+async function fetchAccess(): Promise<Access> {
+	const response = await fetch("/api/chat/access", { headers: reviewerHeaders() });
+	if (!response.ok) throw new Error(`Chat access: HTTP ${response.status}`);
+	return response.json();
 }
 
 function InlineText({ inlines }: { inlines: Inline[] }) {
@@ -139,12 +150,22 @@ type ChatPanelProps = {
 
 // Memoized: the map re-renders on every pointer move over it.
 export const ChatPanel = memo(function ChatPanel({ context, suggestions }: ChatPanelProps) {
-	const { messages, sendMessage, status, error } = useChat<ChatMessage>({ transport });
+	const queryClient = useQueryClient();
+	const access = useQuery({ queryKey: ACCESS_KEY, queryFn: fetchAccess, staleTime: Infinity });
+	// Each request uses up a question, so the count is fetched again once it's done.
+	const refreshAccess = () => void queryClient.invalidateQueries({ queryKey: ACCESS_KEY });
+	const { messages, sendMessage, status, error } = useChat<ChatMessage>({
+		transport,
+		onFinish: refreshAccess,
+		onError: refreshAccess,
+	});
 	const [input, setInput] = useState("");
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const busy = status === "submitted" || status === "streaming";
 	const failure = error ? chatError(error) : null;
-	const bucket = failure?.bucket ?? messages.findLast((message) => message.metadata)?.metadata?.bucket;
+	const bucket =
+		access.data?.bucket ?? failure?.bucket ?? messages.findLast((message) => message.metadata?.bucket)?.metadata?.bucket;
+	const remaining = remainingNote(access.data?.remaining ?? null);
 
 	// Keeps the newest step or line in view as the reply streams.
 	useEffect(() => {
@@ -176,9 +197,10 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions }: ChatP
 		>
 			<header className="flex items-center justify-between gap-2 px-3 pt-3">
 				<h2 className="font-semibold">Ask about the data</h2>
-				{bucket === "reviewer" && (
-					<span className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600">Reviewer access</span>
-				)}
+				<div className="flex items-center gap-2 text-xs">
+					{remaining && <span className="text-zinc-500">{remaining}</span>}
+					{bucket === "reviewer" && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600">Reviewer access</span>}
+				</div>
 			</header>
 
 			<div ref={scrollRef} className="min-h-0 space-y-3 overflow-y-auto p-3">
