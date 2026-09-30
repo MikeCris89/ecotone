@@ -40,12 +40,17 @@
   - Full-screen map with a top-left panel (the bottom edge stays free for the timeline, the right side for chat). Each layer loads its whole 7-day window once through TanStack Query, refetching every 5 min (iNaturalist), 15 min (FIRMS) and 60 min (weather). No `placeholderData`: the query key never changes, so refetches, and failed ones, keep the previous data anyway
   - The 24h / 3 days / 7 days selector only swaps MapLibre filters, measured from each response's `end`. Each window rule exists in TypeScript (for counts) and as a filter expression; tests run both through MapLibre's own evaluator (`src/lib/map-layers.ts`)
   - iNaturalist: "recorded observation density" heatmap fading into circles at zoom 7–9. Precise (known accuracy ≤1 km, `PRECISE_ACCURACY_M` in `src/lib/default-filters.ts`) is filled, imprecise or obscured is large and faint, unknown accuracy is a ring
-  - FIRMS: circles at 3 px statewide, growing to the ~375 m VIIRS footprint from about zoom 10. Weather: off by default; each point's latest hour at its model grid cell, blue (cold) to purple (warm), with a °C scale
+  - FIRMS: circles from 3 px statewide to 6 px at zoom 10 (footprint-sized circles were tried and looked too big up close; revisit in a UI pass). Weather: off by default; each point's latest hour at its model grid cell, blue (cold) to purple (warm), with a °C scale
   - Each `/api/map/*` response carries its source's attribution and license from `data_sources`, so `/` stays static. The legend shows counts in the window, empty states, failed refreshes, and a capped layer's cutoff ("the oldest N records, from … and earlier, aren't loaded")
   - maplibre-gl is pinned to v5: v6's worker doesn't load under Turbopack (decisions.md, 10)
-  - Verified locally (2026-09-29): tests, then in the browser with `pnpm dev` and `pnpm build && pnpm start`: `/` is static, all layers render, toggles work, and switching windows makes no requests. The console's "Expected value to be of type number, but found null" comes from OpenFreeMap Positron's own filters (road shields, boundaries) on tile features without those properties, not from these layers. To confirm after merge: the production map shows live data with attribution
+  - The basemap style is fetched by the app and its numeric filters guarded (`src/lib/basemap-style.ts`): OpenFreeMap Positron compares `ref_length` and `admin_level` on tile features that lack them, which made MapLibre log "Expected value to be of type number, but found null instead"
+  - Verified locally (2026-09-29): tests, then in the browser with `pnpm dev` and `pnpm build && pnpm start`: `/` is static, all layers render, toggles work, and switching windows makes no requests. To confirm after merge: the production map shows live data with attribution
 - [ ] 6c: Click details
   - `GET /api/map/inaturalist/[id]` and `/api/map/firms/[id]` return one record's details for a popup with its source link. Weather popups use the row's values, the model, and the distance from the requested point to the grid cell (both are in `WeatherMapPoint`)
+  - Notes from 6b, a guide rather than requirements:
+    - The map's GeoJSON features don't carry record IDs yet (`src/lib/map-layers.ts` keeps only what filters and styles use); the rows have them (iNaturalist ID, FIRMS `source_id`, weather point ID)
+    - Weather circles sit at the model grid cell, so the popup's distance runs from the sample point to that cell. The model is in the response's `filters.model`, not on each row
+    - The iNaturalist popup could show positional accuracy in metres and whether it's precise by `PRECISE_ACCURACY_M` ("unknown" when missing, never 0), flag obscured locations, and leave out introduced/native status until it's verified (Phase 2 limitations)
 
 ## Phase 7: Timeline
 
