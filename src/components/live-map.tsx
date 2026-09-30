@@ -3,7 +3,7 @@
 import "maplibre-gl/dist/maplibre-gl.css";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import type { GeoJSONSource, Popup as MapLibrePopup } from "maplibre-gl";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Map, {
 	AttributionControl,
 	Layer,
@@ -339,10 +339,17 @@ export function LiveMap() {
 	const observationsLoaded = useMemo(() => loadedSpan(inaturalist.data, (row) => row[3]), [inaturalist.data]);
 	const detectionsLoaded = useMemo(() => loadedSpan(firms.data, (row) => row[3]), [firms.data]);
 
-	// Read when a question is sent, so panning doesn't re-render the chat.
+	// Read when a question is sent, so panning doesn't re-render the chat. The window, hour and end
+	// go through a ref so the callback never changes: the hour changes on every playback step, and
+	// a new callback would re-render the memoized chat panel and re-parse every answer each time.
+	const timeContext = useRef({ mapWindow, hour, latestEnd });
+	useEffect(() => {
+		timeContext.current = { mapWindow, hour, latestEnd };
+	}, [mapWindow, hour, latestEnd]);
 	const chatContext = useCallback((): ChatContext => {
 		const bounds = mapRef.current?.getBounds();
 		const [[west, south], [east, north]] = CALIFORNIA;
+		const { mapWindow, hour, latestEnd } = timeContext.current;
 		return {
 			view: bounds
 				? { west: bounds.getWest(), south: bounds.getSouth(), east: bounds.getEast(), north: bounds.getNorth() }
@@ -351,7 +358,7 @@ export function LiveMap() {
 			hour,
 			end: latestEnd === null ? null : new Date(latestEnd).toISOString(),
 		};
-	}, [mapWindow, hour, latestEnd]);
+	}, []);
 	const suggestions = useMemo(
 		() => suggestedQuestions(loadedData(mapWindow, inaturalist.data, firms.data, weather.data)),
 		[mapWindow, inaturalist.data, firms.data, weather.data],
