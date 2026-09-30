@@ -224,20 +224,32 @@ describe("observationsNearDetections", () => {
 			excluded: { imprecise: 1, unknownAccuracy: 1, dateOnly: 1 },
 			animalGroups: [{ group: "Aves", count: 2 }],
 		});
-		expect(result!.closest).toEqual([
+		// Both observations are near the largest cluster; the lone detection 19 km east has none.
+		expect(result).toMatchObject({ clusterCount: 2, otherClusters: { clusters: 0, observations: 0 } });
+		expect(result!.clusters).toEqual([
 			{
-				observationId: String(BEFORE.inat_id),
-				detectionId: "test:agent:a1",
-				label: "Anna's Hummingbird (Calypte anna)",
-				distanceKm: expect.closeTo(0.5, 1),
-				hoursFromDetection: -4,
+				rank: 1,
+				longitude: expect.closeTo(-140.005, 5),
+				latitude: expect.closeTo(LAT, 5),
+				detections: 3,
+				maxFrpMw: 20,
+				observations: { total: 2, beforeDetection: 2, afterDetection: 1 },
+				closest: {
+					observationId: String(BEFORE.inat_id),
+					detectionId: "test:agent:a1",
+					label: "Anna's Hummingbird (Calypte anna)",
+					distanceKm: expect.closeTo(0.5, 1),
+					hoursFromDetection: -4,
+				},
 			},
 			{
-				observationId: String(AFTER.inat_id),
-				detectionId: "test:agent:a1",
-				label: "Anna's Hummingbird (Calypte anna)",
-				distanceKm: expect.closeTo(1, 1),
-				hoursFromDetection: 2,
+				rank: 2,
+				longitude: expect.closeTo(-139.8, 5),
+				latitude: expect.closeTo(LAT, 5),
+				detections: 1,
+				maxFrpMw: 50,
+				observations: { total: 0, beforeDetection: 0, afterDetection: 0 },
+				closest: null,
 			},
 		]);
 		// Observations are read a day either side of the detections' range.
@@ -247,10 +259,42 @@ describe("observationsNearDetections", () => {
 		]);
 	});
 
-	it("cites the closest observations, then their detections", async () => {
+	it("cites each listed cluster's closest observation, then its detection", async () => {
 		const { evidence } = await observationsNearDetections({ area: AREA, range: RANGE });
 
-		expect(evidence.map((e) => e.id)).toEqual([String(BEFORE.inat_id), String(AFTER.inat_id), "test:agent:a1"]);
+		expect(evidence.map((e) => e.id)).toEqual([String(BEFORE.inat_id), "test:agent:a1"]);
+	});
+
+	it("ranks clusters as summarizeDetections does, and totals the ones it doesn't list", async () => {
+		const [near, summary] = await Promise.all([
+			observationsNearDetections({ area: AREA, range: RANGE, maxClusters: 1 }),
+			summarizeDetections({ area: AREA, range: RANGE }),
+		]);
+
+		expect(near.result!.clusters.map(({ rank, detections }) => ({ rank, detections }))).toEqual([
+			{ rank: 1, detections: summary.result!.clusters[0].detections },
+		]);
+		expect(near.result!.otherClusters).toEqual({ clusters: 1, observations: 0 });
+	});
+
+	it("leaves out detections below a minimum power, and says so", async () => {
+		const [near, summary] = await Promise.all([
+			observationsNearDetections({ area: AREA, range: RANGE, minFrpMw: 10 }),
+			summarizeDetections({ area: AREA, range: RANGE, minFrpMw: 10 }),
+		]);
+
+		// Left: a2 (20 MW) and b1 (50 MW), one detection each, so the stronger ranks first.
+		expect(summary.result).toMatchObject({ matched: 2, clusterCount: 2 });
+		expect(summary.result!.clusters.map((cluster) => cluster.maxFrpMw)).toEqual([50, 20]);
+		expect(summary.limitations).toContain("Only detections of at least 10 MW fire radiative power are included.");
+		expect(near.result).toMatchObject({
+			detections: 2,
+			// BEFORE is 4 h before a2 and AFTER 2 h after it.
+			observations: { total: 2, beforeDetection: 1, afterDetection: 1 },
+		});
+		expect(near.result!.clusters.map((cluster) => cluster.observations.total)).toEqual([0, 2]);
+		expect(near.result!.clusters[1].closest?.detectionId).toBe("test:agent:a2");
+		expect(near.coverage.filters).toMatchObject({ minFrpMw: 10 });
 	});
 
 	it("narrows by radius and time window", async () => {

@@ -5,7 +5,6 @@ import { z } from "zod";
 import {
 	areaSchema,
 	type Coverage,
-	EVIDENCE_LIMIT,
 	getCoverage,
 	hasUploadLag,
 	insufficientCoverage,
@@ -15,7 +14,13 @@ import {
 	resolveRange,
 	type ToolResult,
 } from "@/lib/agent/contract";
-import { DETECTION_LIMITATIONS, detectionsIn, firmsEvidence } from "@/lib/agent/detections";
+import {
+	clusteredDetections,
+	clusterDistanceKmSchema,
+	DETECTION_LIMITATIONS,
+	firmsEvidence,
+	minFrpMwSchema,
+} from "@/lib/agent/detections";
 import { inatEvidence } from "@/lib/agent/observations";
 import { sql } from "@/lib/db";
 import { DEFAULT_FIRMS_CONFIDENCE, DEFAULT_QUALITY_GRADES, PRECISE_ACCURACY_M } from "@/lib/default-filters";
@@ -34,7 +39,20 @@ export const observationsNearDetectionsInput = z.object({
 	range: rangeSchema,
 	radiusKm: z.number().min(0.1).max(MAX_RADIUS_KM).default(5),
 	withinHours: z.number().min(1).max(MAX_WITHIN_HOURS).default(24),
+	// Clusters as summarize_detections forms and ranks them, so ranks agree between the two.
+	clusterDistanceKm: clusterDistanceKmSchema,
+	maxClusters: z.number().int().min(1).max(10).default(5),
+	minFrpMw: minFrpMwSchema,
 });
+
+type Pair = {
+	observationId: string;
+	detectionId: string;
+	label: string;
+	distanceKm: number;
+	// Signed: negative means observed before the detection.
+	hoursFromDetection: number;
+};
 
 export type NearDetections = {
 	detections: number;
@@ -48,27 +66,37 @@ export type NearDetections = {
 	// accuracy, or a date without a time.
 	excluded: { imprecise: number; unknownAccuracy: number; dateOnly: number };
 	animalGroups: { group: string | null; count: number }[];
-	// The closest pairs, closest first. Hours are signed: negative means observed before the detection.
-	closest: {
-		observationId: string;
-		detectionId: string;
-		label: string;
-		distanceKm: number;
-		hoursFromDetection: number;
+	// The largest detection clusters, whether or not anything was recorded near them, so the answer
+	// leads with the likeliest fires rather than with whichever detections sit closest to observers
+	// (often static heat sources in towns). `closest` is the cluster's closest pair.
+	clusters: {
+		rank: number;
+		longitude: number;
+		latitude: number;
+		detections: number;
+		maxFrpMw: number;
+		observations: { total: number; beforeDetection: number; afterDetection: number };
+		closest: Pair | null;
 	}[];
+	clusterCount: number;
+	// Clusters beyond maxClusters, and the recorded observations near them (unique).
+	otherClusters: { clusters: number; observations: number };
 };
 
 export async function observationsNearDetections(
 	input: z.input<typeof observationsNearDetectionsInput>,
 	now = new Date(),
 ): Promise<ToolResult<NearDetections>> {
-	const { area, range, radiusKm, withinHours } = observationsNearDetectionsInput.parse(input);
+	const { area, range, radiusKm, withinHours, clusterDistanceKm, maxClusters, minFrpMw } =
+		observationsNearDetectionsInput.parse(input);
 	const filters = {
 		confidence: DEFAULT_FIRMS_CONFIDENCE,
 		qualityGrades: DEFAULT_QUALITY_GRADES,
 		radiusKm,
 		withinHours,
 		preciseAccuracyM: PRECISE_ACCURACY_M,
+		clusterDistanceKm,
+		minFrpMw,
 	};
 	const window = resolveRange(range, now);
 	if (!window) {
@@ -107,10 +135,10 @@ export async function observationsNearDetections(
 
 	const radiusM = radiusKm * 1000;
 	const interval = `${withinHours} hours`;
-	// Every (observation, detection) pair within the radius whose times can be within the window.
-	// A date-only observation pairs when any moment of its date could be.
+	// Every (observation, detection) pair within the radius whose times can be within the window,
+	// with the detection's cluster. A date-only observation pairs when any moment of its date could be.
 	const pairs = () => sql`
-		detections as (${detectionsIn(area, window)}),
+		${clusteredDetections(area, window, clusterDistanceKm, minFrpMw)},
 		pairs as (
 			select
 				o.inat_id,
@@ -120,6 +148,7 @@ export async function observationsNearDetections(
 				o.positional_accuracy_m,
 				d.source_id,
 				d.acquired_at,
+				d.cluster,
 				extensions.st_distance(o.location, d.location) as distance_m,
 				extract(epoch from o.observed_at - d.acquired_at) / 3600 as gap_hours
 			from detections d
@@ -142,14 +171,33 @@ export async function observationsNearDetections(
 		)
 	`;
 
-	const [[counts], groups, closest, [{ detections }]] = await Promise.all([
-		sql<(NearDetections["observations"] & NearDetections["excluded"] & { detectionsWithObservations: number })[]>`
+	type ClusterRow = Omit<NearDetections["clusters"][number], "observations" | "closest"> &
+		NearDetections["observations"] & {
+			observationId: string | null;
+			detectionId: string | null;
+			distanceM: number | null;
+			gapHours: number | null;
+		};
+	const [[counts], groups, clusterRows] = await Promise.all([
+		sql<
+			(NearDetections["observations"] &
+				NearDetections["excluded"] & {
+					detections: number;
+					detectionsWithObservations: number;
+					clusterCount: number;
+					otherObservations: number;
+				})[]
+		>`
 			with ${pairs()}
 			select
+				(select count(*) from detections)::int as detections,
+				(select count(*) from clusters)::int as "clusterCount",
 				(select count(distinct inat_id) from counted)::int as total,
 				(select count(distinct inat_id) from counted where gap_hours < 0)::int as "beforeDetection",
 				(select count(distinct inat_id) from counted where gap_hours >= 0)::int as "afterDetection",
 				(select count(distinct source_id) from counted)::int as "detectionsWithObservations",
+				(select count(distinct inat_id) from counted join clusters using (cluster)
+					where rank > ${maxClusters})::int as "otherObservations",
 				(select count(distinct inat_id) from pairs
 					where observed_at is not null and (obscured or positional_accuracy_m > ${PRECISE_ACCURACY_M}))::int as imprecise,
 				(select count(distinct inat_id) from pairs
@@ -163,28 +211,52 @@ export async function observationsNearDetections(
 			group by iconic_taxon
 			order by count desc, iconic_taxon
 		`,
-		// Each observation's closest detection, then the closest observations.
-		sql<{ observationId: string; detectionId: string; distanceM: number; gapHours: number }[]>`
+		// The largest clusters, with their counts and their closest pair.
+		sql<ClusterRow[]>`
 			with ${pairs()},
-			nearest as (
-				select distinct on (inat_id) inat_id, source_id, distance_m, gap_hours
+			cluster_counts as (
+				select
+					cluster,
+					count(distinct inat_id)::int as total,
+					(count(distinct inat_id) filter (where gap_hours < 0))::int as before_detection,
+					(count(distinct inat_id) filter (where gap_hours >= 0))::int as after_detection
 				from counted
-				order by inat_id, distance_m, abs(gap_hours), source_id
+				group by cluster
+			),
+			nearest as (
+				select distinct on (cluster) cluster, inat_id, source_id, distance_m, gap_hours
+				from counted
+				order by cluster, distance_m, abs(gap_hours), inat_id, source_id
 			)
-			select inat_id::text as "observationId", source_id as "detectionId", distance_m as "distanceM", gap_hours::float8 as "gapHours"
-			from nearest
-			order by distance_m, abs(gap_hours), inat_id
-			limit ${EVIDENCE_LIMIT}
+			select
+				c.rank,
+				extensions.st_x(c.centre) as longitude,
+				extensions.st_y(c.centre) as latitude,
+				c.detections,
+				c.max_frp_mw as "maxFrpMw",
+				coalesce(n.total, 0) as total,
+				coalesce(n.before_detection, 0) as "beforeDetection",
+				coalesce(n.after_detection, 0) as "afterDetection",
+				p.inat_id::text as "observationId",
+				p.source_id as "detectionId",
+				p.distance_m as "distanceM",
+				p.gap_hours::float8 as "gapHours"
+			from clusters c
+			left join cluster_counts n using (cluster)
+			left join nearest p using (cluster)
+			where c.rank <= ${maxClusters}
+			order by c.rank
 		`,
-		sql<{ detections: number }[]>`select count(*)::int as detections from (${detectionsIn(area, window)}) d`,
 	]);
 
+	// Each listed cluster's closest pair: its observation, then its detection.
+	const cited = clusterRows.filter((row) => row.observationId !== null);
 	const evidence = [
-		...(await inatEvidence(closest.map((pair) => pair.observationId))),
-		...(await firmsEvidence([...new Set(closest.map((pair) => pair.detectionId))])),
+		...(await inatEvidence(cited.map((row) => row.observationId!))),
+		...(await firmsEvidence([...new Set(cited.map((row) => row.detectionId!))])),
 	];
 	const labels = new Map(evidence.map((record) => [record.id, record.label]));
-	const { detectionsWithObservations, total, beforeDetection, afterDetection, imprecise, unknownAccuracy, dateOnly } =
+	const { detections, clusterCount, detectionsWithObservations, otherObservations, total, beforeDetection, afterDetection } =
 		counts;
 
 	return {
@@ -192,15 +264,28 @@ export async function observationsNearDetections(
 			detections,
 			detectionsWithObservations,
 			observations: { total, beforeDetection, afterDetection },
-			excluded: { imprecise, unknownAccuracy, dateOnly },
+			excluded: { imprecise: counts.imprecise, unknownAccuracy: counts.unknownAccuracy, dateOnly: counts.dateOnly },
 			animalGroups: [...groups],
-			closest: closest.map((pair) => ({
-				observationId: pair.observationId,
-				detectionId: pair.detectionId,
-				label: labels.get(pair.observationId) ?? "",
-				distanceKm: Number((pair.distanceM / 1000).toFixed(2)),
-				hoursFromDetection: Number(pair.gapHours.toFixed(1)),
+			clusters: clusterRows.map((row) => ({
+				rank: row.rank,
+				longitude: row.longitude,
+				latitude: row.latitude,
+				detections: row.detections,
+				maxFrpMw: row.maxFrpMw,
+				observations: { total: row.total, beforeDetection: row.beforeDetection, afterDetection: row.afterDetection },
+				closest:
+					row.observationId === null
+						? null
+						: {
+								observationId: row.observationId,
+								detectionId: row.detectionId!,
+								label: labels.get(row.observationId) ?? "",
+								distanceKm: Number((row.distanceM! / 1000).toFixed(2)),
+								hoursFromDetection: Number(row.gapHours!.toFixed(1)),
+							},
 			})),
+			clusterCount,
+			otherClusters: { clusters: Math.max(clusterCount - maxClusters, 0), observations: otherObservations },
 		},
 		evidence,
 		coverage,
@@ -210,12 +295,16 @@ export async function observationsNearDetections(
 				"not obscured); the others are counted in `excluded`. A detection near the area's edge may have observations " +
 				"just outside it that aren't counted.",
 			"`observations.total` counts each observation once. One can be both before one detection and after another, " +
-				"so beforeDetection + afterDetection can exceed it: never add them up.",
+				"so beforeDetection + afterDetection can exceed it: never add them up. The same holds across clusters: an " +
+				"observation near two clusters counts in each.",
 			"Distances are from the detection's pixel centre; the heat source can be anywhere in its pixel (~375 m, wider at the swath edge).",
+			`Clusters join detections within ${clusterDistanceKm} km of each other and are ranked by size, as summarize_detections ranks them.`,
 			DETECTION_LIMITATIONS.notFires,
+			DETECTION_LIMITATIONS.staticSources,
 			LIMITATIONS.effort,
 			LIMITATIONS.defaultFilters,
 			DETECTION_LIMITATIONS.defaultFilter,
+			...(minFrpMw === undefined ? [] : [DETECTION_LIMITATIONS.minFrp(minFrpMw)]),
 			...(hasUploadLag(inat[0]) ? [LIMITATIONS.uploadLag] : []),
 		],
 	};
