@@ -250,7 +250,7 @@ To be refined; roughly 4 to 6 tools done well beats many shallow ones.
 
 ### 6.6 Answer behavior
 
-- Answers cite their evidence; cited records are **highlighted on the map and timeline** so users can follow evidence to its source
+- Answers cite their evidence; cited records are **highlighted on the map** so users can follow evidence to its source
 - Answers include relevant limitations briefly, without drowning the answer in caveats
 - The agent **refuses or qualifies** claims about: population change, mortality, displacement, migration, recovery, causation, exact fire boundaries, and absence inferred from missing observations
 - Example of the target behavior:

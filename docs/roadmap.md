@@ -212,15 +212,12 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - Verified locally (2026-09-30): `citations`, `messages`, `ui`, `route`, `tools`, `conditions` and `detections` test files, `limits` against the local database (migration applied locally), typecheck, lint. Full `pnpm test` (Mike) passed before the review fixes; he reruns it before merge
   - Before merge (Mike): `supabase db push` for `unmatched_citations`, or usage writes fail (caught and logged, the row's usage lost)
   - Post-merge checks (Mike): the fire question in production shows chips, an evidence list whose numbers match, and collapsed coverage and limitations with no instructions to the model in them; its `chat_requests` row has `unmatched_citations` set (0 or more, not null)
-- [ ] 10c-3: Evidence on the map
-  - Markers drawn from the evidence's own coordinates in their own layer, ignoring the timeline, window and layer toggles (highlighting the map's points by ID breaks when the timeline filters them out). A filled dot plus a ring, so a record the timeline hides doesn't look like an empty circle. The newest answer's evidence is shown; clicking a chip in an older answer switches to its evidence
-  - Clicking a chip or list item flies to the record and opens its popup and source link. Weather evidence opens a small card with that reading's time, grid distance and link, not the layer's popup (which shows the timeline's hour)
-  - A "Clear highlights" control; New chat clears them too
-  - Notes from 10c-2 for building it:
-    - `Reply` in `src/components/chat-panel.tsx` already memoizes each answer's `evidence` (from `turnEvidence`) and `cited` (from `citeAnswer`). The numbering is `cited` first (1..k), then the uncited evidence in `evidence` order (k+1..N): markers can reuse it
-    - Chips (`Chip`) and list items are plain text today; 10c-3 makes them buttons. The evidence list only renders once the reply is finished
-    - Every `Evidence` carries `longitude`, `latitude`, `url` and times; weather evidence IDs are `<point id>:<ISO hour>`
-    - `formatDate` (date-only records) is exported from `src/components/map-popup.tsx`; `formatTime` is in `src/lib/timeline.ts`
+- [x] 10c-3: Evidence on the map (timeboxed, Mike, 2026-09-30: a smaller version of the plan, the rest under "Later")
+  - Markers drawn from the evidence's own coordinates in their own layer, above every other, ignoring the timeline, window and layer toggles (highlighting the map's points by ID breaks when the timeline filters them out). A filled dot in the source's colour inside a dark ring (weather neutral grey, since the temperature scale owns the purples); the focused one larger. Only the newest finished answer's evidence is shown; chips in older answers stay plain text
+  - Clicking a chip or evidence list label (in the newest answer) flies to the record at the current zoom or 10, whichever is closer, and opens its popup; so does clicking a marker. The evidence popup is anchored at the record's coordinates and stays open whatever the timeline shows; opening it closes the layer popup and the other way round. Observations and detections reuse the layers' popups (looked up by ID), with the chip's number on top ("detection 3 in the answer"). Weather shows the label, the reading's hour and the source link, no values from the weather layer (HRRR revises its newest hours, so the layer's copy can differ from what the tool returned)
+  - "Clear highlights" next to New chat; New chat clears them too
+  - Built as `numberedEvidence` and `evidenceGeoJson` (`src/lib/chat/ui.ts`, one numbering for chips, list and markers), `EvidencePopupContent` (`src/components/map-popup.tsx`) and the `evidence` source in `src/components/live-map.tsx`. The chat panel hands the newest answer's evidence to the map through `onHighlight`, and a picked record through `onFocus`
+  - Verified locally (2026-09-30): `ui` and `citations` test files, typecheck, lint. Full `pnpm test` and the browser checks are Mike's
 - [ ] 10d: Clip "California" to the state outline (after 10c, before Phase 11)
   - The Live bbox takes in parts of Nevada, Oregon, Arizona and Baja California, so statewide answers include e.g. a cluster at 40.82, -114.26 in Nevada (3.2 MW max, cluster #4 in the production fire answer, 2026-09-30). Once 10c shows clusters on the map, reviewers will see it
   - Load California's outline as a polygon (public domain source, one migration) and add `ST_Intersects` to the shared tool queries alongside the bbox. Ingestion and coverage stay rectangle-based: coverage is what was read; the outline filters what's counted
@@ -233,6 +230,8 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - Citations as chips numbered once per answer across all sources (alternatives: raw IDs, unreadable for FIRMS; a numbering per source). One sequence lets 10c-3's markers reuse the numbers
   - Coverage and limitations collapsed under each answer (alternative: always shown, which buries the answer the brief says not to drown in caveats)
   - Limitations written for users, instructions for the model in the tool descriptions (alternative: separate user and model limitation fields in the tool contract, which would change every tool's return shape)
+  - Evidence markers in a MapLibre layer (alternative: HTML markers, one DOM element per record, which make numbers and buttons easy). Matches how every other layer is drawn, and an answer's evidence can reach ~80 records (10 per tool result, up to 8 steps)
+  - The weather evidence popup shows no values from the weather layer (alternative: look the reading up in the loaded layer by point and hour). HRRR revises its newest hours, so the layer's copy can differ from the reading the tool returned
 
 ## Phase 11: Agent evals (right after Phase 10, not optional)
 
@@ -284,6 +283,7 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - Upgrade maplibre-gl to v6 once the worker loads under Turbopack, or by serving its worker files ourselves (decisions.md, 10)
 - Stable source links for settled weather readings through Open-Meteo's Historical Forecast API, if its archived HRRR values match the stored ones. Not for the newest hours, which HRRR still revises (Phase 4 limitations), so it suits the timeline and agent evidence more than the latest-hour popup
 - List every record under a click instead of only the topmost plus a count
+- Cut from 10c-3 (timebox): switching the map's evidence to an older answer by clicking its chips; a weather evidence card with the reading's values and grid distance; evidence ticks on the timeline (brief 6.6 said the timeline highlights evidence too); numbers on the evidence markers (the popup shows the chip's number instead)
 - Protect the map routes from CDN bypass: any new query string (an arbitrary bbox, or a junk parameter) misses the cache and runs a full layer query. Rounding the bbox alone doesn't help, since unknown parameters also change the cache key; the fix is rate limiting (e.g. Vercel's firewall) or ignoring unknown parameters in the cache key
 
 ### Known limitations from Phase 2 (check later)
@@ -352,6 +352,8 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - **Tool schemas carry long ISO date patterns:** `z.iso.datetime` adds a ~600-character regex to every range field (~3k tokens across the six tools). Prompt caching makes it cheap after the first message; trimming it means changing `rangeSchema` (Phase 9)
 - **Chat counts can differ slightly from the map's:** same range, but the map's layer can be up to 40 minutes old (CDN) while the tools query the database now
 - **"California" is a bounding box:** statewide answers include detections and observations just across the border (fix planned in 10d)
+- **Flying to a record moves the question's "here":** clicking a chip or evidence item flies the map there, so the next question's area is that view, not the one the answer described. Each question records the view it was asked with, so earlier answers aren't misread
+- **Overlapping evidence markers:** a weather answer's latest, driest and gustiest readings share one grid cell, and a recorded observation can sit metres from a detection. Clicking the map opens the top marker only; the chips reach each record
 - **Today can be marked partial for up to 20 minutes each hour:** the range counts the current hour's mark, but that hour's reading only arrives with the :20 poll. Between :00 and :20 a by-day weather answer marks today `partial` (and gives it no precipitation total), and the range says one hour is missing
 
 ### Known limitations from Phase 6 (check later)
