@@ -297,6 +297,22 @@ describe("POST /api/chat", () => {
 		expect(recordUsage).toHaveBeenCalledWith("42", expect.objectContaining({ inputTokens: 10, steps: 1, noAnswer: null }));
 	});
 
+	it("answers when the messages sent start with an answer whose question was cut off", async () => {
+		// The panel sends only its last few messages, which can cut a question from its answer.
+		const model = new MockLanguageModelV4({ doStream: [textStep("Near Sonoma.")] });
+		mocks.model = model;
+		const answer = (text: string) => ({ id: "a", role: "assistant", parts: [{ type: "step-start" }, { type: "text", text }] });
+
+		const response = await POST(
+			chatRequest([answer("An orphaned answer."), question("Any detections?"), answer("3 detections."), question("Where?")]),
+		);
+
+		expect(response.status).toBe(200);
+		await chunks(response);
+		const prompt = model.doStreamCalls[0].prompt.slice(2);
+		expect(prompt.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+		expect(JSON.stringify(prompt)).not.toContain("orphaned");
+	});
 });
 
 describe("POST /api/chat access and limits", () => {
