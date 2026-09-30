@@ -1,12 +1,13 @@
-// Runs against the local Supabase stack (see vitest.config.mts). Requests are dated 2001, apart from
-// any real chat use, and their IP hashes start with "test:limits:".
+// Runs against the local Supabase stack (see vitest.config.mts). Requests are dated 2101, after any
+// real chat use (the counts have no upper time bound, so earlier dates would count local dev's rows),
+// and their IP hashes start with "test:limits:".
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { admitRequest, chatLimits, recordUsage, remainingQuota } from "@/lib/chat/limits";
 import { sql } from "@/lib/db";
 
 const LIMITS = { hourlyPerIp: 2, daily: 3 };
 // 10:00 AM PDT.
-const T = Date.parse("2001-06-01T17:00:00Z");
+const T = Date.parse("2101-06-01T17:00:00Z");
 const at = (minutes: number) => new Date(T + minutes * 60_000);
 const ip = (name: string) => `test:limits:${name}`;
 
@@ -30,11 +31,15 @@ describe("chatLimits", () => {
 });
 
 describe("admitRequest", () => {
-	it("only counts requests made up to now", async () => {
+	it("counts a request admitted first even when it started later", async () => {
 		const ONE_A_DAY = { hourlyPerIp: 5, daily: 1 };
-		// A row dated later (in the tests, any real chat use) isn't "since midnight" for an earlier now.
-		expect(await admitRequest("public", ip("later"), ONE_A_DAY, at(30))).toMatchObject({ ok: true });
-		expect(await admitRequest("public", ip("now"), ONE_A_DAY, at(0))).toMatchObject({ ok: true });
+		// Each request reads its clock before waiting for the lock, so the one holding the lock can
+		// have started later than one still waiting. The waiting one must still see its row.
+		expect(await admitRequest("public", ip("started-later"), ONE_A_DAY, at(30))).toMatchObject({ ok: true });
+		expect(await admitRequest("public", ip("started-first"), ONE_A_DAY, at(0))).toMatchObject({
+			ok: false,
+			limit: "daily",
+		});
 	});
 
 	it("limits each IP per rolling hour, until its oldest request in the hour is an hour old", async () => {
@@ -58,10 +63,10 @@ describe("admitRequest", () => {
 		expect(await admitRequest("public", ip("d"), LIMITS, at(5))).toEqual({
 			ok: false,
 			limit: "daily",
-			retryAt: new Date("2001-06-02T07:00:00Z"),
+			retryAt: new Date("2101-06-02T07:00:00Z"),
 		});
 		// Past midnight PT, a new day.
-		expect(await admitRequest("public", ip("d"), LIMITS, new Date("2001-06-02T07:00:00Z"))).toMatchObject({ ok: true });
+		expect(await admitRequest("public", ip("d"), LIMITS, new Date("2101-06-02T07:00:00Z"))).toMatchObject({ ok: true });
 	});
 
 	it("keeps the reviewer and public counters apart", async () => {
@@ -83,10 +88,10 @@ describe("admitRequest", () => {
 	});
 
 	it("counts the last hour across midnight PT", async () => {
-		const beforeMidnight = new Date("2001-06-02T06:50:00Z");
+		const beforeMidnight = new Date("2101-06-02T06:50:00Z");
 		await admitRequest("public", ip("a"), LIMITS, beforeMidnight);
-		await admitRequest("public", ip("a"), LIMITS, new Date("2001-06-02T06:55:00Z"));
-		expect(await admitRequest("public", ip("a"), LIMITS, new Date("2001-06-02T07:05:00Z"))).toMatchObject({
+		await admitRequest("public", ip("a"), LIMITS, new Date("2101-06-02T06:55:00Z"));
+		expect(await admitRequest("public", ip("a"), LIMITS, new Date("2101-06-02T07:05:00Z"))).toMatchObject({
 			ok: false,
 			limit: "hourly",
 		});
