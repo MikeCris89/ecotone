@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { NO_VALUE_COLOR, TEMPERATURE_COLOR } from "@/components/map-colors";
 import {
 	FIRMS_CLUSTER,
+	FIRMS_CLUSTER_MAX_RADIUS,
 	FIRMS_CLUSTER_RADIUS,
 	firmsGeoJson,
 	inatGeoJson,
@@ -155,17 +156,18 @@ describe("record IDs on features", () => {
 });
 
 describe("FIRMS_CLUSTER_RADIUS", () => {
-	it("draws bigger clusters as bigger circles", () => {
+	it("grows with the square root of the count, up to a cap", () => {
 		const radius = (count: number) => {
 			const parsed = expression.createExpression(FIRMS_CLUSTER_RADIUS, latest.paint_circle["circle-radius"]);
 			if (parsed.result !== "success") throw new Error(JSON.stringify(parsed.value));
 			return parsed.value.evaluateWithoutErrorHandling({ zoom: 6 }, { type: "Point", properties: { point_count: count } });
 		};
 
-		expect(radius(FIRMS_CLUSTER.clusterMinPoints)).toBe(7);
-		expect(radius(50)).toBeGreaterThan(radius(20));
-		// A large group stands out from the typical 10–60 ones.
-		expect(radius(1_600)).toBeGreaterThanOrEqual(3 * radius(50));
+		expect(radius(FIRMS_CLUSTER.clusterMinPoints)).toBe(6);
+		expect(radius(200)).toBeGreaterThan(radius(50));
+		// Area, not radius, tracks the count: 4× the detections is at most twice the radius.
+		expect(radius(400)).toBeLessThanOrEqual(2 * radius(100));
+		expect(radius(100_000)).toBe(FIRMS_CLUSTER_MAX_RADIUS);
 	});
 });
 

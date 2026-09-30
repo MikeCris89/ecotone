@@ -113,9 +113,10 @@ export function firmsGeoJson(rows: FirmsMapRow[]): PointCollection<{ id: string;
 }
 
 /**
- * Zoomed out, satellite thermal detections close together draw as one larger circle sized by their
- * count, so a dense group doesn't read as a single dot. Up to zoom 8; from 9 every detection is its
- * own circle again. Tuned on local data (2026-09-29): a week had one group of ~1,650 detections
+ * Zoomed out, satellite thermal detections close together draw as one ring sized by their count, so
+ * a dense group doesn't read as a single dot. MapLibre clusters below clusterMaxZoom + 1, so from
+ * zoom 7 (regional) every detection is its own circle again, where its popup and pixel footprint
+ * mean something. Tuned on local data (2026-09-29): a week had one group of ~1,650 detections
  * within 7 km of each other and dozens of recurring 10–60 groups, and a radius of 30 px (~40 km at
  * statewide zoom) merged separate areas into groups of ~300 that competed with the large one. At
  * 10 px (~14 km) and at least 10 detections, groups stay separate and the size scale below lets
@@ -125,26 +126,24 @@ export function firmsGeoJson(rows: FirmsMapRow[]): PointCollection<{ id: string;
  */
 export const FIRMS_CLUSTER = {
 	cluster: true,
-	clusterMaxZoom: 8,
+	clusterMaxZoom: 6,
 	clusterRadius: 10,
 	clusterMinPoints: 10,
 	clusterProperties: { time: ["max", ["get", "time"]] },
 };
 
-// Pixels, by the number of detections in the cluster (MapLibre's `point_count`). Small groups stay
-// close to a detection's size (3–6 px); only large ones grow much.
+// Pixels, growing with the square root of the detection count so a ring's area, not its radius,
+// tracks the count, and capped: a large group mustn't hide the recorded observations around it.
+// ~8 px at 50 detections, ~11 px at 200, 20 px from ~1,000.
+export const FIRMS_CLUSTER_MAX_RADIUS = 20;
 export const FIRMS_CLUSTER_RADIUS: ExpressionSpecification = [
 	"interpolate",
 	["linear"],
-	["get", "point_count"],
-	FIRMS_CLUSTER.clusterMinPoints,
-	7,
-	50,
-	10,
-	200,
-	16,
-	1_000,
-	30,
+	["sqrt", ["get", "point_count"]],
+	Math.sqrt(FIRMS_CLUSTER.clusterMinPoints),
+	6,
+	Math.sqrt(1_000),
+	FIRMS_CLUSTER_MAX_RADIUS,
 ];
 
 /**

@@ -121,11 +121,11 @@ export function MapPanel(props: MapPanelProps) {
 			>
 				<p className="flex items-center gap-1">
 					<span
-						className="size-4 shrink-0 rounded-full border-2 border-white"
-						style={{ backgroundColor: DETECTION_COLOR }}
+						className="size-4 shrink-0 rounded-full border-2"
+						style={{ borderColor: DETECTION_COLOR, backgroundColor: `${DETECTION_COLOR}26` }}
 					/>
-					Zoomed out, {FIRMS_CLUSTER.clusterMinPoints} or more detections close together draw as one larger circle,
-					bigger for more; click it to zoom in.
+					Zoomed out, {FIRMS_CLUSTER.clusterMinPoints} or more detections close together draw as one ring, bigger
+					for more; click it to zoom in.
 				</p>
 			</LayerEntry>
 

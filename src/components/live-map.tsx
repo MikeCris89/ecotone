@@ -421,12 +421,13 @@ export function LiveMap() {
 						type="circle"
 						filter={["has", "point_count"]}
 						layout={{ visibility: visibility("firms") }}
+						// A ring with a faint fill: the recorded observations under a group stay visible.
 						paint={{
 							"circle-radius": FIRMS_CLUSTER_RADIUS,
 							"circle-color": DETECTION_COLOR,
-							"circle-opacity": recencyFade(fadeEnd, "time"),
-							"circle-stroke-color": "#ffffff",
-							"circle-stroke-width": 1.5,
+							"circle-opacity": ["*", 0.15, recencyFade(fadeEnd, "time")],
+							"circle-stroke-color": DETECTION_COLOR,
+							"circle-stroke-width": 2,
 							"circle-stroke-opacity": recencyFade(fadeEnd, "time"),
 						}}
 					/>
