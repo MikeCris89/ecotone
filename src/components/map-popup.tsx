@@ -8,6 +8,7 @@ import type { SourceAttribution } from "@/lib/data-sources";
 import type { FirmsMapDetails } from "@/lib/firms/map";
 import type { InatMapDetails } from "@/lib/inaturalist/map";
 import { inatPrecision, LAYER_REFRESH_MINUTES } from "@/lib/map-layers";
+import { HOUR } from "@/lib/timeline";
 import type { WeatherMapPoint, WeatherMapRow } from "@/lib/open-meteo/map";
 
 /**
@@ -26,6 +27,10 @@ export type WeatherPopupData = {
 	row: WeatherMapRow;
 	model: string;
 	attribution: SourceAttribution;
+	// The hour the map shows (epoch seconds); `row` can be up to WEATHER_MAX_AGE_HOURS older.
+	hourShown: number;
+	// When `row` was last retrieved, known only for the point's newest loaded reading.
+	retrievedAt: number | null;
 };
 
 type MapPopupContentProps = {
@@ -190,15 +195,24 @@ function FirmsDetails({ id }: { id: string }) {
 
 const MODEL_LABELS: Record<string, string> = { ncep_hrrr_conus: "NOAA HRRR" };
 
-function WeatherDetails({ point, row, model, attribution }: WeatherPopupData) {
-	const [, , , , , elevationM, gridDistanceM, retrievedAt] = point;
+function WeatherDetails({ point, row, model, attribution, hourShown, retrievedAt }: WeatherPopupData) {
+	// The grid cell comes from the point's newest reading; it hasn't varied between a point's
+	// readings in the stored data, so it holds for earlier readings too.
+	const [, , , , , elevationM, gridDistanceM] = point;
 	const [, validAt, temperatureC, humidityPct, precipitationMm, windKmh, windDirectionDeg, gustsKmh] = row;
+	const ageHours = Math.round((hourShown - validAt) / HOUR);
 
 	return (
 		<>
 			<header>
 				<p className="text-zinc-500">Modeled conditions</p>
 				<p className="text-sm font-semibold">{formatTime(validAt * 1000)}</p>
+				{ageHours > 0 && (
+					<p className="text-amber-800">
+						Reading from {formatTime(validAt * 1000)}, {ageHours} h before the hour shown. No reading for{" "}
+						{formatTime(hourShown * 1000)} is loaded.
+					</p>
+				)}
 			</header>
 			<Facts>
 				<Fact label="Temperature">{withUnit(temperatureC, "°C")}</Fact>
@@ -213,7 +227,9 @@ function WeatherDetails({ point, row, model, attribution }: WeatherPopupData) {
 				<Fact label="Grid cell">
 					{formatDistance(gridDistanceM)} from the sample point, {elevationM} m elevation
 				</Fact>
-				<Fact label="Retrieved">{formatTime(retrievedAt * 1000)}</Fact>
+				<Fact label="Retrieved">
+					{retrievedAt === null ? "Not loaded for earlier hours" : formatTime(retrievedAt * 1000)}
+				</Fact>
 			</Facts>
 			<p className="text-[11px] text-zinc-500">
 				Values describe one model grid cell, not a measurement at this spot.

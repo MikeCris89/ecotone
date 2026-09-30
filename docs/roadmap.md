@@ -54,11 +54,12 @@
 
 ## Phase 7: Timeline
 
-- [ ] Time buckets, scrubbing and playback over loaded data
-  - Open for discussion before building: timeline granularity, playback speed and visual design (brief section 8), the charting library (decisions.md, 19), and whether buckets are computed on the client from the loaded rows or pre-aggregated in the database (brief 5.2)
-  - Weather follows the scrubber, on the map and in its popup (both show each point's latest hour in the window today)
-  - The map recounts every loaded feature (up to ~80,000) and scans for the selected one on each render (`src/components/live-map.tsx`). Fine for clicks and window changes, but scrubbing re-renders constantly: memoize per window or bucket
-  - A popup closes when its record leaves the shown set (6c), so scrubbing past a record will close its popup. Decide whether that's wanted, or whether the popup should stay while the record is off the current bucket
+- [ ] 7a: Hourly timeline and scrubbing
+  - Decided (decisions.md, 19): the handle steps by the hour. The map shows the 24 hours up to the handle, clipped to the selected window, with older records fainter. Weather (map and popup) shows one hour: the handle's, or the newest when the whole window is shown. A point without that hour's reading shows its latest one up to 3 hours earlier, faded, with its age in the popup (`WEATHER_MAX_AGE_HOURS`); past that it's left out. Bars are counted on the client from the loaded rows and drawn as plain SVG, scaled per row, with the time a layer hasn't loaded (capped, not yet refreshed, or not loaded at all) shaded. Date-only recorded observations are counted once per date in their own band. Every time in the app is California time, labelled PT
+  - The timeline spans the selected window, ending at the newest layer response's `end`. "Whole window" returns to the Phase 6 view for records. A refresh or a narrower window moves the handle to the timeline's nearest end instead of resetting it. A handle position reaches the map through at most one state update per animation frame, and only when the hour changes, so MapLibre gets at most one `setFilter` per layer per frame. Shown counts and the selected-record lookup are memoized per span, and the timeline doesn't re-render on map hovers (`src/lib/timeline.ts`, `src/components/timeline.tsx`)
+  - The panel and timeline stack in one column, so the panel scrolls rather than hiding under a taller timeline; the basemap attribution moved to the top right
+  - A popup closes when its record leaves the trailing span (the 6c rule). A weather popup for an earlier reading says its retrieval time isn't loaded: the layer only carries each point's newest reading's
+- [ ] 7b: Playback: play/pause and a 1× / 4× speed toggle (about 4 hours per second at 1×), stopping at the end
 
 ## Phase 8: Freshness and data quality UI
 

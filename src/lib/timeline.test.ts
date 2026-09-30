@@ -3,16 +3,22 @@ import { describe, expect, it } from "vitest";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 import { inatInWindow, instantInWindow, windowBounds } from "@/lib/map-layers";
 import {
+	clampHour,
 	countByHour,
 	countDateOnlyByDay,
 	FADED_OPACITY,
 	HOUR,
 	hourAxis,
+	lastHour,
 	localMidnights,
 	recencyFade,
+	STALE_WEATHER_OPACITY,
 	spanToHour,
 	TRAILING_HOURS,
 	timedInatTimes,
+	WEATHER_MAX_AGE_HOURS,
+	weatherLookback,
+	weatherStaleOpacity,
 } from "@/lib/timeline";
 
 // 05:30 PDT, not on the hour, as a response's end usually isn't.
@@ -33,6 +39,14 @@ describe("hourAxis", () => {
 
 	it("has no empty hour when the window ends on the hour", () => {
 		expect(hourAxis({ start: at("2026-09-28T12:00:00Z"), end: at("2026-09-29T12:00:00Z") }).count).toBe(24);
+	});
+});
+
+describe("clampHour", () => {
+	it("keeps an hour that a refresh or a narrower window pushed off the axis on its nearest end", () => {
+		expect(clampHour(at("2026-09-20T00:00:00Z"), window24)).toBe(hourAxis(window24).first);
+		expect(clampHour(at("2026-09-30T00:00:00Z"), window24)).toBe(lastHour(window24));
+		expect(lastHour(window24)).toBe(at("2026-09-29T12:00:00Z"));
 	});
 });
 
@@ -141,5 +155,23 @@ describe("recencyFade", () => {
 
 	it("doesn't fade when the whole window is shown", () => {
 		expect(recencyFade(null, "time")).toBe(1);
+	});
+});
+
+describe("weather fallback", () => {
+	const hour = at("2026-09-29T12:00:00Z");
+
+	it("looks back at most WEATHER_MAX_AGE_HOURS before the hour shown", () => {
+		expect(weatherLookback(hour)).toEqual({ start: hour - WEATHER_MAX_AGE_HOURS * HOUR, end: hour + HOUR });
+	});
+
+	it("fades readings from before the hour shown, not the hour's own", () => {
+		const parsed = expression.createExpression(weatherStaleOpacity(hour), latest.paint_circle["circle-opacity"]);
+		if (parsed.result !== "success") throw new Error(JSON.stringify(parsed.value));
+		const opacity = (time: number) =>
+			parsed.value.evaluateWithoutErrorHandling({ zoom: 8 }, { type: "Point", properties: { time } });
+
+		expect(opacity(hour)).toBe(1);
+		expect(opacity(hour - HOUR)).toBe(STALE_WEATHER_OPACITY);
 	});
 });

@@ -36,6 +36,38 @@ export function spanToHour(hour: number, hours: number, window: TimeWindow): Tim
 	};
 }
 
+/** The last hour of the axis: the one the timeline treats as "now" when the whole window is shown. */
+export function lastHour(window: TimeWindow) {
+	const { first, count } = hourAxis(window);
+	return first + (count - 1) * HOUR;
+}
+
+/** An hour kept on the axis, e.g. after a refresh slides the window forward or the window narrows. */
+export function clampHour(hour: number, window: TimeWindow) {
+	return Math.min(Math.max(hour, hourAxis(window).first), lastHour(window));
+}
+
+// Modeled conditions are hourly, but the latest hour isn't always stored yet (the poll runs at :20)
+// and a poll can fail. Rather than leave the map blank, the weather layer falls back to each
+// point's latest reading up to this many hours before the hour shown, drawn as stale.
+export const WEATHER_MAX_AGE_HOURS = 3;
+
+/**
+ * The readings the weather layer may use for the hour starting at `hour`: that hour's, or ones up
+ * to WEATHER_MAX_AGE_HOURS earlier. Not clipped to the window's start, so the axis's first hour,
+ * which starts before the window, can still use a loaded reading.
+ */
+export function weatherLookback(hour: number): TimeWindow {
+	return { start: hour - WEATHER_MAX_AGE_HOURS * HOUR, end: hour + HOUR };
+}
+
+export const STALE_WEATHER_OPACITY = 0.35;
+
+/** Circle opacity for weather points: faded when the reading is from before the hour shown. */
+export function weatherStaleOpacity(hour: number): ExpressionSpecification {
+	return ["case", ["<", ["get", "time"], hour], STALE_WEATHER_OPACITY, 1];
+}
+
 /** Instants per hour of the axis, counting only those in the window. */
 export function countByHour(times: number[], window: TimeWindow): number[] {
 	const { first, count } = hourAxis(window);
