@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.65",
+    "@ai-sdk/react": "4.0.121",
     "@tanstack/react-query": "^5.104.0",
     "ai": "^7.0.118",
     "maplibre-gl": "^5.24.0",
