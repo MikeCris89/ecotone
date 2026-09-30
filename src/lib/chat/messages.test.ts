@@ -76,7 +76,7 @@ describe("messagesError", () => {
 	it("accepts a new question up to the limit and rejects a longer one", () => {
 		expect(messagesError(toModelMessages([question("x".repeat(MAX_MESSAGE_CHARS))]))).toBeNull();
 		expect(messagesError(toModelMessages([question("x".repeat(MAX_MESSAGE_CHARS + 1))]))).toBe(
-			"Messages can be at most 2,000 characters.",
+			"Messages can be at most 500 characters.",
 		);
 	});
 

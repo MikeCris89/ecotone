@@ -12,7 +12,7 @@ type ChatMessage = UIMessage<ChatMetadata>;
 
 const NO_ANSWER = "Couldn't finish this one. Try a narrower question.";
 // The character count shows once a question gets this close to the limit.
-const COUNTER_FROM = MAX_MESSAGE_CHARS - 400;
+const COUNTER_FROM = MAX_MESSAGE_CHARS * 0.8;
 
 // The route reads only the last two answered turns; a few more cover questions it turned away in
 // between. Sending just these keeps each request small, and a long session under the route's

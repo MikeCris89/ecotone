@@ -4,7 +4,8 @@
 // messages and tool results from the client never reach the model.
 import { z } from "zod";
 
-export const MAX_MESSAGE_CHARS = 2000;
+// A question, not a document: long enough for a detailed one, short enough to bound input cost.
+export const MAX_MESSAGE_CHARS = 500;
 // Earlier question-and-answer pairs sent with the new question.
 const HISTORY_TURNS = 2;
 // Well above an honest answer (one step's output tokens), so only a forged history gets cut.
