@@ -162,9 +162,10 @@ describe("FIRMS_CLUSTER_RADIUS", () => {
 			return parsed.value.evaluateWithoutErrorHandling({ zoom: 6 }, { type: "Point", properties: { point_count: count } });
 		};
 
-		expect(radius(FIRMS_CLUSTER.clusterMinPoints)).toBe(9);
-		expect(radius(50)).toBeGreaterThan(radius(10));
-		expect(radius(5_000)).toBe(24);
+		expect(radius(FIRMS_CLUSTER.clusterMinPoints)).toBe(7);
+		expect(radius(50)).toBeGreaterThan(radius(20));
+		// A large group stands out from the typical 10–60 ones.
+		expect(radius(1_600)).toBeGreaterThanOrEqual(3 * radius(50));
 	});
 });
 

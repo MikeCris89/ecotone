@@ -115,29 +115,36 @@ export function firmsGeoJson(rows: FirmsMapRow[]): PointCollection<{ id: string;
 /**
  * Zoomed out, satellite thermal detections close together draw as one larger circle sized by their
  * count, so a dense group doesn't read as a single dot. Up to zoom 8; from 9 every detection is its
- * own circle again. MapLibre clusters in the source, before layer filters, so the source must hold
+ * own circle again. Tuned on local data (2026-09-29): a week had one group of ~1,650 detections
+ * within 7 km of each other and dozens of recurring 10–60 groups, and a radius of 30 px (~40 km at
+ * statewide zoom) merged separate areas into groups of ~300 that competed with the large one. At
+ * 10 px (~14 km) and at least 10 detections, groups stay separate and the size scale below lets
+ * the large one stand out. MapLibre clusters in the source, before layer filters, so the source must hold
  * only the detections in the shown span. A cluster's `time` is its newest detection's, which the
  * timeline's fade reads like a detection's.
  */
 export const FIRMS_CLUSTER = {
 	cluster: true,
 	clusterMaxZoom: 8,
-	clusterRadius: 30,
-	clusterMinPoints: 5,
+	clusterRadius: 10,
+	clusterMinPoints: 10,
 	clusterProperties: { time: ["max", ["get", "time"]] },
 };
 
-// Pixels, by the number of detections in the cluster (MapLibre's `point_count`).
+// Pixels, by the number of detections in the cluster (MapLibre's `point_count`). Small groups stay
+// close to a detection's size (3–6 px); only large ones grow much.
 export const FIRMS_CLUSTER_RADIUS: ExpressionSpecification = [
 	"interpolate",
 	["linear"],
 	["get", "point_count"],
 	FIRMS_CLUSTER.clusterMinPoints,
-	9,
+	7,
 	50,
-	15,
-	500,
-	24,
+	10,
+	200,
+	16,
+	1_000,
+	30,
 ];
 
 /**
