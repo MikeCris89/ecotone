@@ -297,12 +297,28 @@ Writing only on finish missed requests the client left or the model failed, so t
 
 ## 36. Weather answers from the readings it has
 
-**Decision:** The conditions tool doesn't refuse a range for missing hours. It answers from the hours with readings and says how many ("54 of 72 hours") and how old the newest is. By-day answers give each day's hours read and mark partial days, which get no precipitation total. When a range that reaches the present has no readings yet (a question before the hour's poll lands), it falls back to the nearest point's latest reading and states its age: within the map's own 3-hour lookback that counts as current; older, it's the last available reading and the feed is said to be behind. A past range with no readings, or an area no run read, is still refused.
+**Decision:** The conditions tool doesn't refuse a range for missing hours. It answers from the hours with readings and says how many ("54 of 72 hours", counting the hour marks in the range) and how old the newest is. By-day answers give each day's hours read, its hours in the range and its hours in the day, and mark a day partial only when readings are missing from its hours in the range; a partial day gets no precipitation total. A day cut by the range's start or end (a 7-day window's first day, or today) isn't partial, so the answer doesn't call data missing when it isn't. When a range that reaches the present has no readings yet (a question before the hour's poll lands), it falls back to the nearest point's latest reading and states its age: within the map's own 3-hour lookback that counts as current; older, it's the last available reading and the feed is said to be behind. A past range with no readings is still refused.
 
 **Considered:** the 80% rule the counting tools use (23); refusing "right now" before the poll lands; always treating the latest reading as current.
 
 A single reading isn't skewed by missing hours the way a count is, so refusing threw away good answers, and "what are conditions right now?" failed for part of every hour. The summaries are skewed, though: a day read only at night understates its high temperature and overstates its lowest humidity, and the driest or gustiest hour, or the prevailing wind, can be missing. So instead of refusing, the answer says which hours it rests on. Calling any latest reading current would present a stale feed as live, and sharing the map's lookback keeps the map and the agent from disagreeing about what "current" means. **Tradeoffs:** a summary over few hours can still read as more than it is if the model drops the caveat; an answer can describe conditions up to 3 hours old as current, with the age stated.
 
-## 37. Open decisions
+## 37. Evidence markers from the evidence's own coordinates
+
+**Decision:** An answer's evidence is drawn on the map in its own layer, from the coordinates each evidence record carries, as a filled dot inside a ring. It ignores the timeline, the window and the layer toggles; a "Clear highlights" control (and New chat) removes it. Weather evidence opens a small card for the cited reading, not the weather layer's popup.
+
+**Considered:** highlighting the map's own points by ID; a ring alone; reusing the weather popup.
+
+Highlighting by ID breaks whenever the timeline or window filters a point out, and needs ID conversions (the map uses numbers for iNaturalist and weather). A ring alone around a point the timeline hides looks like an empty circle. The weather popup shows the timeline's hour, so it would show a reading the answer never cited. **Tradeoff:** evidence can show at a time the timeline isn't on, so it has to look distinct from the layers, and it needs its own control to clear.
+
+## 38. Unmatched citations are counted, not hidden
+
+**Decision:** A `[source:id]` citation that no tool in the turn returned is stripped from the answer's text, and a small line under the answer says how many ("1 citation couldn't be matched to a tool result"). The count is logged per request in `chat_requests`.
+
+**Considered:** dropping them silently; showing them as raw text.
+
+Dropping them silently makes an answer look better grounded than the model actually was, which undercuts the point of citing. Raw IDs are noise and could look like real sources. The logged count is also a free measure for the evals (Phase 11). **Tradeoff:** a slightly busier answer when the model garbles an ID.
+
+## 39. Open decisions
 
 - Charting library for the agent's metrics (the timeline uses plain SVG, 19)
