@@ -100,9 +100,16 @@ Reordered 2026-09-30 for the final day: the agent is the missing requirement, so
   - Review fixes: rates count only records in read hours and use unrounded read hours; ranges are at least 1 hour; live-poll rejections reach the coverage statement and make it incomplete. Settling bands now come from when hours were read (decisions.md, 20), so backfilled history has none
 - [x] 9b: Thermal detection clusters, observations near detections, modeled conditions
   - `summarizeDetections`: `ST_ClusterDBSCAN` in EPSG:3310, 2 km by default, every detection in a cluster (minpoints 1); each cluster's centre, radius, peak and total FRP, first and last times and dates. Evidence: each largest cluster's strongest detection
-  - `observationsNearDetections`: radius ≤ 25 km, ≤ 72 h either side; before and after counted separately (one observation can be both); records too imprecise, of unknown accuracy or date-only are counted as `excluded`; iNaturalist coverage is checked over the widened window. Evidence: the closest pairs
+  - `observationsNearDetections`: radius ≤ 25 km, ≤ 72 h either side; before and after counted separately (one observation can be both, so `observations.total` is the unique count and the two must never be added); records too imprecise, of unknown accuracy or date-only are counted as `excluded`; only observations inside the area count, and iNaturalist coverage is checked over the widened time window. Evidence: the closest pairs
   - `getConditions`: the nearest sample point with readings, refused past 50 km to its grid cell; hour by hour up to 48 readings, otherwise by day; prevailing wind speed-weighted. Evidence: the latest, driest and gustiest hours
-  - Verified locally (2026-09-30): tests (238 passing; the weather poll test is still flaky, issue #9), typecheck, lint, and each tool on the local data: 958 detections in 98 clusters in 150 ms, proximity in 320 ms, conditions in 13 ms
+  - Verified locally (2026-09-30): tests (238 passing; the weather poll test is still flaky, issue #9), typecheck, lint, and each tool on the local data: 958 detections in 98 clusters (the 10 largest listed, the rest totalled), proximity in 320 ms, conditions in 13 ms
+- [x] Second review round (2026-09-30)
+  - iNaturalist hours settle once uploads 48 hours past them have been read, by the live cursor rather than the latest poll's start; a backfill that ran after live polling began hands on to the cursor, so the seed's last 48 hours settle (`settledReads`)
+  - `getRunsCovering` loads only the tools' sources, up to the range's end plus the settling lag, so an old range doesn't load every poll since. Rejections count only from live polls started between the range's start and 48 hours past its end
+  - Clustering runs once, ties broken by source ID so ranks and evidence agree (150 → 75 ms). Missing precipitation hours are left out of totals, with the count of hours that had a value. `NRT_LATENCY_MS` moved to `firms/client.ts`
+  - Verified locally: tests (243 passing), typecheck, lint, and the live statements and tools on the local data
+  - To confirm after merge: the production panel's iNaturalist statement still ends in a 48-hour band at the cursor, with nothing flagged before it
+- Decision log candidates awaiting Mike's approval: proximity counts before/after separately and states what it excluded (alternatives: one "within H hours" count, silently dropping imprecise records); clusters in metres via EPSG:3310 (alternative: degrees, which shrink northward); weather from the nearest sample point with readings, refused past 50 km (alternative: interpolating between points, which invents values the model never produced)
 - Tools are plain functions taking an area and a time range, not tied to the live window, so stored history (CZU, fetched on request) works without changes. What data exists comes from ingestion-run coverage; a separate maximum range length only protects query speed
 - Coverage: rates are computed over the hours actually read, and each source reports "read N of M hours". `insufficient` only below 80% read; comparisons also refuse when the periods' coverage differs too much
 - Evidence samples are picked deterministically (newest, or closest for proximity) and carry record IDs, so the map can highlight them and evals stay stable
@@ -116,9 +123,25 @@ Reordered 2026-09-30 for the final day: the agent is the missing requirement, so
 
 ## Phase 10: Chat and evidence on the map
 
-- [ ] Chat with the AI SDK (Claude Sonnet 5.5), UI context (map view, window, timeline hour) sent with each message, evidence highlighted on the map with source links, suggested questions
+Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk/anthropic`, both installed). The API key is set in Vercel and `.env.local`. Read the AI SDK docs in `node_modules/ai/docs/` before writing code: v7's API differs from older versions. Set a monthly spend limit in the Anthropic console (Mike).
 
-## Phase 11: Agent evals
+- [ ] 10a: Chat API route, testable with curl
+  - One AI SDK tool per Phase 9 function, with the Zod input schema it already validates and a description written for the model. Descriptions must say: `summarize_detections` lists the N largest of M clusters; `observations_near_detections` must never add before + after (use `observations.total`); counts are "recorded observations", detections "satellite thermal detections", weather "modeled conditions"
+  - System prompt: the brief's answer rules (6.6), the terminology, refusing population, causation, displacement and absence claims, citing evidence, stating limitations briefly. It gets the UI context from each request (map view bbox, selected window, timeline hour, current time in PT) so "here" and "this week" resolve to explicit tool arguments; the model always passes area and range
+  - Bounded: at most ~8 tool steps (`stopWhen`), a max message length (~2,000 characters), only the last few turns sent, `maxDuration` set explicitly on the route (a reply with several tool calls can take 20+ seconds)
+  - Abuse protection, since the URL is public and every message costs money: a per-IP rate limit plus a global daily cap in a small Postgres table (a migration; in-memory counters don't survive between serverless calls). Per-IP alone doesn't cap spend when IPs rotate
+  - Prompt caching on the system prompt and tool definitions (Anthropic cache control through the provider options), so every turn after the first is cheaper and faster
+  - Stream the reply, including each tool call and its result, so the UI can show steps and evidence
+  - Tests: tool wrappers pass validated input through and return the tool's result; rate limit counting; route rejects long messages and over-limit callers. The model is mocked (AI SDK test helpers), never called
+- [ ] 10b: Chat panel on the right (the side 6b left free)
+  - Streaming answers, with each tool step shown while it runs ("Checking data coverage…", "Finding thermal detection clusters…"): the wait feels interactive and the grounding is visible
+  - Suggested questions that only appear when the current window can answer them (brief 6.7), e.g. no "near thermal activity" question when there are no detections
+  - Sends the UI context with each message
+- [ ] 10c: Evidence on the map
+  - Cited records highlighted on the map by ID (iNaturalist and FIRMS IDs match the map's; weather evidence carries the sample point's ID), clicking one flies to it and opens its popup and source link. Evidence outside the loaded window is listed with its link instead
+  - An answer's coverage and limitations shown compactly under it
+
+## Phase 11: Agent evals (right after Phase 10, not optional)
 
 - [ ] 10–15 questions with expected behaviour (answers, refuses, flags stale data, picks the right tool), run by `pnpm eval` against the deployed model. Graded by code, not an LLM. Kept out of `pnpm test`: it calls the real API
 
@@ -131,6 +154,7 @@ Reordered 2026-09-30 for the final day: the agent is the missing requirement, so
 ## Phase 13: README and submission
 
 - [ ] README (including how the system would evolve: on-demand history fetching), decisions review, final deploy check
+  - Include: one big fire becomes one detection cluster, since DBSCAN chains nearby detections (650 in one near Yosemite, Sep 2026); known issues, including the flaky weather poll test (issue #9)
 
 ## Phase 14 (stretch): CZU for the agent
 
