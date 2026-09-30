@@ -1,5 +1,6 @@
-import { featureFilter } from "@maplibre/maplibre-gl-style-spec";
+import { Color, expression, featureFilter, latest } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
+import { NO_VALUE_COLOR, TEMPERATURE_COLOR } from "@/components/map-colors";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 import {
 	inatInWindow,
@@ -20,6 +21,19 @@ const DAY = 24 * 60 * 60;
 // What MapLibre itself decides for a feature with these properties.
 function mapLibreKeeps(filter: ReturnType<typeof inatWindowFilter>, properties: Record<string, number>) {
 	return featureFilter(filter).filter({ zoom: 0 }, { type: "Point", properties });
+}
+
+// Evaluates a circle paint value the way MapLibre does, throwing instead of logging a warning and
+// falling back to the default.
+function evaluatePaint(
+	property: "circle-color",
+	value: unknown,
+	zoom: number,
+	properties: Record<string, unknown> = {},
+) {
+	const parsed = expression.createExpression(value, latest.paint_circle[property]);
+	if (parsed.result !== "success") throw new Error(JSON.stringify(parsed.value));
+	return parsed.value.evaluateWithoutErrorHandling({ zoom }, { type: "Point", properties });
 }
 
 describe("windowBounds", () => {
@@ -114,5 +128,21 @@ describe("weatherGeoJson", () => {
 				properties: { time: end - 3600, temperatureC: null },
 			},
 		]);
+	});
+});
+
+// temperatureC is the only nullable property in the map's features: accuracy becomes a precision
+// class before it reaches MapLibre, and FRP isn't in the features.
+describe("TEMPERATURE_COLOR", () => {
+	it.each([
+		["a null temperature", { temperatureC: null }],
+		["a missing temperature", {}],
+	])("colours %s as no value, without an expression error", (_, properties) => {
+		expect(evaluatePaint("circle-color", TEMPERATURE_COLOR, 8, properties)).toEqual(Color.parse(NO_VALUE_COLOR));
+	});
+
+	it.each([-15, 0, 20, 55])("colours %i °C on the scale, clamped at the ends", (temperatureC) => {
+		const color = evaluatePaint("circle-color", TEMPERATURE_COLOR, 8, { temperatureC });
+		expect(color).not.toEqual(Color.parse(NO_VALUE_COLOR));
 	});
 });

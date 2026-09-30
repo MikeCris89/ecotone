@@ -7,10 +7,9 @@ import Map, { Layer, Source } from "react-map-gl/maplibre";
 import { type LayerSummary, type LayerVisibility, MapPanel } from "@/components/map-panel";
 import {
 	DETECTION_COLOR,
-	NO_VALUE_COLOR,
 	OBSERVATION_COLOR,
 	OBSERVATION_DENSE_COLOR,
-	TEMPERATURE_STOPS,
+	TEMPERATURE_COLOR,
 } from "@/components/map-colors";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { InatMapRow } from "@/lib/inaturalist/map";
@@ -139,12 +138,7 @@ export function LiveMap() {
 						layout={{ visibility: visibility("weather") }}
 						paint={{
 							"circle-radius": 6,
-							"circle-color": [
-								"case",
-								["==", ["get", "temperatureC"], null],
-								NO_VALUE_COLOR,
-								["interpolate", ["linear"], ["get", "temperatureC"], ...TEMPERATURE_STOPS.flat()],
-							],
+							"circle-color": TEMPERATURE_COLOR,
 							"circle-stroke-color": "#ffffff",
 							"circle-stroke-width": 1,
 						}}

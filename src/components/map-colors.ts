@@ -1,3 +1,5 @@
+import type { CircleLayerSpecification } from "maplibre-gl";
+
 // Layer colours, shared by the map's paint and the legend. Aqua and orange are categorical slots
 // that stay distinguishable together under colour-vision deficiency. Temperature runs blue (cold)
 // to purple (warm), lightness falling evenly so it reads as ordered, and keeps clear of the
@@ -14,4 +16,12 @@ export const TEMPERATURE_STOPS: [celsius: number, color: string][] = [
 	[20, "#7a6bd0"],
 	[30, "#7b45b5"],
 	[40, "#5e1a8c"],
+];
+
+/** Circle colour by temperature. No model value (null or missing) gets NO_VALUE_COLOR, never a scale colour. */
+export const TEMPERATURE_COLOR: NonNullable<CircleLayerSpecification["paint"]>["circle-color"] = [
+	"case",
+	["==", ["get", "temperatureC"], null],
+	NO_VALUE_COLOR,
+	["interpolate", ["linear"], ["get", "temperatureC"], ...TEMPERATURE_STOPS.flat()],
 ];
