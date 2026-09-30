@@ -22,7 +22,7 @@ export function turnEvidence(message: UIMessage): Evidence[] {
 }
 
 // [source:id], as the system prompt asks. FIRMS IDs contain colons and commas but no spaces or "]".
-const CITATION = /\[(inaturalist|firms|open-meteo):([^\]\s]+)\]/g;
+export const CITATION = /\[(inaturalist|firms|open-meteo):([^\]\s]+)\]/g;
 
 /** The records cited inline in `text` that are in `evidence`, in citation order. Anything else is dropped. */
 export function validCitations(text: string, evidence: Evidence[]): Evidence[] {
