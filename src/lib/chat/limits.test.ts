@@ -26,6 +26,7 @@ describe("chatLimits", () => {
 			reviewer: { hourlyPerIp: 60, daily: 300 },
 		});
 		expect(chatLimits({ CHAT_PUBLIC_DAILY: "50" }).public.daily).toBe(50);
+		expect(chatLimits({ CHAT_PUBLIC_DAILY: "" }).public.daily).toBe(30);
 		expect(() => chatLimits({ CHAT_REVIEWER_DAILY: "0" })).toThrow();
 	});
 });
