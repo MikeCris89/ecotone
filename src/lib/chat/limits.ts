@@ -38,7 +38,8 @@ type Served = { daily: number; hourly: number; oldestInHour: Date | null };
 
 /**
  * A bucket's served requests since midnight PT, and one IP's in the last hour (with its oldest, for
- * when the hourly limit lifts). Up to `now` only: rows dated later aren't "since midnight".
+ * when the hourly limit lifts). No upper time bound: a request reads `now` before waiting for the
+ * lock, so a row admitted while it waited can be dated after its `now`, and must still count.
  */
 async function servedCounts(db: postgres.ISql, bucket: Bucket, ipHash: string, now: Date): Promise<Served> {
 	const dayStart = startOfLocalDate(localDate(now, CALIFORNIA_TIME_ZONE), CALIFORNIA_TIME_ZONE);
@@ -50,7 +51,7 @@ async function servedCounts(db: postgres.ISql, bucket: Bucket, ipHash: string, n
 			min(created_at) filter (where ip_hash = ${ipHash} and created_at > ${hourAgo}) as "oldestInHour"
 		from chat_requests
 		where bucket = ${bucket} and limited is null
-			and created_at >= ${new Date(Math.min(dayStart.getTime(), hourAgo.getTime()))} and created_at <= ${now}
+			and created_at >= ${new Date(Math.min(dayStart.getTime(), hourAgo.getTime()))}
 	`;
 	return served;
 }
