@@ -81,8 +81,9 @@ export type NearDetections = {
 	}[];
 	clusterCount: number;
 	// Clusters beyond maxClusters, and the recorded observations near them but near none of the
-	// listed clusters (unique), so "near the smaller clusters instead" holds.
-	otherClusters: { clusters: number; observations: number };
+	// listed clusters (unique), so "near the smaller clusters instead" holds. `closest` is the closest
+	// of those pairs, so an answer about them has a record to cite.
+	otherClusters: { clusters: number; observations: number; closest: Pair | null };
 };
 
 export async function observationsNearDetections(
@@ -173,13 +174,16 @@ export async function observationsNearDetections(
 		)
 	`;
 
+	// A pair's columns, null when there's no pair.
+	type PairRow = {
+		observationId: string | null;
+		detectionId: string | null;
+		distanceM: number | null;
+		gapHours: number | null;
+	};
 	type ClusterRow = Omit<NearDetections["clusters"][number], "observations" | "closest"> &
-		NearDetections["observations"] & {
-			observationId: string | null;
-			detectionId: string | null;
-			distanceM: number | null;
-			gapHours: number | null;
-		};
+		NearDetections["observations"] &
+		PairRow;
 	const [[counts], groups, clusterRows] = await Promise.all([
 		sql<
 			(NearDetections["observations"] &
@@ -188,9 +192,21 @@ export async function observationsNearDetections(
 					detectionsWithObservations: number;
 					clusterCount: number;
 					otherObservations: number;
+					other: PairRow;
 				})[]
 		>`
-			with ${pairs()}
+			with ${pairs()},
+			-- Pairs with the unlisted clusters, for observations near none of the listed ones.
+			other as (
+				select inat_id, source_id, distance_m, gap_hours
+				from counted join clusters using (cluster)
+				where rank > ${maxClusters} and inat_id not in (
+					select inat_id from counted join clusters using (cluster) where rank <= ${maxClusters}
+				)
+			),
+			other_closest as (
+				select * from other order by distance_m, abs(gap_hours), inat_id, source_id limit 1
+			)
 			select
 				(select count(*) from detections)::int as detections,
 				(select count(*) from clusters)::int as "clusterCount",
@@ -198,15 +214,20 @@ export async function observationsNearDetections(
 				(select count(distinct inat_id) from counted where gap_hours < 0)::int as "beforeDetection",
 				(select count(distinct inat_id) from counted where gap_hours >= 0)::int as "afterDetection",
 				(select count(distinct source_id) from counted)::int as "detectionsWithObservations",
-				(select count(distinct inat_id) from counted join clusters using (cluster)
-					where rank > ${maxClusters} and inat_id not in (
-						select inat_id from counted join clusters using (cluster) where rank <= ${maxClusters}
-					))::int as "otherObservations",
+				(select count(distinct inat_id) from other)::int as "otherObservations",
 				(select count(distinct inat_id) from pairs
 					where observed_at is not null and (obscured or positional_accuracy_m > ${PRECISE_ACCURACY_M}))::int as imprecise,
 				(select count(distinct inat_id) from pairs
 					where observed_at is not null and not obscured and positional_accuracy_m is null)::int as "unknownAccuracy",
-				(select count(distinct inat_id) from pairs where observed_at is null)::int as "dateOnly"
+				(select count(distinct inat_id) from pairs where observed_at is null)::int as "dateOnly",
+				json_build_object(
+					'observationId', c.inat_id::text,
+					'detectionId', c.source_id,
+					'distanceM', c.distance_m,
+					'gapHours', c.gap_hours::float8
+				) as other
+			from (select 1) as one
+			left join other_closest c on true
 		`,
 		sql<{ group: string | null; count: number }[]>`
 			with ${pairs()}
@@ -253,13 +274,23 @@ export async function observationsNearDetections(
 		`,
 	]);
 
-	// Each listed cluster's closest pair: its observation, then its detection.
-	const cited = clusterRows.filter((row) => row.observationId !== null);
+	// Each listed cluster's closest pair, then the unlisted clusters' closest: observations, then detections.
+	const cited = [...clusterRows, counts.other].filter((row) => row.observationId !== null);
 	const evidence = [
-		...(await inatEvidence(cited.map((row) => row.observationId!))),
+		...(await inatEvidence([...new Set(cited.map((row) => row.observationId!))])),
 		...(await firmsEvidence([...new Set(cited.map((row) => row.detectionId!))])),
 	];
 	const labels = new Map(evidence.map((record) => [record.id, record.label]));
+	const pair = (row: PairRow): Pair | null =>
+		row.observationId === null
+			? null
+			: {
+					observationId: row.observationId,
+					detectionId: row.detectionId!,
+					label: labels.get(row.observationId) ?? "",
+					distanceKm: Number((row.distanceM! / 1000).toFixed(2)),
+					hoursFromDetection: Number(row.gapHours!.toFixed(1)),
+				};
 	const { detections, clusterCount, detectionsWithObservations, otherObservations, total, beforeDetection, afterDetection } =
 		counts;
 
@@ -277,19 +308,14 @@ export async function observationsNearDetections(
 				detections: row.detections,
 				maxFrpMw: row.maxFrpMw,
 				observations: { total: row.total, beforeDetection: row.beforeDetection, afterDetection: row.afterDetection },
-				closest:
-					row.observationId === null
-						? null
-						: {
-								observationId: row.observationId,
-								detectionId: row.detectionId!,
-								label: labels.get(row.observationId) ?? "",
-								distanceKm: Number((row.distanceM! / 1000).toFixed(2)),
-								hoursFromDetection: Number(row.gapHours!.toFixed(1)),
-							},
+				closest: pair(row),
 			})),
 			clusterCount,
-			otherClusters: { clusters: Math.max(clusterCount - maxClusters, 0), observations: otherObservations },
+			otherClusters: {
+				clusters: Math.max(clusterCount - maxClusters, 0),
+				observations: otherObservations,
+				closest: pair(counts.other),
+			},
 		},
 		evidence,
 		coverage,
