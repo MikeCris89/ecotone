@@ -314,7 +314,6 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 ### Known limitations from Phase 10 (check later)
 
 - **Test files run one at a time:** in parallel they interfered through the shared local database, e.g. a cleanup that deletes by date range (a weather poll test failure came with a foreign key error from its cleanup). `fileParallelism: false` makes full runs slower. The proper fix is a separate test database through `TEST_DATABASE_URL`, which `vitest.config.mts` already reads; it also keeps local dev data out of tests (the limit-count bug was dev chat rows leaking in). Issue #9
-
 - **An answer can end without text:** the last of 8 steps is only told to answer. Logged as `chat_requests.no_answer`; Phase 11 measures it
 - **Refused chat requests still take the bucket's lock and add a row:** a client spamming requests after its limit serializes the bucket's other requests behind its refusals, and grows `chat_requests`. Fine at demo traffic; the fix is rate limiting at the edge (e.g. Vercel's firewall) before the route runs
 - **Usage of a cut-off reply may still go unlogged:** `onAbort` runs when the SDK next reads its stream after the abort. The tests cover that path, but whether closing a tab reaches it on Vercel is unconfirmed: close one mid-answer and check its `chat_requests` row. A hard stop at `maxDuration` (120 s) skips every callback; writing after each step would cover it, at up to 8 writes per question
