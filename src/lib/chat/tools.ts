@@ -36,12 +36,8 @@ export function forModel(output: ToolResult<unknown>) {
 	const { result, evidence, coverage, limitations, insufficient } = output;
 	const value = {
 		result,
-		evidence: evidence.map(({ source, id, label, observedAt, observedOn }) => ({
-			source,
-			id,
-			label,
-			observedAt: observedAt ?? observedOn,
-		})),
+		// A date-only record keeps observedAt null beside its date, so the model can't read the date as a time.
+		evidence: evidence.map(({ source, id, label, observedAt, observedOn }) => ({ source, id, label, observedAt, observedOn })),
 		coverage: {
 			range: coverage.range,
 			filters: coverage.filters,
