@@ -160,13 +160,40 @@ describe("parseAnswer", () => {
 		]);
 	});
 
-	it("leaves other markdown as plain text", () => {
-		expect(parseAnswer("## Heading\n| a | b |\n**unclosed")).toEqual([
+	it("reads '• ' bullets as a list", () => {
+		expect(parseAnswer("• one\n• two")).toEqual([
+			{ type: "list", ordered: false, items: [[{ type: "text", text: "one" }], [{ type: "text", text: "two" }]] },
+		]);
+	});
+
+	it("reads *italic* and _italic_, but not spaced stars or snake_case", () => {
+		expect(parseAnswer("*Calypte anna* and _Sceloporus occidentalis_")).toEqual([
 			{
 				type: "paragraph",
 				inlines: [
-					{ type: "text", text: "## Heading" },
-					{ type: "text", text: " " },
+					{ type: "italic", text: "Calypte anna" },
+					{ type: "text", text: " and " },
+					{ type: "italic", text: "Sceloporus occidentalis" },
+				],
+			},
+		]);
+		expect(parseAnswer("2 * 3 * 4 in summarize_detections")).toEqual([
+			{ type: "paragraph", inlines: [{ type: "text", text: "2 * 3 * 4 in summarize_detections" }] },
+		]);
+	});
+
+	it("reads # headings as their own block", () => {
+		expect(parseAnswer("## Largest cluster\n1,601 detections.")).toEqual([
+			{ type: "heading", inlines: [{ type: "text", text: "Largest cluster" }] },
+			{ type: "paragraph", inlines: [{ type: "text", text: "1,601 detections." }] },
+		]);
+	});
+
+	it("leaves other markdown as plain text", () => {
+		expect(parseAnswer("| a | b |\n**unclosed")).toEqual([
+			{
+				type: "paragraph",
+				inlines: [
 					{ type: "text", text: "| a | b |" },
 					{ type: "text", text: " " },
 					{ type: "text", text: "**unclosed" },

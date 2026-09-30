@@ -35,6 +35,8 @@ function InlineText({ inlines }: { inlines: Inline[] }) {
 	return inlines.map((inline, index) =>
 		inline.type === "bold" ? (
 			<strong key={index}>{inline.text}</strong>
+		) : inline.type === "italic" ? (
+			<em key={index}>{inline.text}</em>
 		) : inline.type === "citation" ? (
 			// Muted until 10c turns the ones a tool returned into links to the record.
 			<span key={index} className="text-[11px] text-zinc-400">
@@ -52,6 +54,13 @@ function Answer({ text }: { text: string }) {
 		if (block.type === "paragraph") {
 			return (
 				<p key={index}>
+					<InlineText inlines={block.inlines} />
+				</p>
+			);
+		}
+		if (block.type === "heading") {
+			return (
+				<p key={index} className="font-semibold">
 					<InlineText inlines={block.inlines} />
 				</p>
 			);
