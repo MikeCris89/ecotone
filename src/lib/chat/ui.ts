@@ -97,20 +97,37 @@ export function chatError(error: Error): { message: string; bucket: Bucket | nul
 export type Inline =
 	| { type: "text"; text: string }
 	| { type: "bold"; text: string }
+	| { type: "italic"; text: string }
 	| { type: "citation"; source: string; id: string };
-export type Block = { type: "paragraph"; inlines: Inline[] } | { type: "list"; ordered: boolean; items: Inline[][] };
+export type Block =
+	| { type: "paragraph"; inlines: Inline[] }
+	| { type: "heading"; inlines: Inline[] }
+	| { type: "list"; ordered: boolean; items: Inline[][] };
 
-const INLINE = new RegExp(`\\*\\*(.+?)\\*\\*|${CITATION.source}`, "g");
+// Bold, a citation, then *italic* or _italic_ (scientific names). Italic markers must hug a word
+// and not sit inside one, so "2 * 3 * 4" and snake_case stay plain text.
+const INLINE = new RegExp(
+	[
+		"\\*\\*(.+?)\\*\\*",
+		CITATION.source,
+		"(?<![\\w*])\\*(?![\\s*])([^*\\n]+?)(?<!\\s)\\*(?![\\w*])",
+		"(?<!\\w)_(?!\\s)([^_\\n]+?)(?<!\\s)_(?!\\w)",
+	].join("|"),
+	"g",
+);
 const BULLET = /^\s*[-*•]\s+(.*)$/;
 const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
+const HEADING = /^\s*#{1,6}\s+(.*)$/;
 
 function inlines(text: string): Inline[] {
 	const result: Inline[] = [];
 	let last = 0;
 	for (const match of text.matchAll(INLINE)) {
 		if (match.index > last) result.push({ type: "text", text: text.slice(last, match.index) });
-		const [, bold, source, id] = match;
-		result.push(bold !== undefined ? { type: "bold", text: bold } : { type: "citation", source, id });
+		const [, bold, source, id, starItalic, underscoreItalic] = match;
+		if (bold !== undefined) result.push({ type: "bold", text: bold });
+		else if (source !== undefined) result.push({ type: "citation", source, id });
+		else result.push({ type: "italic", text: starItalic ?? underscoreItalic });
 		last = match.index + match[0].length;
 	}
 	if (last < text.length) result.push({ type: "text", text: text.slice(last) });
@@ -118,17 +135,20 @@ function inlines(text: string): Inline[] {
 }
 
 /**
- * An answer's text as blocks: paragraphs, bullet and numbered lists, with bold and [source:id]
- * citations inline. The only markdown the system prompt allows; anything else (a heading, a table)
- * stays plain text. The panel builds React elements from these, never HTML, since model output is
- * untrusted.
+ * An answer's text as blocks: paragraphs, headings, bullet ("- ", "* ", "• ") and numbered lists,
+ * with bold, italic and [source:id] citations inline. The prompt asks for less, but the model
+ * doesn't always comply, so this reads what it actually writes; anything else (a table) stays text.
+ * The panel builds React elements from these, never HTML, since model output is untrusted.
  */
 export function parseAnswer(text: string): Block[] {
 	const blocks: Block[] = [];
 	for (const line of text.split("\n")) {
 		const current = blocks.at(-1);
 		const item = BULLET.exec(line) ?? NUMBERED.exec(line);
-		if (item) {
+		const heading = HEADING.exec(line);
+		if (heading) {
+			blocks.push({ type: "heading", inlines: inlines(heading[1].trim()) });
+		} else if (item) {
 			const ordered = !BULLET.test(line);
 			if (current?.type === "list" && current.ordered === ordered) current.items.push(inlines(item[1]));
 			else blocks.push({ type: "list", ordered, items: [inlines(item[1])] });
