@@ -82,18 +82,47 @@ export function remainingNote(remaining: { hourly: number; daily: number } | nul
 
 const GENERIC_ERROR = "Something went wrong. Try again.";
 // The chat route's error body: every non-2xx answer carries a message meant for the user.
-const errorBodySchema = z.object({ error: z.string(), bucket: z.enum(["public", "reviewer"]).optional() });
+// A 429's also says which limit and when it lifts.
+const errorBodySchema = z.object({
+	error: z.string(),
+	bucket: z.enum(["public", "reviewer"]).optional(),
+	limit: z.enum(["hourly", "daily"]).optional(),
+	retryAt: z.iso.datetime().optional(),
+});
+
+const LIMIT_REACHED = { hourly: "Hourly limit reached.", daily: "Daily demo limit reached." };
+const localClock = (date: Date) =>
+	new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+
+/**
+ * When a limit lifts, in the user's own time: it's about their next question, not California's data.
+ * E.g. "Try again in 38 min (1:02 PM)".
+ */
+export function retryMessage(limit: "hourly" | "daily", retryAt: Date, now: Date, clock = localClock): string {
+	const minutes = Math.max(1, Math.ceil((retryAt.getTime() - now.getTime()) / 60_000));
+	const [hours, rest] = [Math.floor(minutes / 60), minutes % 60];
+	const wait = hours === 0 ? `${minutes} min` : `${hours} h${rest ? ` ${rest} min` : ""}`;
+	return `${LIMIT_REACHED[limit]} Try again in ${wait} (${clock(retryAt)}).`;
+}
 
 /**
  * The message to show for a failed request, and the bucket when the route said (a 429 does). A
  * non-2xx response reaches useChat as an APICallError holding the body; anything else (a network
- * failure, a stream that broke mid-answer) gets a generic message.
+ * failure, a stream that broke mid-answer) gets a generic message. A limit's reset is given in the
+ * user's time; the route's own message (in PT) is the fallback.
  */
-export function chatError(error: Error): { message: string; bucket: Bucket | null } {
+export function chatError(
+	error: Error,
+	now = new Date(),
+	clock = localClock,
+): { message: string; bucket: Bucket | null } {
 	if (APICallError.isInstance(error) && error.responseBody) {
 		try {
 			const body = errorBodySchema.safeParse(JSON.parse(error.responseBody));
-			if (body.success) return { message: body.data.error, bucket: body.data.bucket ?? null };
+			if (body.success) {
+				const { error: message, bucket = null, limit, retryAt } = body.data;
+				return { message: limit && retryAt ? retryMessage(limit, new Date(retryAt), now, clock) : message, bucket };
+			}
 		} catch {
 			// Not JSON: a platform error page, not the route's own answer.
 		}
