@@ -19,12 +19,12 @@
 ## Phase 3: FIRMS live ingestion
 
 - [x] Table, adapter (Area API), cron
-  - Verified against the real API's CSV locally. Migration pushed and `FIRMS_MAP_KEY` set in production; accumulation to be confirmed after merge (three `succeeded` runs, one per satellite, every 15 min)
+  - Verified against the real API's CSV locally. Migration pushed and `FIRMS_MAP_KEY` set in production. Confirmed in production (2026-09-29): three `succeeded` runs, one per satellite, every 15 min
 
 ## Phase 4: Open-Meteo live ingestion
 
 - [x] Decide sampling strategy, table, adapter, cron
-  - Verified against the real API locally: one poll stored 169 points × 25 hours in under a second. Both migrations (weather, `data_sources`) pushed to production; after merge, confirm one `succeeded` run per hour at :20
+  - Verified against the real API locally: one poll stored 169 points × 25 hours in under a second. Both migrations (weather, `data_sources`) pushed to production. Confirmed in production (2026-09-29): one `succeeded` run per hour at :20
 
 ## Phase 5: Seed live window
 
@@ -43,7 +43,6 @@
   - FIRMS: circles from 3 px statewide to 6 px at zoom 10 (footprint-sized circles were tried and looked too big up close; revisit in a UI pass). Weather: off by default; each point's latest hour at its model grid cell, blue (cold) to purple (warm), with a °C scale
   - Each `/api/map/*` response carries its source's attribution and license from `data_sources`, so `/` stays static. The legend shows counts in the window, empty states, failed refreshes, and a capped layer's cutoff ("the oldest N records, from … and earlier, aren't loaded")
   - maplibre-gl is pinned to v5: v6's worker doesn't load under Turbopack (decisions.md, 10)
-  - The basemap style is fetched by the app and its numeric filters guarded (`src/lib/basemap-style.ts`): OpenFreeMap Positron compares `ref_length` and `admin_level` on tile features that lack them, which made MapLibre log "Expected value to be of type number, but found null instead"
   - Verified locally (2026-09-29): tests, then in the browser with `pnpm dev` and `pnpm build && pnpm start`: `/` is static, all layers render, toggles work, and switching windows makes no requests. To confirm after merge: the production map shows live data with attribution
 - [ ] 6c: Click details
   - `GET /api/map/inaturalist/[id]` and `/api/map/firms/[id]` return one record's details for a popup with its source link. Weather popups use the row's values, the model, and the distance from the requested point to the grid cell (both are in `WeatherMapPoint`)
@@ -143,3 +142,7 @@
 - **Seeding is manual:** the backfill routes aren't scheduled; iNaturalist takes one call per date
 - **Counts reflect observer effort, not wildlife abundance:** Saturday 2026-09-26 had 6,226 recorded observations and Sunday 4,863, against ~4,000–4,500 on each weekday. Day-to-day differences track when people go out. Flagged for Phase 10
 - **The latest days are undercounted:** uploads lag observations, so the most recent 1–2 days are incomplete when seeded (Monday 2026-09-28 had 3,068, below every other weekday). The live poll's updated-since cursor adds late uploads as they arrive. Flagged for Phase 10
+
+### Known limitations from Phase 6 (check later)
+
+- **Basemap console warning:** MapLibre logs "Expected value to be of type number, but found null instead" from OpenFreeMap Positron's own filters: road shields compare `ref_length` and boundaries `admin_level` on tile features that lack them. Harmless (those features are dropped, as intended); left alone rather than patching a third-party style on every load
