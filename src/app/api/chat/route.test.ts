@@ -20,7 +20,43 @@ vi.mock("@/lib/agent/detections", async (importOriginal) => ({
 
 const AREA = { west: -123, south: 37, east: -121, north: 38.5 };
 const RANGE = { start: "2026-09-29T19:00:00.000Z", end: "2026-09-30T19:00:00.000Z" };
-const TOOL_RESULT = { result: { matched: 3 }, evidence: [], coverage: {}, limitations: ["Not fires."] };
+const TOOL_RESULT = {
+	result: { matched: 3 },
+	evidence: [
+		{
+			source: "firms",
+			id: "snpp:2026-09-30T10:00:00.000Z:37.5,-122",
+			url: "https://firms.modaps.eosdis.nasa.gov/map/#d:2026-09-30",
+			label: "Satellite thermal detection, 5.0 MW (snpp)",
+			longitude: -122,
+			latitude: 37.5,
+			observedAt: "2026-09-30T10:00:00.000Z",
+			retrievedAt: "2026-09-30T13:00:00.000Z",
+			license: "CC0 1.0",
+			attribution: "NASA FIRMS",
+		},
+	],
+	coverage: {
+		area: AREA,
+		range: RANGE,
+		filters: { confidence: ["nominal", "high"] },
+		complete: true,
+		sources: [
+			{
+				source: "firms",
+				requestedHours: 24,
+				readHours: 24,
+				readFraction: 1,
+				read: [RANGE],
+				unread: [],
+				likelyIncomplete: [],
+				rejected: 0,
+				statement: "Read 24 of 24 hours.",
+			},
+		],
+	},
+	limitations: ["Not fires."],
+};
 
 const usage = {
 	inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
@@ -95,8 +131,14 @@ describe("POST /api/chat", () => {
 			expect.objectContaining({ type: "tool-output-available", toolCallId: "call-1", output: TOOL_RESULT }),
 		);
 		expect(streamed).toContainEqual(expect.objectContaining({ type: "text-delta", delta: "3 detections." }));
+		// The model gets what it needs to answer and cite; links, licenses and spans only go to the UI.
 		const secondCall = JSON.stringify(model.doStreamCalls[1].prompt);
 		expect(secondCall).toContain('"matched":3');
+		expect(secondCall).toContain("snpp:2026-09-30T10:00:00.000Z:37.5,-122");
+		expect(secondCall).toContain("Read 24 of 24 hours.");
+		expect(secondCall).not.toContain("firms.modaps");
+		expect(secondCall).not.toContain("CC0");
+		expect(secondCall).not.toContain("likelyIncomplete");
 	});
 
 	it("caches the fixed rules and sends the map context after them", async () => {
