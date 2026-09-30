@@ -124,7 +124,7 @@ Reordered 2026-09-30 for the final day: the agent is the missing requirement, so
 
 Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk/anthropic`, both installed; `@ai-sdk/react` approved 2026-09-30, added in 10b for `useChat`). The API key is set in Vercel and `.env.local`. Read the AI SDK docs in `node_modules/ai/docs/` before writing code: v7's API differs from older versions. Set a monthly spend limit in the Anthropic console (Mike).
 
-10a is split into two review stops on one branch and one PR. Don't merge 10a-1 alone: it would put an unlimited, paid endpoint on the public URL.
+10a was built in two review stops (10a-1 and 10a-2) and shipped as one PR (#17), so the paid endpoint never went public without its rate limits.
 
 - [x] 10a-1: Chat API route (`POST /api/chat`), testable with curl
   - One AI SDK tool per Phase 9 function (six), with the Zod input schema it already validates and a description written for the model. Descriptions must say: `summarize_detections` lists the N largest of M clusters; `observations_near_detections` must never add before + after (use `observations.total`); counts are "recorded observations", detections "satellite thermal detections", weather "modeled conditions"
@@ -148,15 +148,25 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - Two separate buckets, so public traffic can't use up the reviewers' quota. Public: 5 per IP per hour, 30 a day in total. Reviewer: 60 per IP per hour, 300 a day. All four are env vars (`CHAT_PUBLIC_HOURLY_PER_IP`, `CHAT_PUBLIC_DAILY`, `CHAT_REVIEWER_HOURLY_PER_IP`, `CHAT_REVIEWER_DAILY`) with those defaults. Hourly is the last 60 minutes; daily resets at midnight PT
   - Reviewer key (`REVIEWER_ACCESS_KEY`): the chat client reads `?key=` from the page URL and sends it as a request header. The key stays in the URL, no redirect. The chat route accepts the header or a cookie. A valid header also sets the cookie (httpOnly, Secure, SameSite=Lax, 30 days) on the chat response, holding a hash of the key, so a later visit without `?key=` stays in the reviewer bucket. A key change plus redeploy invalidates old cookies (their hash no longer matches). A wrong key silently means the public bucket. Setting the cookie from the chat route rather than a `proxy.ts` on `/` keeps `/` static and adds no per-page-load code. The bucket used reaches the client in the stream's message metadata, for a "Reviewer access" label (10b)
   - Rate limits and usage are one table, `chat_requests` (a migration): time, bucket, hashed IP (HMAC with `IP_HASH_SECRET`: a plain hash of an IPv4 address can be reversed by trying all 4 billion), which limit it hit (if any), input, output and cached input tokens, steps, duration, and whether the reply ended without an answer (e.g. the model called a tool on its last step despite the instruction). No message content. Checking and recording happen in one transaction under a per-bucket advisory lock, so two simultaneous requests can't both take the last slot. Requests turned away by a limit are logged but don't count toward it. A served request counts from the start, even if the model call later fails (it may have cost money); its usage is filled in when the stream finishes
-  - When a limit is hit: 429 with a friendly message the panel shows ("Daily demo limit reached. It resets at midnight PT." / "Hourly limit reached. Try again after 3:12 PM PT."). The map and timeline don't depend on the chat route
+  - When a limit is hit: 429 with a friendly message the panel shows ("Daily demo limit reached. It resets at midnight PT." / "Hourly limit reached. Try again after Sep 30, 3:12 PM PT."), as `{ ok: false, error, bucket, limit, retryAt }`. The map and timeline don't depend on the chat route
   - Tests: the right key in the header sets the cookie; a wrong key doesn't and uses the public bucket; a cookie from a rotated key is rejected; reviewer and public counters are independent; hourly and daily limits each return their friendly 429; turned-away requests don't count; usage is written from the mocked model's token counts
   - Built as `src/lib/chat/access.ts` (bucket, cookie, IP hash) and `src/lib/chat/limits.ts` (`admitRequest`, `recordUsage`). Usage is written in `streamText`'s `onEnd`, which the SDK awaits before closing the stream, so the write finishes within the request. Cache reads and writes are logged separately (writes cost more than uncached input)
   - New env vars, in Vercel (production) and `.env.local`: `REVIEWER_ACCESS_KEY` (unset: no reviewer bucket), `IP_HASH_SECRET` (required: the route answers 500 without it), and optionally the four limits
-  - Verified locally (2026-09-30): tests (289 passing, the limit tests against the local database), typecheck, lint, and the first three questions by curl against the real model (10a-1). To confirm after merge: `supabase db push`, set the env vars, then in production a question streams an answer, `/?key=…` gets the reviewer bucket, and `select bucket, limited, input_tokens, cache_read_tokens, steps, no_answer from chat_requests order by id desc limit 5` shows the rows
+  - Verified locally (2026-09-30): tests (289 passing, the limit tests against the local database), typecheck, lint, and the first three questions by curl against the real model (10a-1). Before merge (Mike, 2026-09-30): `chat_requests` pushed to production, env vars set in Vercel. To confirm after merge: in production a question streams an answer, `/?key=…` gives `"bucket":"reviewer"` in the stream's start chunk, and `select bucket, limited, input_tokens, cache_read_tokens, steps, no_answer from chat_requests order by id desc limit 5` shows one row per question, with cache reads from the second question on
 - [ ] 10b: Chat panel on the right (the side 6b left free)
   - Streaming answers, with each tool step shown while it runs ("Checking data coverage…", "Finding thermal detection clusters…"): the wait feels interactive and the grounding is visible
   - Suggested questions that only appear when the current window can answer them (brief 6.7), e.g. no "near thermal activity" question when there are no detections
   - Sends the UI context (and the reviewer key from the URL, if any) with each message. A small "Reviewer access" label when the reviewer bucket was used; rate-limit messages shown in the panel
+  - A reply with no answer text (the model called a tool on its last step, or the stream failed) shows a fallback in the panel ("Couldn't finish this one. Try a narrower question."), never an empty bubble. Approved by Mike: the fallback plus the `no_answer` flag and a Phase 11 eval, so the rate is measured
+  - Notes from 10a for building it:
+    - Request body: useChat's `messages` plus `context: { view: { west, south, east, north }, window: "24h" | "3d" | "7d", hour: number | null, end: string | null }` (`chatContextSchema` in `src/lib/chat/context.ts`). `hour` is the handle's hour in epoch seconds (null for "Whole window"); `end` is the timeline's end, the newest layer response's `end`. Extra body fields go through the transport (`DefaultChatTransport` body or `prepareSendMessagesRequest`: check the v7 docs)
+    - The reviewer key goes in the `x-reviewer-key` header. `REVIEWER_HEADER` lives in `src/lib/chat/access.ts`, which imports `node:crypto`: don't import it into the client (a type import of `ChatMetadata` is fine); move the constant to a client-safe module instead
+    - The bucket arrives as message metadata on the start chunk (`ChatMetadata`, `message.metadata.bucket`)
+    - Errors: 400 (invalid request, blank or over 2,000 characters), 429 (limits) and 500 all answer `{ ok: false, error }` with a message meant for the user. Check how v7's transport surfaces a non-2xx body in useChat's `error`
+    - Claude streams reasoning parts (empty text plus a signature, seen in the first curl runs): don't render them. Answers can contain light markdown (bold, lists) despite the prompt asking for plain sentences
+    - Tool parts are typed `tool-<name>` with `state` input-available / output-available / output-error; step labels map from the six tool names in `src/lib/chat/tools.ts`
+    - `turnEvidence` and `validCitations` (`src/lib/chat/citations.ts`) have no server imports and are ready for 10c
+    - Locally nothing polls, so answers say the feeds are behind; production is the real test
 - [ ] 10c: Evidence on the map
   - Evidence from the turn's tool results highlighted on the map by ID (iNaturalist and FIRMS IDs match the map's; weather evidence carries the sample point's ID), clicking one flies to it and opens its popup and source link. Evidence outside the loaded window is listed with its link instead. Inline `[source:id]` citations become links only if `validCitations` keeps them
   - An answer's coverage and limitations shown compactly under it
@@ -168,6 +178,7 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - The map view clipped to California's box (alternative: passing the view as is, which the tools refuse at the default statewide zoom)
   - Proximity reported per detection cluster, largest first (alternatives: the closest pairs statewide, which surfaced static heat sources in towns; dropping weak detections by default, which also drops small real fires)
   - The model sees a trimmed tool result, the UI the full one (alternative: the same result for both, ~40% more input tokens per tool call)
+  - A zero near the largest clusters is explained, and a 10 km / 48 h search offered (alternatives: reporting the zero bare, which reads as "no wildlife near fires"; offering the 25 km / 72 h maximum, which takes in almost every detection and can reach before the stored data)
 
 ## Phase 11: Agent evals (right after Phase 10, not optional)
 
@@ -267,6 +278,14 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - **Settling bands are fixed estimates:** 3 hours for FIRMS and 48 hours for iNaturalist uploads, not measured from the data. A slower day can still add records before the band
 - **Feed health is judged when the server answers:** `/api/freshness` is cached up to ~2 minutes and refetched every minute, so "behind" and "No live poll for …" can be ~3 minutes late. Small next to the 10/30/120-minute thresholds
 - **Test runs left in the local database:** the flaky weather poll test (issue #9) can leave a `running` run with a 2001 window. Freshness ignores it (its window is outside the Live window), but it stays in `ingestion_runs`
+
+### Known limitations from Phase 10 (check later)
+
+- **An answer can end without text:** the last of 8 steps is only told to answer. Logged as `chat_requests.no_answer`; Phase 11 measures it
+- **The reviewer key stays in the address bar:** by design (no redirect), so it shows in screenshots, browser history and Vercel's request logs. It only raises a rate limit, and rotating `REVIEWER_ACCESS_KEY` invalidates it and every cookie
+- **Tool schemas carry long ISO date patterns:** `z.iso.datetime` adds a ~600-character regex to every range field (~3k tokens across the six tools). Prompt caching makes it cheap after the first message; trimming it means changing `rangeSchema` (Phase 9)
+- **Chat counts can differ slightly from the map's:** same range, but the map's layer can be up to 40 minutes old (CDN) while the tools query the database now
+- **"California" is a bounding box:** statewide answers include detections and observations just across the border (see "Later")
 
 ### Known limitations from Phase 6 (check later)
 
