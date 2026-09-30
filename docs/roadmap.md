@@ -190,12 +190,21 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
     - Weather "right now" asked between :00 and :19 past the hour, before that hour's poll lands (the within-3 h branch: current, with its age)
     - Close a tab mid-answer, then check its `chat_requests` row has tokens (whether `onAbort` fires on Vercel)
     - The reviewer link in a private window shows "Reviewer access" and the questions left on load
-- [ ] 10c: Evidence on the map
-  - First: `get_conditions` still refuses a range under 80% read. For weather, report the readings that exist plus the latest reading's age instead: the 80% rule protects counts and rates, and point-in-time readings aren't biased by missing hours. Then update decisions.md 36 to match
-  - Citations rendered as short labels ("detection", "#1"), not raw IDs: FIRMS IDs are very long (`parseAnswer` already returns each citation's source and ID)
-  - Evidence from the turn's tool results highlighted on the map by ID (iNaturalist and FIRMS IDs match the map's; weather evidence carries the sample point's ID), clicking one flies to it and opens its popup and source link. Evidence outside the loaded window is listed with its link instead. Inline `[source:id]` citations become links only if `validCitations` keeps them
-  - An answer's coverage and limitations shown compactly under it
-  - Evidence for observations near only the smaller clusters: the proximity tool cites each listed cluster's closest pair, so when every nearby observation is by a smaller cluster (often static sources in towns), the answer has nothing to cite (pre-merge review of 10b)
+10c is split in three (Mike, 2026-09-30): 10c-1 ships as its own PR (a server-only correctness fix, in production before the UI work), 10c-2 and 10c-3 as one PR.
+
+- [x] 10c-1: Tool fixes
+  - `get_conditions` no longer refuses a range under 80% read: it answers from the hours with readings and says how many and how old the newest is. By-day answers give each day's `hours` of `hoursInDay` and mark it `partial`; a partial day gets no precipitation total. Only a range with no readings (past, so no fallback) or an area no run read is refused (decisions.md, 36)
+  - Evidence for observations near only the smaller clusters: `otherClusters.closest` is the closest of those pairs, and cited with the listed clusters' (pre-merge review of 10b)
+  - Verified locally (2026-09-30): the conditions, detections and tools test files, typecheck, lint
+- [ ] 10c-2: Evidence in the chat panel
+  - Citations as short numbered chips ("detection 1", "obs 2"), the label on hover. Only citations `validCitations` keeps become chips; others are stripped from the text, with a small line under the answer ("1 citation couldn't be matched to a tool result"). The count is logged in `chat_requests` (a migration), a free signal for Phase 11
+  - Each answer's evidence listed with its source links: cited records first, the uncited samples behind "Show all N". Chip and list numbers match
+  - An answer's coverage and limitations under it, collapsed: each source's statement and the limitations, duplicates across tools removed
+  - Unit tests for the citation rewrite: valid and invalid IDs, one citation used twice, one next to punctuation
+- [ ] 10c-3: Evidence on the map
+  - Markers drawn from the evidence's own coordinates in their own layer, ignoring the timeline, window and layer toggles (highlighting the map's points by ID breaks when the timeline filters them out). A filled dot plus a ring, so a record the timeline hides doesn't look like an empty circle. The newest answer's evidence is shown; clicking a chip in an older answer switches to its evidence
+  - Clicking a chip or list item flies to the record and opens its popup and source link. Weather evidence opens a small card with that reading's time, grid distance and link, not the layer's popup (which shows the timeline's hour)
+  - A "Clear highlights" control; New chat clears them too
 - [ ] 10d: Clip "California" to the state outline (after 10c, before Phase 11)
   - The Live bbox takes in parts of Nevada, Oregon, Arizona and Baja California, so statewide answers include e.g. a cluster at 40.82, -114.26 in Nevada (3.2 MW max, cluster #4 in the production fire answer, 2026-09-30). Once 10c shows clusters on the map, reviewers will see it
   - Load California's outline as a polygon (public domain source, one migration) and add `ST_Intersects` to the shared tool queries alongside the bbox. Ingestion and coverage stay rectangle-based: coverage is what was read; the outline filters what's counted
