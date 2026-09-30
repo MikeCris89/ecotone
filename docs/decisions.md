@@ -297,7 +297,7 @@ Writing only on finish missed requests the client left or the model failed, so t
 
 ## 36. Weather "right now" from the latest reading
 
-**Decision:** When a range has no weather readings yet (a question before the hour's poll lands), the conditions tool falls back to the nearest point's latest reading and states its age. Within the map's own 3-hour lookback it counts as current; older, it's the last available reading and the feed is said to be behind.
+**Decision:** When a range that reaches the present has no weather readings yet (a question before the hour's poll lands), the conditions tool falls back to the nearest point's latest reading and states its age. A past range with no readings is still refused. Within the map's own 3-hour lookback it counts as current; older, it's the last available reading and the feed is said to be behind.
 
 **Considered:** refusing, as before; always treating the latest reading as current.
 
