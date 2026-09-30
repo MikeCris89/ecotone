@@ -83,7 +83,8 @@ export type Usage = {
 	cacheReadTokens: number | null;
 	cacheWriteTokens: number | null;
 	steps: number;
-	noAnswer: boolean;
+	// Null when the reply was cut off or failed.
+	noAnswer: boolean | null;
 };
 
 /** Fills in what a served request cost, once its reply has finished. */

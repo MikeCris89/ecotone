@@ -2,6 +2,7 @@ import { anthropic } from "@ai-sdk/anthropic";
 import {
 	createUIMessageStreamResponse,
 	isStepCount,
+	type LanguageModelUsage,
 	type SystemModelMessage,
 	streamText,
 	toUIMessageStream,
@@ -80,6 +81,31 @@ export async function POST(request: Request) {
 		{ role: "system", content: contextPrompt(context) },
 	];
 
+	// Each finished step's usage, written once when the reply ends, is cut off or fails, so a
+	// request that doesn't finish still logs what its finished steps cost. Unknown stays null.
+	const finished: LanguageModelUsage[] = [];
+	const sum = (tokens: (usage: LanguageModelUsage) => number | undefined) =>
+		finished.some((usage) => tokens(usage) !== undefined)
+			? finished.reduce((total, usage) => total + (tokens(usage) ?? 0), 0)
+			: null;
+	let failed = false;
+	// The SDK awaits these callbacks and swallows their errors, so they're logged here.
+	const record = async (noAnswer: boolean | null) => {
+		try {
+			await recordUsage(admission.id, {
+				durationMs: Date.now() - startedAt,
+				inputTokens: sum((usage) => usage.inputTokens),
+				outputTokens: sum((usage) => usage.outputTokens),
+				cacheReadTokens: sum((usage) => usage.inputTokenDetails.cacheReadTokens),
+				cacheWriteTokens: sum((usage) => usage.inputTokenDetails.cacheWriteTokens),
+				steps: finished.length,
+				noAnswer,
+			});
+		} catch (error) {
+			console.error("Chat usage write failed", error);
+		}
+	};
+
 	const result = streamText({
 		model: anthropic(CHAT_MODEL),
 		instructions,
@@ -95,22 +121,15 @@ export async function POST(request: Request) {
 		maxOutputTokens: MAX_OUTPUT_TOKENS,
 		// A closed tab stops the model rather than paying for an answer nobody reads.
 		abortSignal: request.signal,
+		onStepEnd: ({ usage }) => void finished.push(usage),
 		// The SDK awaits this before closing the stream, so the write finishes within the request.
-		// It swallows errors, so they're logged here.
-		onEnd: async ({ totalUsage, steps, text }) => {
-			try {
-				await recordUsage(admission.id, {
-					durationMs: Date.now() - startedAt,
-					inputTokens: totalUsage.inputTokens ?? null,
-					outputTokens: totalUsage.outputTokens ?? null,
-					cacheReadTokens: totalUsage.inputTokenDetails.cacheReadTokens ?? null,
-					cacheWriteTokens: totalUsage.inputTokenDetails.cacheWriteTokens ?? null,
-					steps: steps.length,
-					noAnswer: text.trim().length === 0,
-				});
-			} catch (error) {
-				console.error("Chat usage write failed", error);
-			}
+		onEnd: ({ text }) => record(failed ? null : text.trim().length === 0),
+		// Cut off or failed: there's no answer to judge, so noAnswer stays null.
+		onAbort: () => record(null),
+		onError: ({ error }) => {
+			console.error("Chat stream failed", error);
+			failed = true;
+			return record(null);
 		},
 	});
 
