@@ -2,7 +2,9 @@ import { APICallError, type UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import {
 	answerMissing,
+	answerNotes,
 	chatError,
+	citationLabel,
 	loadedData,
 	parseAnswer,
 	remainingNote,
@@ -166,6 +168,61 @@ describe("answerMissing", () => {
 	});
 });
 
+describe("citationLabel", () => {
+	it("names the kind of record and its number in the answer", () => {
+		expect(citationLabel("inaturalist", 1)).toBe("obs 1");
+		expect(citationLabel("firms", 2)).toBe("detection 2");
+		expect(citationLabel("open-meteo", 3)).toBe("weather 3");
+	});
+});
+
+describe("answerNotes", () => {
+	const coverage = (statements: [string, string][]) => ({
+		sources: statements.map(([source, statement]) => ({ source, statement })),
+	});
+	const toolPart = (toolCallId: string, output: unknown) =>
+		({ type: "tool-summarize_detections", toolCallId, state: "output-available", input: {}, output }) as UIMessage["parts"][number];
+
+	it("collects each tool's coverage statements and limitations, duplicates removed", () => {
+		const message = assistant([
+			toolPart("c1", {
+				coverage: coverage([["firms", "Read 24 of 24 hours."]]),
+				limitations: ["Not fires.", "Weak detections near towns are often static sources."],
+			}),
+			toolPart("c2", {
+				coverage: coverage([
+					["firms", "Read 24 of 24 hours."],
+					["inaturalist", "Read 70 of 72 hours."],
+				]),
+				limitations: ["Not fires.", "Counts reflect observer effort."],
+			}),
+			{ type: "tool-get_conditions", toolCallId: "c3", state: "output-error", input: {}, errorText: "failed" } as UIMessage["parts"][number],
+		]);
+		expect(answerNotes(message)).toEqual({
+			statements: [
+				{ source: "firms", statement: "Read 24 of 24 hours." },
+				{ source: "inaturalist", statement: "Read 70 of 72 hours." },
+			],
+			limitations: ["Not fires.", "Weak detections near towns are often static sources.", "Counts reflect observer effort."],
+		});
+	});
+
+	it("keeps the same statement from two sources", () => {
+		const message = assistant([
+			toolPart("c1", { coverage: coverage([["firms", "Read 24 of 24 hours."]]) }),
+			toolPart("c2", { coverage: coverage([["open-meteo", "Read 24 of 24 hours."]]) }),
+		]);
+		expect(answerNotes(message).statements).toEqual([
+			{ source: "firms", statement: "Read 24 of 24 hours." },
+			{ source: "open-meteo", statement: "Read 24 of 24 hours." },
+		]);
+	});
+
+	it("is empty without tool results", () => {
+		expect(answerNotes(assistant([{ type: "text", text: "Hello." }]))).toEqual({ statements: [], limitations: [] });
+	});
+});
+
 describe("parseAnswer", () => {
 	it("splits paragraphs on blank lines and joins wrapped lines", () => {
 		expect(parseAnswer("First line\nstill first.\n\nSecond.")).toEqual([
@@ -201,12 +258,32 @@ describe("parseAnswer", () => {
 			{
 				type: "paragraph",
 				inlines: [
-					{ type: "bold", text: "7 recorded observations" },
+					{ type: "bold", inlines: [{ type: "text", text: "7 recorded observations" }] },
 					{ type: "text", text: " near the largest cluster " },
 					{ type: "citation", source: "inaturalist", id: "123456" },
 					{ type: "text", text: ", " },
 					{ type: "citation", source: "firms", id: "N20:2026-09-29T21:30Z,38.1,-120.2" },
 					{ type: "text", text: "." },
+				],
+			},
+		]);
+	});
+
+	it("finds citations and italics inside bold text", () => {
+		expect(parseAnswer("**1,601 detections [firms:N20:2026-09-29T21:30Z,38.1,-120.2] near *Pinus*.**")).toEqual([
+			{
+				type: "paragraph",
+				inlines: [
+					{
+						type: "bold",
+						inlines: [
+							{ type: "text", text: "1,601 detections " },
+							{ type: "citation", source: "firms", id: "N20:2026-09-29T21:30Z,38.1,-120.2" },
+							{ type: "text", text: " near " },
+							{ type: "italic", text: "Pinus" },
+							{ type: "text", text: "." },
+						],
+					},
 				],
 			},
 		]);

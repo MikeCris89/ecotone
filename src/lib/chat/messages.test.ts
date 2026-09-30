@@ -1,7 +1,7 @@
 import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import type { Evidence } from "@/lib/agent/contract";
-import { turnEvidence, validCitations } from "@/lib/chat/citations";
+import { citeAnswer, turnEvidence } from "@/lib/chat/citations";
 import { MAX_MESSAGE_CHARS, messagesError, toModelMessages } from "@/lib/chat/messages";
 
 const question = (text: string) => ({ role: "user" as const, parts: [{ type: "text", text }] });
@@ -126,7 +126,7 @@ describe("citations", () => {
 		const text =
 			"A Steller's jay [inaturalist:102], a detection [firms:snpp:2026-09-29T10:00:00.000Z:37.1,-120.2], " +
 			"an invented record [inaturalist:999], a wrong source [firms:101], and [inaturalist:102] again.";
-		expect(validCitations(text, turnEvidence(message)).map((record) => record.id)).toEqual([
+		expect(citeAnswer([text], turnEvidence(message)).cited.map((record) => record.id)).toEqual([
 			"102",
 			"snpp:2026-09-29T10:00:00.000Z:37.1,-120.2",
 		]);

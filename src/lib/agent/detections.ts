@@ -163,7 +163,7 @@ export async function summarizeDetections(
 			DETECTION_LIMITATIONS.defaultFilter,
 			...(minFrpMw === undefined ? [] : [DETECTION_LIMITATIONS.minFrp(minFrpMw)]),
 			`Clusters join detections within ${clusterDistanceKm} km of each other. They're spatial only: detections at one ` +
-				"place on different days share a cluster, so check its dates, first and last times.",
+				"place on different days share a cluster, so one cluster can span several days.",
 		],
 	};
 }

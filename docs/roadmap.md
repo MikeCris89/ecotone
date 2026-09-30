@@ -191,7 +191,7 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
     - Close a tab mid-answer, then check its `chat_requests` row has tokens (whether `onAbort` fires on Vercel)
     - The reviewer link in a private window shows "Reviewer access" and the questions left on load
 
-10c is split in three (Mike, 2026-09-30): 10c-1 ships as its own PR (a server-only correctness fix, in production before the UI work), 10c-2 and 10c-3 as one PR.
+10c is split in three (Mike, 2026-09-30): 10c-1 ships as its own PR (a server-only correctness fix, in production before the UI work). 10c-2 was planned to share a PR with 10c-3, but ships on its own (Mike, 2026-09-30); 10c-3 gets its own PR.
 
 - [x] 10c-1: Tool fixes
   - `get_conditions` no longer refuses a range under 80% read: it answers from the hours with readings and says how many and how old the newest is. A range with no readings still gets the "right now" fallback when it reaches the present, and is refused otherwise (decisions.md, 36)
@@ -201,16 +201,26 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - Evidence for observations near only the smaller clusters: `otherClusters.closest` is the closest of those pairs, and cited with the listed clusters' (pre-merge review of 10b)
   - Verified locally (2026-09-30): the conditions, detections and tools test files (26 tests), typecheck, lint
   - Post-merge check (Mike): ask a weather question over the 7 days window. The answer comes by day; the first day and today show fewer hours in range than in the day, and nothing is called missing unless it is
-- [ ] 10c-2: Evidence in the chat panel
-  - Citations as short numbered chips ("detection 1", "obs 2"), the label on hover. Only citations `validCitations` keeps become chips; others are stripped from the text, with a small line under the answer ("1 citation couldn't be matched to a tool result"). The count is logged in `chat_requests` (a migration), a free signal for Phase 11
+- [x] 10c-2: Evidence in the chat panel
+  - Citations as short numbered chips ("detection 1", "obs 2"), the label on hover. Only citations a tool returned (`citeAnswer`, which replaced `validCitations`) become chips; others are stripped from the text, with a small line under the answer ("1 citation couldn't be matched to a tool result"). The count is logged in `chat_requests` (a migration), a free signal for Phase 11
   - Each answer's evidence listed with its source links: cited records first, the uncited samples behind "Show all N". Chip and list numbers match
   - An answer's coverage and limitations under it, collapsed: each source's statement and the limitations, duplicates across tools removed
   - Unit tests for the citation rewrite: valid and invalid IDs, one citation used twice, one next to punctuation
   - From the review of 10c-1 (on `main` already): `parseAnswer` doesn't parse inside `**bold**`, so a citation in bold stays literal text; fix it with the chips. And `chatContext` changes on every timeline step, so the memoized chat panel re-renders and re-parses every answer during playback (`src/components/live-map.tsx`): read the context through a ref so the callback stays stable
+  - Built (2026-09-30): the two review fixes first (bold now holds its own inlines, so citations and italics inside it are parsed; the window, hour and `end` reach `chatContext` through a ref, so the callback never changes). `citeAnswer` (`src/lib/chat/citations.ts`) checks all of a reply's text against the turn's evidence: valid citations numbered by first use (one number per record, across sources), unmatched ones removed with the spaces before them, counted as distinct IDs. The route runs the same function over every step's text and every tool result in `onEnd` and logs `chat_requests.unmatched_citations` (null when cut off or failed, like `no_answer`). The evidence list, the unmatched line and the collapsed "Coverage and limitations" show once the reply is done, so numbers don't shift while it streams. A date-only recorded observation shows its date alone
+  - Review fixes: coverage statements are deduplicated by source and statement (statements don't name their source, so a settled day read by two sources gave two identical "Read 24 of 24 hours." and one was dropped). Limitations are now plain statements for users, since the panel shows them: instructions to the model ("say so", "say how old they are", "check its dates") moved into the `summarize_detections` and `get_conditions` descriptions, and field names (`hoursInRange`, `observations.total`, `excluded`, `summarize_detections`) left the limitation text. `CONDITIONS_LIMITATIONS` holds the two by-day ones, so tests compare them exactly
+  - Verified locally (2026-09-30): `citations`, `messages`, `ui`, `route`, `tools`, `conditions` and `detections` test files, `limits` against the local database (migration applied locally), typecheck, lint. Full `pnpm test` (Mike) passed before the review fixes; he reruns it before merge
+  - Before merge (Mike): `supabase db push` for `unmatched_citations`, or usage writes fail (caught and logged, the row's usage lost)
+  - Post-merge checks (Mike): the fire question in production shows chips, an evidence list whose numbers match, and collapsed coverage and limitations with no instructions to the model in them; its `chat_requests` row has `unmatched_citations` set (0 or more, not null)
 - [ ] 10c-3: Evidence on the map
   - Markers drawn from the evidence's own coordinates in their own layer, ignoring the timeline, window and layer toggles (highlighting the map's points by ID breaks when the timeline filters them out). A filled dot plus a ring, so a record the timeline hides doesn't look like an empty circle. The newest answer's evidence is shown; clicking a chip in an older answer switches to its evidence
   - Clicking a chip or list item flies to the record and opens its popup and source link. Weather evidence opens a small card with that reading's time, grid distance and link, not the layer's popup (which shows the timeline's hour)
   - A "Clear highlights" control; New chat clears them too
+  - Notes from 10c-2 for building it:
+    - `Reply` in `src/components/chat-panel.tsx` already memoizes each answer's `evidence` (from `turnEvidence`) and `cited` (from `citeAnswer`). The numbering is `cited` first (1..k), then the uncited evidence in `evidence` order (k+1..N): markers can reuse it
+    - Chips (`Chip`) and list items are plain text today; 10c-3 makes them buttons. The evidence list only renders once the reply is finished
+    - Every `Evidence` carries `longitude`, `latitude`, `url` and times; weather evidence IDs are `<point id>:<ISO hour>`
+    - `formatDate` (date-only records) is exported from `src/components/map-popup.tsx`; `formatTime` is in `src/lib/timeline.ts`
 - [ ] 10d: Clip "California" to the state outline (after 10c, before Phase 11)
   - The Live bbox takes in parts of Nevada, Oregon, Arizona and Baja California, so statewide answers include e.g. a cluster at 40.82, -114.26 in Nevada (3.2 MW max, cluster #4 in the production fire answer, 2026-09-30). Once 10c shows clusters on the map, reviewers will see it
   - Load California's outline as a polygon (public domain source, one migration) and add `ST_Intersects` to the shared tool queries alongside the bbox. Ingestion and coverage stay rectangle-based: coverage is what was read; the outline filters what's counted
@@ -220,16 +230,20 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - `chat_requests.limited` as nullable text, null meaning served (alternatives: a boolean plus a separate column for which limit; a `'none'` value). One column records which limit fired, and the partial indexes are built around `limited is null`
   - Suggested questions only when the loaded window has the data (alternatives: a fixed list, which offers a thermal activity question with no detections; checking the current view, more accurate but needs map state per pan)
   - Tool steps shown live with plain-language labels (alternative: a spinner until the answer arrives, hiding the 5 to 12 s of tool calls and what the answer rests on)
+  - Citations as chips numbered once per answer across all sources (alternatives: raw IDs, unreadable for FIRMS; a numbering per source). One sequence lets 10c-3's markers reuse the numbers
+  - Coverage and limitations collapsed under each answer (alternative: always shown, which buries the answer the brief says not to drown in caveats)
+  - Limitations written for users, instructions for the model in the tool descriptions (alternative: separate user and model limitation fields in the tool contract, which would change every tool's return shape)
 
 ## Phase 11: Agent evals (right after Phase 10, not optional)
 
 - [ ] 10–15 questions with expected behaviour (answers, refuses, flags stale data, picks the right tool), run by `pnpm eval` against the deployed model. Graded by code, not an LLM. Kept out of `pnpm test`: it calls the real API
   - Include a question hard enough to use all 8 steps, checking the reply still ends with text (the last-step instruction works), alongside the `chat_requests` no-answer flag in production
   - Include a fire question, checking the answer leads with the largest clusters rather than the closest pairs statewide
+  - Report `chat_requests.unmatched_citations` alongside `no_answer`: the share of answers with a citation no tool returned
   - From the 10b browser tests:
     - "Is this a fire?" never gets a yes or no, only "consistent with" and the evidence
     - After a map move, the model never retracts an earlier answer
-    - The "right now" weather fallback labels an old reading as the last available, not current, and states its age
+    - The "right now" weather fallback labels an old reading as the last available, not current, and states its age (since 10c-2 this rests on the `get_conditions` description, not the limitation text)
     - Only offer actions the tools can do now (it offered "I can check again later")
 - [ ] Trim the tool schemas' ISO date patterns (~3k of the ~9k cached prefix, see "Known limitations from Phase 10")
 
@@ -338,6 +352,7 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - **Tool schemas carry long ISO date patterns:** `z.iso.datetime` adds a ~600-character regex to every range field (~3k tokens across the six tools). Prompt caching makes it cheap after the first message; trimming it means changing `rangeSchema` (Phase 9)
 - **Chat counts can differ slightly from the map's:** same range, but the map's layer can be up to 40 minutes old (CDN) while the tools query the database now
 - **"California" is a bounding box:** statewide answers include detections and observations just across the border (fix planned in 10d)
+- **Today can be marked partial for up to 20 minutes each hour:** the range counts the current hour's mark, but that hour's reading only arrives with the :20 poll. Between :00 and :20 a by-day weather answer marks today `partial` (and gives it no precipitation total), and the range says one hour is missing
 
 ### Known limitations from Phase 6 (check later)
 

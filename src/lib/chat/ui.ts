@@ -1,8 +1,9 @@
 // The chat panel's logic, kept apart from React so it can be tested: tool step labels, which
 // suggested questions the loaded data can answer, the route's error messages, and the light
 // markdown answers use.
-import { APICallError, type UIMessage } from "ai";
+import { APICallError, isToolUIPart, type UIMessage } from "ai";
 import { z } from "zod";
+import type { ToolResult } from "@/lib/agent/contract";
 import type { Bucket } from "@/lib/chat/access";
 import { CITATION } from "@/lib/chat/citations";
 import { WINDOW_NAMES } from "@/lib/chat/context";
@@ -10,6 +11,7 @@ import { answerText } from "@/lib/chat/messages";
 import type { CHAT_TOOLS } from "@/lib/chat/tools";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { InatMapRow } from "@/lib/inaturalist/map";
+import type { Source } from "@/lib/ingestion-runs";
 import { inatInWindow, instantInWindow, type MapWindow, windowBounds } from "@/lib/map-layers";
 
 const STEP_LABELS: Record<keyof typeof CHAT_TOOLS, string> = {
@@ -80,6 +82,40 @@ export function remainingNote(remaining: { hourly: number; daily: number } | nul
 	return `${left} ${left === 1 ? "question" : "questions"} left ${period}`;
 }
 
+const CITATION_WORDS: Record<Source, string> = { inaturalist: "obs", firms: "detection", "open-meteo": "weather" };
+
+/** A citation's chip, and its line in the evidence list: "detection 2". One numbering per answer. */
+export function citationLabel(source: Source, number: number): string {
+	return `${CITATION_WORDS[source]} ${number}`;
+}
+
+export const SOURCE_NAMES: Record<Source, string> = {
+	inaturalist: "Recorded observations",
+	firms: "Satellite thermal detections",
+	"open-meteo": "Modeled conditions",
+};
+
+/**
+ * What an answer's numbers rest on: each source's coverage statement and every limitation, from all
+ * the tools that returned in the message, duplicates across tools removed.
+ */
+export function answerNotes(message: UIMessage): { statements: { source: Source; statement: string }[]; limitations: string[] } {
+	const results = message.parts.flatMap((part) =>
+		isToolUIPart(part) && part.state === "output-available" ? [part.output as Partial<ToolResult<unknown>> | null] : [],
+	);
+	const statements = results.flatMap((result) => result?.coverage?.sources ?? []);
+	return {
+		statements: statements
+			// By source too: statements don't name their source, so two can read the same ("Read 24 of 24 hours.").
+			.filter(
+				({ source, statement }, index) =>
+					statements.findIndex((other) => other.source === source && other.statement === statement) === index,
+			)
+			.map(({ source, statement }) => ({ source, statement })),
+		limitations: [...new Set(results.flatMap((result) => result?.limitations ?? []))],
+	};
+}
+
 const GENERIC_ERROR = "Something went wrong. Try again.";
 // The chat route's error body: every non-2xx answer carries a message meant for the user.
 // A 429's also says which limit and when it lifts.
@@ -132,7 +168,7 @@ export function chatError(
 
 export type Inline =
 	| { type: "text"; text: string }
-	| { type: "bold"; text: string }
+	| { type: "bold"; inlines: Inline[] }
 	| { type: "italic"; text: string }
 	| { type: "citation"; source: string; id: string };
 export type Block =
@@ -161,7 +197,8 @@ function inlines(text: string): Inline[] {
 	for (const match of text.matchAll(INLINE)) {
 		if (match.index > last) result.push({ type: "text", text: text.slice(last, match.index) });
 		const [, bold, source, id, starItalic, underscoreItalic] = match;
-		if (bold !== undefined) result.push({ type: "bold", text: bold });
+		// Parsed again for the citations and italics inside it. It can't hold "**", so this stops there.
+		if (bold !== undefined) result.push({ type: "bold", inlines: inlines(bold) });
 		else if (source !== undefined) result.push({ type: "citation", source, id });
 		else result.push({ type: "italic", text: starItalic ?? underscoreItalic });
 		last = match.index + match[0].length;
