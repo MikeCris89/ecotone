@@ -1,5 +1,11 @@
 import { anthropic } from "@ai-sdk/anthropic";
-import { createUIMessageStreamResponse, isStepCount, streamText, toUIMessageStream } from "ai";
+import {
+	createUIMessageStreamResponse,
+	isStepCount,
+	type SystemModelMessage,
+	streamText,
+	toUIMessageStream,
+} from "ai";
 import { z } from "zod";
 import { chatContextSchema, contextPrompt, resolveContext } from "@/lib/chat/context";
 import { chatMessageSchema, messagesError, toModelMessages } from "@/lib/chat/messages";
@@ -11,9 +17,11 @@ import { getDataset, LIVE_DATASET_SLUG } from "@/lib/datasets";
 export const maxDuration = 120;
 
 const CHAT_MODEL = "claude-sonnet-5-5";
-// Model calls per question, tool rounds included. The last one can't call tools, so a question
-// that uses them all still ends with an answer.
+// Model calls per question, tool rounds included. The last one is told to answer, so a question
+// that uses them all still ends with one.
 const MAX_STEPS = 8;
+const LAST_STEP_INSTRUCTION =
+	"You have used all your tool calls for this question. Don't call any more tools: answer now from the results above, and say what you couldn't check.";
 const MAX_OUTPUT_TOKENS = 2000;
 
 const requestSchema = z.looseObject({
@@ -42,21 +50,28 @@ export async function POST(request: Request) {
 	}
 	const context = resolveContext(parsed.data.context, dataset, new Date());
 
+	const instructions: SystemModelMessage[] = [
+		// Anthropic caches everything up to this breakpoint: the tool definitions, then these rules.
+		{
+			role: "system",
+			content: SYSTEM_PROMPT,
+			providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+		},
+		{ role: "system", content: contextPrompt(context) },
+	];
+
 	const result = streamText({
 		model: anthropic(CHAT_MODEL),
-		instructions: [
-			// Anthropic caches everything up to this breakpoint: the tool definitions, then these rules.
-			{
-				role: "system",
-				content: SYSTEM_PROMPT,
-				providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
-			},
-			{ role: "system", content: contextPrompt(context) },
-		],
+		instructions,
 		messages,
 		tools: CHAT_TOOLS,
 		stopWhen: isStepCount(MAX_STEPS),
-		prepareStep: ({ stepNumber }) => (stepNumber === MAX_STEPS - 1 ? { toolChoice: "none" } : undefined),
+		// Not toolChoice "none": the Anthropic provider implements it by removing the tools, and the
+		// API rejects a history with tool calls but no tool definitions.
+		prepareStep: ({ stepNumber }) =>
+			stepNumber === MAX_STEPS - 1
+				? { instructions: [...instructions, { role: "system", content: LAST_STEP_INSTRUCTION }] }
+				: undefined,
 		maxOutputTokens: MAX_OUTPUT_TOKENS,
 		// A closed tab stops the model rather than paying for an answer nobody reads.
 		abortSignal: request.signal,
