@@ -352,16 +352,22 @@ export function LiveMap() {
 			end: latestEnd === null ? null : new Date(latestEnd).toISOString(),
 		};
 	}, [mapWindow, hour, latestEnd]);
-	// From the counts the legend shows.
+	// The suggestions ask about the selected window, so they check it rather than the handle's day,
+	// over everything loaded (as the legend counts), not just the view.
+	const inatWindow = useShownSpan(inaturalist.data?.end, mapWindow, null);
+	const firmsWindow = useShownSpan(firms.data?.end, mapWindow, null);
 	const suggestions = useMemo(
 		() =>
 			suggestedQuestions({
 				window: mapWindow,
-				observations: inatShown.length,
-				detections: firmsShown.length,
-				weatherReadings: weatherShown.length,
+				observations:
+					!!inatWindow &&
+					inatData.features.some(({ properties }) => inatInWindow(properties.from, properties.to, inatWindow)),
+				detections:
+					!!firmsWindow && firmsData.features.some(({ properties }) => instantInWindow(properties.time, firmsWindow)),
+				weather: !!weather.data?.rows.length,
 			}),
-		[mapWindow, inatShown.length, firmsShown.length, weatherShown.length],
+		[mapWindow, inatWindow, firmsWindow, inatData, firmsData, weather.data],
 	);
 
 	const visibility = (layer: keyof LayerVisibility) => (visible[layer] ? "visible" : "none");

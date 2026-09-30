@@ -24,19 +24,19 @@ export function stepLabel(toolName: string): string {
 	return STEP_LABELS[toolName as keyof typeof CHAT_TOOLS] ?? "Querying the data";
 }
 
-/** What the map has loaded for the selected window, as the legend counts it. */
-export type LoadedCounts = { window: MapWindow; observations: number; detections: number; weatherReadings: number };
+/** Whether the map has loaded each kind of record for the selected window. */
+export type LoadedData = { window: MapWindow; observations: boolean; detections: boolean; weather: boolean };
 
 /**
  * Suggested questions, only those the loaded data can answer (brief 6.7): no question about thermal
  * activity without detections, none about species without recorded observations.
  */
-export function suggestedQuestions({ window, observations, detections, weatherReadings }: LoadedCounts): string[] {
+export function suggestedQuestions({ window, observations, detections, weather }: LoadedData): string[] {
 	const period = `the ${WINDOW_NAMES[window]}`;
 	return [
-		...(observations > 0 ? [`What species have been recorded in this area in ${period}?`] : []),
-		...(observations > 0 && detections > 0 ? [`What wildlife was recorded near thermal activity in ${period}?`] : []),
-		...(weatherReadings > 0 ? ["What are the modeled conditions here right now?"] : []),
+		...(observations ? [`What species have been recorded in this area in ${period}?`] : []),
+		...(observations && detections ? [`What wildlife was recorded near thermal activity in ${period}?`] : []),
+		...(weather ? ["What are the modeled conditions here right now?"] : []),
 		"How fresh is the data right now?",
 	];
 }
