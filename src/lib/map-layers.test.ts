@@ -67,12 +67,20 @@ describe("inatPrecision", () => {
 
 	it("treats missing accuracy as unknown, not precise", () => {
 		expect(inatPrecision(row(null, false))).toBe("unknown-accuracy");
-		expect(inatPrecision(row(12, false))).toBe("precise");
 	});
 
-	it("marks obscured records whatever accuracy they report", () => {
-		expect(inatPrecision(row(12, true))).toBe("obscured");
-		expect(inatPrecision(row(null, true))).toBe("obscured");
+	it.each([
+		[12, "precise"],
+		[1_000, "precise"],
+		[1_001, "imprecise"],
+		[25_000, "imprecise"],
+	])("classifies a known accuracy of %i m as %s (the ≤1 km rule)", (accuracy, expected) => {
+		expect(inatPrecision(row(accuracy, false))).toBe(expected);
+	});
+
+	it("marks obscured records imprecise whatever accuracy they report", () => {
+		expect(inatPrecision(row(12, true))).toBe("imprecise");
+		expect(inatPrecision(row(null, true))).toBe("imprecise");
 	});
 });
 

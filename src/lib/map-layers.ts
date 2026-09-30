@@ -3,6 +3,7 @@
 // Type-only imports from the map modules: their runtime code needs the database.
 import type { CircleLayerSpecification } from "maplibre-gl";
 import type { SourceAttribution } from "@/lib/data-sources";
+import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 import type { MapLayer } from "@/lib/map-query";
@@ -62,13 +63,15 @@ export function instantWindowFilter({ start, end }: TimeWindow): Filter {
 	return ["all", [">=", ["get", "time"], start], ["<", ["get", "time"], end]];
 }
 
-// Obscured wins over accuracy: a randomized location is imprecise whatever accuracy it reports.
-export type InatPrecision = "precise" | "unknown-accuracy" | "obscured";
+// Precise means accuracy known and within PRECISE_ACCURACY_M. Obscured wins over accuracy: a
+// randomized location is imprecise whatever accuracy it reports.
+export type InatPrecision = "precise" | "imprecise" | "unknown-accuracy";
 
 export function inatPrecision(row: InatMapRow): InatPrecision {
 	const [, , , , , , accuracy, obscured] = row;
-	if (obscured) return "obscured";
-	return accuracy === null ? "unknown-accuracy" : "precise";
+	if (obscured) return "imprecise";
+	if (accuracy === null) return "unknown-accuracy";
+	return accuracy <= PRECISE_ACCURACY_M ? "precise" : "imprecise";
 }
 
 export function inatGeoJson(

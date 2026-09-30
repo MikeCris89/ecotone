@@ -170,8 +170,8 @@ export function LiveMap() {
 						}}
 					/>
 					{/*
-					 * Precise records are filled; unknown accuracy is a hollow ring; obscured records are
-					 * larger and faint, because their location was randomized within a ~0.2 degree cell.
+					 * Precise records are filled; unknown accuracy is a hollow ring; imprecise or obscured
+					 * records are larger and faint, since their true location may be kilometres away.
 					 */}
 					<Layer
 						id="inaturalist-points"
@@ -180,7 +180,7 @@ export function LiveMap() {
 						{...windowFilter(inatFilter)}
 						layout={{ visibility: visibility("inaturalist") }}
 						paint={{
-							"circle-radius": ["match", ["get", "precision"], "obscured", 8, 4],
+							"circle-radius": ["match", ["get", "precision"], "imprecise", 8, 4],
 							"circle-color": OBSERVATION_COLOR,
 							"circle-opacity": [
 								"interpolate",
@@ -189,7 +189,7 @@ export function LiveMap() {
 								7,
 								0,
 								8,
-								["match", ["get", "precision"], "precise", 0.9, "obscured", 0.2, 0],
+								["match", ["get", "precision"], "precise", 0.9, "imprecise", 0.2, 0],
 							],
 							"circle-stroke-color": [
 								"match",

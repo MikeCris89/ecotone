@@ -8,6 +8,7 @@ import {
 	TEMPERATURE_STOPS,
 } from "@/components/map-colors";
 import type { SourceAttribution } from "@/lib/data-sources";
+import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
 import { type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
 
 export type LayerVisibility = { inaturalist: boolean; firms: boolean; weather: boolean };
@@ -86,15 +87,15 @@ export function MapPanel(props: MapPanelProps) {
 				<ul className="flex flex-wrap gap-x-3 gap-y-1">
 					<li className="flex items-center gap-1">
 						<span className="size-2.5 rounded-full" style={{ backgroundColor: OBSERVATION_COLOR }} />
-						Precise
+						Precise (≤{PRECISE_ACCURACY_M / 1000} km)
+					</li>
+					<li className="flex items-center gap-1">
+						<span className="size-3.5 rounded-full opacity-30" style={{ backgroundColor: OBSERVATION_COLOR }} />
+						Imprecise or obscured
 					</li>
 					<li className="flex items-center gap-1">
 						<span className="size-2.5 rounded-full border-[1.5px]" style={{ borderColor: OBSERVATION_COLOR }} />
 						Accuracy unknown
-					</li>
-					<li className="flex items-center gap-1">
-						<span className="size-3.5 rounded-full opacity-30" style={{ backgroundColor: OBSERVATION_COLOR }} />
-						Location obscured (~20 km)
 					</li>
 				</ul>
 			</LayerEntry>
