@@ -3,7 +3,7 @@
 // The map and the agent describe coverage only through these statements, never through a bare
 // covered_until: it says how far a run read, and only its status says whether that was everything.
 import { formatDuration, type Interval, intersect, subtract, union } from "@/lib/coverage";
-import { type Dataset, liveWindowStart } from "@/lib/datasets";
+import { type Bbox, type Dataset, liveWindowStart } from "@/lib/datasets";
 import { sql } from "@/lib/db";
 import { LIVE_PRODUCTS, type Product } from "@/lib/firms/client";
 import type { RunMode, Source } from "@/lib/ingestion-runs";
@@ -335,44 +335,67 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 	};
 }
 
+type RunRow = Omit<FreshnessRun, "windowStart" | "windowEnd" | "coveredUntil" | "startedAt"> & {
+	windowStart: Date;
+	windowEnd: Date;
+	coveredUntil: Date | null;
+	startedAt: Date;
+};
+
+const runColumns = () => sql`
+	source,
+	mode,
+	time_field as "timeField",
+	filters->>'product' as product,
+	status,
+	window_start as "windowStart",
+	window_end as "windowEnd",
+	covered_until as "coveredUntil",
+	started_at as "startedAt",
+	error
+`;
+
+const toFreshnessRun = (row: RunRow): FreshnessRun => ({
+	...row,
+	windowStart: row.windowStart.getTime(),
+	windowEnd: row.windowEnd.getTime(),
+	coveredUntil: row.coveredUntil?.getTime() ?? null,
+	startedAt: row.startedAt.getTime(),
+});
+
+/**
+ * Runs of any dataset whose requested bbox contains `bbox` and whose window reaches past `start`,
+ * started by `now`. For coverage of an arbitrary area and range (the agent tools): what's stored
+ * decides, not a dataset's retention window. A run's bbox contains the area when every record in
+ * the area was in its request. No index covers window_end; ingestion_runs is small (~600 runs a day).
+ */
+export async function getRunsCovering(bbox: Bbox, start: Date, now: Date): Promise<FreshnessRun[]> {
+	const rows = await sql<RunRow[]>`
+		select ${runColumns()}
+		from ingestion_runs
+		where west <= ${bbox.west} and east >= ${bbox.east}
+			and south <= ${bbox.south} and north >= ${bbox.north}
+			and window_end > ${start}
+			and started_at <= ${now}
+	`;
+	return rows.map(toFreshnessRun);
+}
+
 /** Every source's freshness over the dataset's live window, ending at `now`. */
 export async function getFreshness(dataset: Dataset, now: Date): Promise<Freshness> {
 	const windowStart = liveWindowStart(dataset, now).instant;
 	// A run's window ends by the time it starts, so only runs started within the window can reach
 	// into it. The started_at bound lets the (source, started_at) index skip older runs; the hour's
 	// margin covers the few milliseconds between a run's window end and its started_at default.
-	const rows = await sql<
-		(Omit<FreshnessRun, "windowStart" | "windowEnd" | "coveredUntil" | "startedAt"> & {
-			windowStart: Date;
-			windowEnd: Date;
-			coveredUntil: Date | null;
-			startedAt: Date;
-		})[]
-	>`
-		select
-			source,
-			mode,
-			time_field as "timeField",
-			filters->>'product' as product,
-			status,
-			window_start as "windowStart",
-			window_end as "windowEnd",
-			covered_until as "coveredUntil",
-			started_at as "startedAt",
-			error
+	const rows = await sql<RunRow[]>`
+		select ${runColumns()}
 		from ingestion_runs
 		where dataset_id = ${dataset.id}
 			and started_at >= ${new Date(windowStart.getTime() - HOUR_MS)}
 			and started_at <= ${now}
 			and window_end > ${windowStart}
 	`;
-	const runs: FreshnessRun[] = rows.map((row) => ({
-		...row,
-		windowStart: row.windowStart.getTime(),
-		windowEnd: row.windowEnd.getTime(),
-		coveredUntil: row.coveredUntil?.getTime() ?? null,
-		startedAt: row.startedAt.getTime(),
-	}));
+	const runs = rows.map(toFreshnessRun);
 
 	const window: Interval = [windowStart.getTime(), now.getTime()];
 	const sources = (["inaturalist", "firms", "open-meteo"] as const).map((source) =>

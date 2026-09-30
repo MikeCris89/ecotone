@@ -78,7 +78,7 @@
     - `partial`, `covered_until` null: "incomplete, cut off partway"
     - `failed`: "failed, nothing stored from this run". Every source keeps that true: a run that stored anything before failing is `partial`
     - `running` for over 15 minutes: "interrupted, may be incomplete". The run died without recording an outcome, possibly after storing some pages
-  - Each source gets one `statement` combining coverage, the latest poll and feed health (decisions.md, 20). How far a source has been read is kept apart from how settled it is, so no stretch is called both complete and incomplete: "Read through Sep 29, 9:40 AM PT. Last 3 h may still fill in as satellite passes are published. No live poll in this window." Weather has no settling band, so it says "Complete through". The panel shows it, and the Phase 10 freshness tool returns it. Partial reasons are matched from the error messages the ingestion code writes, with their counts (`PARTIAL_REASONS`, e.g. "12 records failed validation"); anything else is "stopped by an error"
+  - Each source gets one `statement` combining coverage, the latest poll and feed health (decisions.md, 20). How far a source has been read is kept apart from how settled it is, so no stretch is called both complete and incomplete: "Read through Sep 29, 9:40 AM PT. Last 3 h may still fill in as satellite passes are published. No live poll in this window." Weather has no settling band, so it says "Complete through". The panel shows it, and the Phase 9 data status tool returns it. Partial reasons are matched from the error messages the ingestion code writes, with their counts (`PARTIAL_REASONS`, e.g. "12 records failed validation"); anything else is "stopped by an error"
   - `formatTime` moved to `src/lib/timeline.ts` so server code formats times the same way (PT)
   - The route is CDN-cached for a minute, stale for one more
   - Verified locally (2026-09-30): tests (201 passing), typecheck, lint, and the local data's output read through by hand: every source is behind (nothing polls locally), FIRMS is complete to its backfill less 3 hours, iNaturalist's latest live poll was paused on a page where every record failed validation (nothing lost: the cursor stays put)
@@ -90,32 +90,54 @@
   - Verified locally (2026-09-30): tests (208 passing), typecheck, lint, and in the browser during review: shading, hatching, tooltips, panel statements and the "not read" note on the local data
   - To confirm after merge: `curl -s <production URL>/api/freshness | jq '.sources[].statement'`. Locally every feed is behind, so production is the first real test of the healthy path: expect no "No live poll" sentences, each "Last poll" time within the source's interval, FIRMS read through about 3 hours ago, and on the timeline, a grey stretch plus a hatched band at the FIRMS row's right edge and a 48-hour hatch on recorded observations
 
-## Phase 9: CZU case study
+Reordered 2026-09-30 for the final day: the agent is the missing requirement, so it comes first and CZU becomes a stretch goal (Phase 14).
 
-- [ ] Backfill iNaturalist, FIRMS CSV import, Open-Meteo archive
-- [ ] Mode switch, before/during/after periods on timeline
+## Phase 9: Agent tools
 
-## Phase 10: Agent tools
+- [x] 9a: Tool contract, input checks, coverage; data status, observation summary and period comparison tools (`src/lib/agent/`)
+  - Coverage loads the runs whose bbox contains the requested area (`getRunsCovering`), from any dataset, and reuses `sourceFreshness`. Comparisons refuse when the periods' read shares differ by more than 10 points (`MAX_READ_FRACTION_DIFFERENCE`); percent changes need 5 recorded observations in both periods (`MIN_COMPARE_COUNT`)
+  - Verified locally (2026-09-30): tests (222 passing), typecheck, lint, and each tool run once on the local data (California, 3 days: ~100 ms)
+  - Known limitation: the settling band sits at the newest read hours. An area with only historical runs (no live polls after them) would get its last 48 hours flagged as upload lag. That errs toward caution; revisit with CZU
+- [ ] 9b: Thermal detection clusters, observations near detections, modeled conditions
+- Tools are plain functions taking an area and a time range, not tied to the live window, so stored history (CZU, fetched on request) works without changes. What data exists comes from ingestion-run coverage; a separate maximum range length only protects query speed
+- Coverage: rates are computed over the hours actually read, and each source reports "read N of M hours". `insufficient` only below 80% read; comparisons also refuse when the periods' coverage differs too much
+- Evidence samples are picked deterministically (newest, or closest for proximity) and carry record IDs, so the map can highlight them and evals stay stable
+- Weather tool results must include the distance from the queried location to the weather point used
+- Evidence carries each record's license and attribution: the record's own for iNaturalist, otherwise its source's (record -> ingestion run -> `data_sources`)
+- Coverage comes from ingestion runs through `sourceFreshness` (`src/lib/freshness.ts`), never a bare `covered_until` (decisions.md, 20)
+- Recorded-observation counts track observer effort and upload lag (see Phase 5 limitations): tools must not present day-to-day differences as changes in wildlife, and must flag the most recent 1–2 days as undercounted
+- Use the map's default filters (`src/lib/default-filters.ts`) and state them in `limitations`, so answers match what the map shows (decisions.md, 18)
+- Proximity analyses count a recorded observation as precisely located by `PRECISE_ACCURACY_M` (≤1 km, `src/lib/default-filters.ts`), the rule the map styles by. The time direction (before, after, or both) is explicit
+- Detection clusters use `ST_ClusterDBSCAN` in EPSG:3310 (metres). Spatial only, so one cluster can span several days: stated in `limitations`
 
-- [ ] Deterministic tools with the tool contract, count guardrails, tests
-  - Weather tool results must include the distance from the queried location to the weather point used
-  - Evidence carries each record's license and attribution: the record's own for iNaturalist, otherwise its source's (record -> ingestion run -> `data_sources`)
-  - Coverage comes from `getFreshness` (`src/lib/freshness.ts`): tools return its per-source `statement` and spans, never a bare `covered_until` (decisions.md, 20)
-  - Recorded-observation counts track observer effort and upload lag (see Phase 5 limitations): tools must not present day-to-day differences as changes in wildlife, and must flag the most recent 1–2 days as undercounted
-  - Use the map's default filters (`src/lib/default-filters.ts`) and state them in `limitations`, so answers match what the map shows (decisions.md, 18)
-  - Proximity analyses count a recorded observation as precisely located by `PRECISE_ACCURACY_M` (≤1 km, `src/lib/default-filters.ts`), the rule the map styles by
+## Phase 10: Chat and evidence on the map
 
-## Phase 11: Agent UI
+- [ ] Chat with the AI SDK (Claude Sonnet 5.5), UI context (map view, window, timeline hour) sent with each message, evidence highlighted on the map with source links, suggested questions
 
-- [ ] Chat with AI SDK, evidence highlighting on map/timeline, suggested questions
+## Phase 11: Agent evals
 
-## Phase 12: Polish and submission
+- [ ] 10–15 questions with expected behaviour (answers, refuses, flags stale data, picks the right tool), run by `pnpm eval` against the deployed model. Graded by code, not an LLM. Kept out of `pnpm test`: it calls the real API
 
-- [ ] README, decisions review, final deploy check
+## Phase 12: Weather on the map
+
+- [ ] Modeled conditions at the detection's hour in thermal detection popups (nearest grid point, with distance)
+- [ ] Wind arrows (default weather view), sized by speed, coloured by gusts
+- [ ] Variable picker: wind, humidity, temperature
+
+## Phase 13: README and submission
+
+- [ ] README (including how the system would evolve: on-demand history fetching), decisions review, final deploy check
+
+## Phase 14 (stretch): CZU for the agent
+
+- [ ] Backfill iNaturalist, FIRMS CSV import, Open-Meteo archive, so the agent can answer CZU questions. The mode switch and CZU timeline come later
 
 ## Later
 
 - (stretch ideas go here)
+- On-demand history: the agent requests a bounded backfill for the current map view when coverage says data is missing, recorded as ingestion runs, shown once complete. Needs spatial coverage, abuse limits, and a map that can show windows other than Live
+- A "dry and windy" highlight on the weather layer (our own stated thresholds, never "Red Flag")
+- CZU mode switch and before/during/after periods on the timeline
 - Prune live records that fall outside the retention window (polling only bounds what's fetched, not what's kept)
 - Extra weather points near thermal-detection clusters, on top of the fixed grid
 - Live soil moisture (needs a pinned model that provides it; HRRR doesn't)
@@ -147,7 +169,7 @@
 - **No fire-type flag in NRT:** live detections can be industrial or other static heat sources; the UI and agent must not call them fires
 - **`source_url` deep-link format:** check a stored link actually opens the FIRMS map at the right date and place
 - **FIRMS coverage margin is a typical latency, not a guarantee:** `covered_until` stops 3 hours before each poll, but a slow day can publish passes later than that
-- **No staleness guard in the FIRMS upsert (before Phase 9):** unlike the iNaturalist upsert, the last write wins. If the standard-product (SP) import shares source IDs with live NRT rows, a later NRT poll could overwrite SP values such as `fire_type` with null. Decide which product wins before importing SP
+- **No staleness guard in the FIRMS upsert (before the CZU import):** unlike the iNaturalist upsert, the last write wins. If the standard-product (SP) import shares source IDs with live NRT rows, a later NRT poll could overwrite SP values such as `fire_type` with null. Decide which product wins before importing SP
 
 ### Known limitations from Phase 4 (check later)
 
@@ -166,8 +188,8 @@
 - **Coverage can span several runs:** a FIRMS backfill splits each satellite's window into two runs. `max(covered_until)` across runs would report full coverage even when one of them failed, so Phase 8's coverage merges each successful run's range instead
 - **Weather backfill depends on Open-Meteo's HRRR retention:** it asks for up to 191 past hours (all 192 were served with no gaps on 2026-09-29). If Open-Meteo keeps fewer, the oldest hours come back missing and the run is `partial`
 - **Seeding is manual:** the backfill routes aren't scheduled; iNaturalist takes one call per date
-- **Counts reflect observer effort, not wildlife abundance:** Saturday 2026-09-26 had 6,226 recorded observations and Sunday 4,863, against ~4,000–4,500 on each weekday. Day-to-day differences track when people go out. Flagged for Phase 10
-- **The latest days are undercounted:** uploads lag observations, so the most recent 1–2 days are incomplete when seeded (Monday 2026-09-28 had 3,068, below every other weekday). The live poll's updated-since cursor adds late uploads as they arrive. Flagged for Phase 10
+- **Counts reflect observer effort, not wildlife abundance:** Saturday 2026-09-26 had 6,226 recorded observations and Sunday 4,863, against ~4,000–4,500 on each weekday. Day-to-day differences track when people go out. Flagged for Phase 9
+- **The latest days are undercounted:** uploads lag observations, so the most recent 1–2 days are incomplete when seeded (Monday 2026-09-28 had 3,068, below every other weekday). The live poll's updated-since cursor adds late uploads as they arrive. Flagged for Phase 9
 
 ### Known limitations from Phase 7 (check later)
 
