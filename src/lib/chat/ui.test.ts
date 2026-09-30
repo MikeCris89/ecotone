@@ -2,7 +2,9 @@ import { APICallError, type UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import {
 	answerMissing,
+	answerNotes,
 	chatError,
+	citationLabel,
 	loadedData,
 	parseAnswer,
 	remainingNote,
@@ -163,6 +165,50 @@ describe("answerMissing", () => {
 		expect(answerMissing(assistant([step, { type: "text", text: "Let me check." }, step, toolCall]))).toBe(true);
 		expect(answerMissing(assistant([step, toolCall, step, { type: "text", text: "All current." }]))).toBe(false);
 		expect(answerMissing(assistant([]))).toBe(true);
+	});
+});
+
+describe("citationLabel", () => {
+	it("names the kind of record and its number in the answer", () => {
+		expect(citationLabel("inaturalist", 1)).toBe("obs 1");
+		expect(citationLabel("firms", 2)).toBe("detection 2");
+		expect(citationLabel("open-meteo", 3)).toBe("weather 3");
+	});
+});
+
+describe("answerNotes", () => {
+	const coverage = (statements: [string, string][]) => ({
+		sources: statements.map(([source, statement]) => ({ source, statement })),
+	});
+	const toolPart = (toolCallId: string, output: unknown) =>
+		({ type: "tool-summarize_detections", toolCallId, state: "output-available", input: {}, output }) as UIMessage["parts"][number];
+
+	it("collects each tool's coverage statements and limitations, duplicates removed", () => {
+		const message = assistant([
+			toolPart("c1", {
+				coverage: coverage([["firms", "Read 24 of 24 hours."]]),
+				limitations: ["Not fires.", "Weak detections near towns are often static sources."],
+			}),
+			toolPart("c2", {
+				coverage: coverage([
+					["firms", "Read 24 of 24 hours."],
+					["inaturalist", "Read 70 of 72 hours."],
+				]),
+				limitations: ["Not fires.", "Counts reflect observer effort."],
+			}),
+			{ type: "tool-get_conditions", toolCallId: "c3", state: "output-error", input: {}, errorText: "failed" } as UIMessage["parts"][number],
+		]);
+		expect(answerNotes(message)).toEqual({
+			statements: [
+				{ source: "firms", statement: "Read 24 of 24 hours." },
+				{ source: "inaturalist", statement: "Read 70 of 72 hours." },
+			],
+			limitations: ["Not fires.", "Weak detections near towns are often static sources.", "Counts reflect observer effort."],
+		});
+	});
+
+	it("is empty without tool results", () => {
+		expect(answerNotes(assistant([{ type: "text", text: "Hello." }]))).toEqual({ statements: [], limitations: [] });
 	});
 });
 

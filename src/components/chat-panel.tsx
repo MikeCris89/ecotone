@@ -3,11 +3,25 @@
 import { useChat } from "@ai-sdk/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, getToolOrDynamicToolName, isToolUIPart, type UIMessage } from "ai";
-import { type FormEvent, Fragment, memo, useEffect, useRef, useState } from "react";
+import { type FormEvent, Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
+import { formatDate } from "@/components/map-popup";
+import type { Evidence } from "@/lib/agent/contract";
 import type { Bucket, ChatMetadata } from "@/lib/chat/access";
+import { citeAnswer, turnEvidence } from "@/lib/chat/citations";
 import { type ChatContext, REVIEWER_HEADER } from "@/lib/chat/context";
 import { MAX_MESSAGE_CHARS } from "@/lib/chat/messages";
-import { answerMissing, chatError, type Inline, parseAnswer, remainingNote, stepLabel } from "@/lib/chat/ui";
+import {
+	answerMissing,
+	answerNotes,
+	chatError,
+	citationLabel,
+	type Inline,
+	parseAnswer,
+	remainingNote,
+	SOURCE_NAMES,
+	stepLabel,
+} from "@/lib/chat/ui";
+import { formatTime } from "@/lib/timeline";
 
 type ChatMessage = UIMessage<ChatMetadata>;
 
@@ -42,39 +56,57 @@ async function fetchAccess(): Promise<Access> {
 	return response.json();
 }
 
-function InlineText({ inlines }: { inlines: Inline[] }) {
-	return inlines.map((inline, index) =>
-		inline.type === "bold" ? (
-			<strong key={index}>
-				<InlineText inlines={inline.inlines} />
-			</strong>
-		) : inline.type === "italic" ? (
-			<em key={index}>{inline.text}</em>
-		) : inline.type === "citation" ? (
-			// Muted until 10c turns the ones a tool returned into links to the record.
-			<span key={index} className="text-[11px] text-zinc-400">
-				[{inline.source}:{inline.id}]
-			</span>
-		) : (
-			<Fragment key={index}>{inline.text}</Fragment>
-		),
+// A date-only recorded observation shows its date alone: it has no time to show.
+function evidenceTime(evidence: Evidence) {
+	return evidence.observedAt !== null
+		? formatTime(Date.parse(evidence.observedAt))
+		: evidence.observedOn && formatDate(evidence.observedOn);
+}
+
+function Chip({ evidence, number }: { evidence: Evidence; number: number }) {
+	return (
+		<span
+			title={`${evidence.label}, ${evidenceTime(evidence)}`}
+			className="mx-0.5 rounded bg-zinc-100 px-1 py-px text-[11px] whitespace-nowrap text-zinc-600"
+		>
+			{citationLabel(evidence.source, number)}
+		</span>
 	);
 }
 
+function InlineText({ inlines, cited }: { inlines: Inline[]; cited: Evidence[] }) {
+	return inlines.map((inline, index) => {
+		if (inline.type === "bold") {
+			return (
+				<strong key={index}>
+					<InlineText inlines={inline.inlines} cited={cited} />
+				</strong>
+			);
+		}
+		if (inline.type === "italic") return <em key={index}>{inline.text}</em>;
+		if (inline.type === "citation") {
+			// citeAnswer has removed every citation no tool returned, so each one left has a number.
+			const number = cited.findIndex((record) => record.source === inline.source && record.id === inline.id) + 1;
+			return number > 0 && <Chip key={index} evidence={cited[number - 1]} number={number} />;
+		}
+		return <Fragment key={index}>{inline.text}</Fragment>;
+	});
+}
+
 // React elements only, never HTML: the text is the model's, so it's untrusted.
-function Answer({ text }: { text: string }) {
+function Answer({ text, cited }: { text: string; cited: Evidence[] }) {
 	return parseAnswer(text).map((block, index) => {
 		if (block.type === "paragraph") {
 			return (
 				<p key={index}>
-					<InlineText inlines={block.inlines} />
+					<InlineText inlines={block.inlines} cited={cited} />
 				</p>
 			);
 		}
 		if (block.type === "heading") {
 			return (
 				<p key={index} className="font-semibold">
-					<InlineText inlines={block.inlines} />
+					<InlineText inlines={block.inlines} cited={cited} />
 				</p>
 			);
 		}
@@ -83,12 +115,69 @@ function Answer({ text }: { text: string }) {
 			<List key={index} className={`space-y-0.5 pl-5 ${block.ordered ? "list-decimal" : "list-disc"}`}>
 				{block.items.map((item, itemIndex) => (
 					<li key={itemIndex}>
-						<InlineText inlines={item} />
+						<InlineText inlines={item} cited={cited} />
 					</li>
 				))}
 			</List>
 		);
 	});
+}
+
+/** The answer's evidence: the cited records numbered as their chips, the rest of the samples behind "Show all". */
+function EvidenceList({ evidence, cited }: { evidence: Evidence[]; cited: Evidence[] }) {
+	const uncited = evidence.filter((record) => !cited.includes(record));
+	const item = (record: Evidence, number: number) => (
+		<li key={`${record.source}:${record.id}`}>
+			<span className="text-zinc-400">{citationLabel(record.source, number)}</span> {record.label},{" "}
+			{evidenceTime(record)}{" "}
+			<a
+				href={record.url}
+				target="_blank"
+				rel="noopener noreferrer"
+				title={record.license ? `${record.attribution}, ${record.license}` : record.attribution}
+				className="underline hover:text-zinc-900"
+			>
+				source
+			</a>
+		</li>
+	);
+	return (
+		<div className="space-y-1 text-xs text-zinc-600">
+			<p className="font-medium text-zinc-500">Evidence</p>
+			{cited.length > 0 && <ul className="space-y-0.5">{cited.map((record, index) => item(record, index + 1))}</ul>}
+			{uncited.length > 0 && (
+				<details className="group">
+					<summary className="cursor-pointer text-zinc-500 hover:text-zinc-900">
+						<span className="group-open:hidden">Show all {evidence.length}</span>
+						<span className="hidden group-open:inline">Show fewer</span>
+					</summary>
+					<ul className="mt-0.5 space-y-0.5">
+						{uncited.map((record, index) => item(record, cited.length + index + 1))}
+					</ul>
+				</details>
+			)}
+		</div>
+	);
+}
+
+/** Each source's coverage statement and the tools' limitations, collapsed so they don't bury the answer. */
+function AnswerNotes({ notes }: { notes: ReturnType<typeof answerNotes> }) {
+	if (notes.statements.length === 0 && notes.limitations.length === 0) return null;
+	return (
+		<details className="text-xs text-zinc-600">
+			<summary className="cursor-pointer text-zinc-500 hover:text-zinc-900">Coverage and limitations</summary>
+			<ul className="mt-1 list-disc space-y-0.5 pl-4">
+				{notes.statements.map(({ source, statement }) => (
+					<li key={statement}>
+						<span className="font-medium">{SOURCE_NAMES[source]}:</span> {statement}
+					</li>
+				))}
+				{notes.limitations.map((limitation) => (
+					<li key={limitation}>{limitation}</li>
+				))}
+			</ul>
+		</details>
+	);
 }
 
 function Spinner() {
@@ -111,6 +200,18 @@ function Step({ name, state, finished }: { name: string; state: string; finished
 }
 
 function Reply({ message, finished, failed }: { message: ChatMessage; finished: boolean; failed: boolean }) {
+	// Checked over all of the reply's text at once, so a record keeps one number across its steps.
+	const { texts, cited, unmatched, evidence, notes } = useMemo(() => {
+		const evidence = turnEvidence(message);
+		const textParts = message.parts.flatMap((part, index) =>
+			part.type === "text" && part.text.trim() ? [{ index, text: part.text }] : [],
+		);
+		const answer = citeAnswer(textParts.map(({ text }) => text), evidence);
+		// By part index, as the parts are rendered.
+		const texts = new Map(textParts.map(({ index }, i) => [index, answer.texts[i]]));
+		return { ...answer, texts, evidence, notes: answerNotes(message) };
+	}, [message]);
+
 	return (
 		<div className="space-y-2">
 			{message.parts.map((part, index) => {
@@ -125,11 +226,24 @@ function Reply({ message, finished, failed }: { message: ChatMessage; finished: 
 					);
 				}
 				// Reasoning parts (empty text plus a signature) and step markers aren't shown.
-				if (part.type === "text" && part.text.trim()) return <Answer key={index} text={part.text} />;
+				const text = texts.get(index);
+				if (text !== undefined) return <Answer key={index} text={text} cited={cited} />;
 				return null;
 			})}
 			{/* A failed request shows its error instead. */}
 			{finished && !failed && answerMissing(message) && <p className="text-zinc-500 italic">{NO_ANSWER}</p>}
+			{/* Once the reply is done, so the list isn't renumbered as citations stream in. */}
+			{finished && (
+				<>
+					{unmatched > 0 && (
+						<p className="text-xs text-zinc-500">
+							{unmatched} {unmatched === 1 ? "citation" : "citations"} couldn&apos;t be matched to a tool result
+						</p>
+					)}
+					{evidence.length > 0 && <EvidenceList evidence={evidence} cited={cited} />}
+					<AnswerNotes notes={notes} />
+				</>
+			)}
 		</div>
 	);
 }

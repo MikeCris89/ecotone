@@ -1,8 +1,9 @@
 // The chat panel's logic, kept apart from React so it can be tested: tool step labels, which
 // suggested questions the loaded data can answer, the route's error messages, and the light
 // markdown answers use.
-import { APICallError, type UIMessage } from "ai";
+import { APICallError, isToolUIPart, type UIMessage } from "ai";
 import { z } from "zod";
+import type { ToolResult } from "@/lib/agent/contract";
 import type { Bucket } from "@/lib/chat/access";
 import { CITATION } from "@/lib/chat/citations";
 import { WINDOW_NAMES } from "@/lib/chat/context";
@@ -10,6 +11,7 @@ import { answerText } from "@/lib/chat/messages";
 import type { CHAT_TOOLS } from "@/lib/chat/tools";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { InatMapRow } from "@/lib/inaturalist/map";
+import type { Source } from "@/lib/ingestion-runs";
 import { inatInWindow, instantInWindow, type MapWindow, windowBounds } from "@/lib/map-layers";
 
 const STEP_LABELS: Record<keyof typeof CHAT_TOOLS, string> = {
@@ -78,6 +80,36 @@ export function remainingNote(remaining: { hourly: number; daily: number } | nul
 	if (!remaining) return null;
 	const [left, period] = remaining.hourly < remaining.daily ? [remaining.hourly, "this hour"] : [remaining.daily, "today"];
 	return `${left} ${left === 1 ? "question" : "questions"} left ${period}`;
+}
+
+const CITATION_WORDS: Record<Source, string> = { inaturalist: "obs", firms: "detection", "open-meteo": "weather" };
+
+/** A citation's chip, and its line in the evidence list: "detection 2". One numbering per answer. */
+export function citationLabel(source: Source, number: number): string {
+	return `${CITATION_WORDS[source]} ${number}`;
+}
+
+export const SOURCE_NAMES: Record<Source, string> = {
+	inaturalist: "Recorded observations",
+	firms: "Satellite thermal detections",
+	"open-meteo": "Modeled conditions",
+};
+
+/**
+ * What an answer's numbers rest on: each source's coverage statement and every limitation, from all
+ * the tools that returned in the message, duplicates across tools removed.
+ */
+export function answerNotes(message: UIMessage): { statements: { source: Source; statement: string }[]; limitations: string[] } {
+	const results = message.parts.flatMap((part) =>
+		isToolUIPart(part) && part.state === "output-available" ? [part.output as Partial<ToolResult<unknown>> | null] : [],
+	);
+	const statements = results.flatMap((result) => result?.coverage?.sources ?? []);
+	return {
+		statements: statements
+			.filter(({ statement }, index) => statements.findIndex((other) => other.statement === statement) === index)
+			.map(({ source, statement }) => ({ source, statement })),
+		limitations: [...new Set(results.flatMap((result) => result?.limitations ?? []))],
+	};
 }
 
 const GENERIC_ERROR = "Something went wrong. Try again.";
