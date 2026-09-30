@@ -88,7 +88,7 @@ function summarize<Row>(
 
 export function LiveMap() {
 	const [mapWindow, setMapWindow] = useState<MapWindow>("7d");
-	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: true });
+	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: false });
 
 	const inaturalist = useMapLayer<MapLayerResponse<InatMapRow>>("inaturalist", 5);
 	const firms = useMapLayer<MapLayerResponse<FirmsMapRow>>("firms", 15);
