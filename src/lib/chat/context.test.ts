@@ -81,4 +81,18 @@ describe("contextPrompt", () => {
 		expect(prompt).toContain("Sep 30, 12:50 PM PT");
 		expect(prompt).toContain("The timeline shows the whole selected window.");
 	});
+
+	it("gives California as its four edges only, not the rest of the dataset row", () => {
+		const dataset: Dataset = {
+			...CALIFORNIA,
+			id: "1",
+			slug: "live-california",
+			kind: "live",
+			timezone: "America/Los_Angeles",
+			retentionDays: 7,
+		};
+		const prompt = contextPrompt(resolveContext(context(), dataset, NOW));
+		expect(prompt).toContain('All of California: {"west":-124.5,"south":32.5,"east":-114.1,"north":42}');
+		expect(prompt).not.toContain("live-california");
+	});
 });

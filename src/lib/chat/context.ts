@@ -68,7 +68,8 @@ export function resolveContext(context: ChatContext, california: Bbox, now: Date
 	return {
 		now,
 		area: clipToBbox(context.view, california),
-		california,
+		// Only the edges: the route passes the whole dataset row, whose other fields don't belong in the prompt.
+		california: { west: california.west, south: california.south, east: california.east, north: california.north },
 		window: context.window,
 		windows: Object.fromEntries(WINDOWS.map((window) => [window, toRange(windowBounds(end, window))])) as Record<
 			MapWindow,
