@@ -9,7 +9,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import { type ChatMetadata, ipHash, reviewerAccess } from "@/lib/chat/access";
-import { chatContextSchema, contextPrompt, resolveContext } from "@/lib/chat/context";
+import { chatContextSchema, contextPrompt, earlierContextNote, resolveContext } from "@/lib/chat/context";
 import { admitRequest, chatLimits, recordUsage } from "@/lib/chat/limits";
 import { chatMessageSchema, messagesError, toModelMessages } from "@/lib/chat/messages";
 import { SYSTEM_PROMPT } from "@/lib/chat/prompt";
@@ -43,8 +43,8 @@ export async function POST(request: Request) {
 	const parsed = requestSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) return Response.json({ ok: false, error: "Invalid chat request" }, { status: 400 });
 
-	const messages = toModelMessages(parsed.data.messages);
-	const error = messagesError(messages);
+	// Checked before the dataset lookup, so a bad request costs no query; the history is built after it.
+	const error = messagesError(toModelMessages(parsed.data.messages));
 	if (error) return Response.json({ ok: false, error }, { status: 400 });
 
 	const { bucket, setCookie } = reviewerAccess(request);
@@ -70,6 +70,7 @@ export async function POST(request: Request) {
 		);
 	}
 	const context = resolveContext(parsed.data.context, dataset, new Date());
+	const messages = toModelMessages(parsed.data.messages, (metadata) => earlierContextNote(metadata, dataset));
 
 	const instructions: SystemModelMessage[] = [
 		// Anthropic caches everything up to this breakpoint: the tool definitions, then these rules.

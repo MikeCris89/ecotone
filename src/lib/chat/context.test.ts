@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type ChatContext, clipToBbox, contextPrompt, resolveContext } from "@/lib/chat/context";
+import { type ChatContext, clipToBbox, contextPrompt, earlierContextNote, resolveContext } from "@/lib/chat/context";
 import type { Dataset } from "@/lib/datasets";
 import { parseMapQuery } from "@/lib/map-query";
 
@@ -68,6 +68,25 @@ describe("resolveContext", () => {
 		const resolved = resolveContext(context({ view: { west: -100, south: 40, east: -95, north: 42 } }), CALIFORNIA, NOW);
 		expect(resolved.area).toBeNull();
 		expect(contextPrompt(resolved)).toContain("entirely outside California");
+	});
+});
+
+describe("earlierContextNote", () => {
+	it("describes the view, window and timeline an earlier question was asked with", () => {
+		expect(earlierContextNote({ context: context({ hour: Date.parse(END) / 1000 - 5 * HOUR }) }, CALIFORNIA)).toBe(
+			'[Asked with: map view clipped to California {"west":-123,"south":37,"east":-121,"north":38.5}; ' +
+				"last 7 days to Sep 30, 12:50 PM PT; timeline handle at Sep 30, 7:50 AM PT]",
+		);
+		const outside = context({ view: { west: -100, south: 40, east: -95, north: 42 }, window: "24h", end: null });
+		expect(earlierContextNote({ context: outside }, CALIFORNIA)).toBe(
+			"[Asked with: map view entirely outside California; last 24 hours; whole window]",
+		);
+	});
+
+	it("is null for a message without a valid context", () => {
+		expect(earlierContextNote(undefined, CALIFORNIA)).toBeNull();
+		expect(earlierContextNote({ bucket: "public" }, CALIFORNIA)).toBeNull();
+		expect(earlierContextNote({ context: { ...context(), window: "2w" } }, CALIFORNIA)).toBeNull();
 	});
 });
 
