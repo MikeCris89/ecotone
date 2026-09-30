@@ -58,6 +58,24 @@ export function clampHour(hour: number, window: TimeWindow) {
 	return Math.min(Math.max(hour, hourAxis(window).first), lastHour(window));
 }
 
+// Playback steps per second at 1×: the 7 days window's 144 steps take 36 seconds.
+export const PLAYBACK_HOURS_PER_SECOND = 4;
+export const PLAYBACK_SPEEDS = [1, 4] as const;
+
+/**
+ * Where playback starts: from the handle, or from the first step when the whole window is shown
+ * or the handle is already at the end, so pressing play again replays the window.
+ */
+export function playbackStart(hour: number | null, window: TimeWindow) {
+	if (hour === null || hour >= lastHour(window)) return hourAxis(window).first;
+	return clampHour(hour, window);
+}
+
+/** The hour after `hour`, or null at the end of the axis, where playback stops. */
+export function nextPlaybackHour(hour: number, window: TimeWindow): number | null {
+	return hour >= lastHour(window) ? null : clampHour(hour + HOUR, window);
+}
+
 // Modeled conditions are hourly, but the latest hour isn't always stored yet (the poll runs at :20)
 // and a poll can fail. Rather than leave the map blank, the weather layer falls back to each
 // point's latest reading up to this many hours before the hour shown, drawn as stale.

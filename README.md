@@ -4,7 +4,7 @@ A California wildfire and wildlife explorer: a map, a timeline and a natural-lan
 
 **Live:** https://ecotone-iota.vercel.app
 
-**Status:** in progress. Ingestion for all three sources runs in production, and the Live California map shows all three layers with click-through details; the timeline and agent are still being built.
+**Status:** in progress. Ingestion for all three sources runs in production, and the Live California map shows all three layers with click-through details and an hourly timeline you can scrub or play back; the agent is still being built.
 
 ## The question
 

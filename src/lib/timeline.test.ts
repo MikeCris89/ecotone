@@ -11,6 +11,8 @@ import {
 	hourAxis,
 	lastHour,
 	localMidnights,
+	nextPlaybackHour,
+	playbackStart,
 	recencyFade,
 	STALE_WEATHER_OPACITY,
 	spanToHour,
@@ -48,6 +50,42 @@ describe("clampHour", () => {
 		expect(clampHour(at("2026-09-20T00:00:00Z"), window24)).toBe(hourAxis(window24).first);
 		expect(clampHour(at("2026-09-30T00:00:00Z"), window24)).toBe(lastHour(window24));
 		expect(lastHour(window24)).toBe(at("2026-09-29T12:00:00Z"));
+	});
+});
+
+describe("playback", () => {
+	const { first } = hourAxis(window24);
+	const last = lastHour(window24);
+
+	it("starts from the first step when the whole window is shown or the handle is at the end", () => {
+		expect(playbackStart(null, window24)).toBe(first);
+		expect(playbackStart(last, window24)).toBe(first);
+	});
+
+	it("carries on from a handle in the middle", () => {
+		expect(playbackStart(first + 5 * HOUR, window24)).toBe(first + 5 * HOUR);
+	});
+
+	it("steps by the hour and stops at the last hour", () => {
+		expect(nextPlaybackHour(first, window24)).toBe(first + HOUR);
+		expect(nextPlaybackHour(last - HOUR, window24)).toBe(last);
+		expect(nextPlaybackHour(last, window24)).toBeNull();
+	});
+
+	it("keeps going on the new axis after the window narrows under the handle", () => {
+		const hour = at("2026-09-25T00:00:00Z");
+		expect(nextPlaybackHour(hour, window24)).toBe(first);
+		expect(playbackStart(hour, window24)).toBe(first);
+	});
+
+	it("plays every step of the window exactly once", () => {
+		const steps = stepWindow(window7d, window7d);
+		const hours = [];
+		for (let hour: number | null = playbackStart(null, steps); hour !== null; hour = nextPlaybackHour(hour, steps)) {
+			hours.push(hour);
+		}
+		expect(hours).toHaveLength(hourAxis(steps).count);
+		expect(hours.at(-1)).toBe(lastHour(steps));
 	});
 });
 
