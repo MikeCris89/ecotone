@@ -7,11 +7,14 @@ import {
 	toUIMessageStream,
 } from "ai";
 import { z } from "zod";
+import { type ChatMetadata, ipHash, reviewerAccess } from "@/lib/chat/access";
 import { chatContextSchema, contextPrompt, resolveContext } from "@/lib/chat/context";
+import { admitRequest, chatLimits, recordUsage } from "@/lib/chat/limits";
 import { chatMessageSchema, messagesError, toModelMessages } from "@/lib/chat/messages";
 import { SYSTEM_PROMPT } from "@/lib/chat/prompt";
 import { CHAT_TOOLS } from "@/lib/chat/tools";
-import { getDataset, LIVE_DATASET_SLUG } from "@/lib/datasets";
+import { type Dataset, getDataset, LIVE_DATASET_SLUG } from "@/lib/datasets";
+import { formatTime } from "@/lib/timeline";
 
 // A reply with several tool calls can take 20+ seconds; this bounds a stuck one.
 export const maxDuration = 120;
@@ -32,8 +35,10 @@ const requestSchema = z.looseObject({
 /**
  * The agent: POST /api/chat with useChat's messages and the map's context. Streams the answer as
  * AI SDK UI message parts, including each tool call and its result (evidence, coverage, limitations).
+ * Over a rate limit: 429 with a message the panel can show.
  */
 export async function POST(request: Request) {
+	const startedAt = Date.now();
 	const parsed = requestSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success) return Response.json({ ok: false, error: "Invalid chat request" }, { status: 400 });
 
@@ -41,12 +46,26 @@ export async function POST(request: Request) {
 	const error = messagesError(messages);
 	if (error) return Response.json({ ok: false, error }, { status: 400 });
 
-	let dataset;
+	const { bucket, setCookie } = reviewerAccess(request);
+	const cookieHeaders: Record<string, string> = setCookie ? { "Set-Cookie": setCookie } : {};
+	let admission;
+	let dataset: Dataset;
 	try {
+		admission = await admitRequest(bucket, ipHash(request), chatLimits()[bucket]);
 		dataset = await getDataset(LIVE_DATASET_SLUG);
 	} catch (error) {
-		console.error("Chat dataset lookup failed", error);
+		console.error("Chat setup failed", error);
 		return Response.json({ ok: false, error: "The chat is unavailable right now" }, { status: 500 });
+	}
+	if (!admission.ok) {
+		const message =
+			admission.limit === "daily"
+				? "Daily demo limit reached. It resets at midnight PT."
+				: `Hourly limit reached. Try again after ${formatTime(admission.retryAt.getTime())}.`;
+		return Response.json(
+			{ ok: false, error: message, bucket, limit: admission.limit, retryAt: admission.retryAt.toISOString() },
+			{ status: 429, headers: cookieHeaders },
+		);
 	}
 	const context = resolveContext(parsed.data.context, dataset, new Date());
 
@@ -75,7 +94,30 @@ export async function POST(request: Request) {
 		maxOutputTokens: MAX_OUTPUT_TOKENS,
 		// A closed tab stops the model rather than paying for an answer nobody reads.
 		abortSignal: request.signal,
+		// The SDK awaits this before closing the stream, so the write finishes within the request.
+		// It swallows errors, so they're logged here.
+		onEnd: async ({ totalUsage, steps, text }) => {
+			try {
+				await recordUsage(admission.id, {
+					durationMs: Date.now() - startedAt,
+					inputTokens: totalUsage.inputTokens ?? null,
+					outputTokens: totalUsage.outputTokens ?? null,
+					cacheReadTokens: totalUsage.inputTokenDetails.cacheReadTokens ?? null,
+					cacheWriteTokens: totalUsage.inputTokenDetails.cacheWriteTokens ?? null,
+					steps: steps.length,
+					noAnswer: text.trim().length === 0,
+				});
+			} catch (error) {
+				console.error("Chat usage write failed", error);
+			}
+		},
 	});
 
-	return createUIMessageStreamResponse({ stream: toUIMessageStream({ stream: result.stream }) });
+	return createUIMessageStreamResponse({
+		stream: toUIMessageStream({
+			stream: result.stream,
+			messageMetadata: ({ part }): ChatMetadata | undefined => (part.type === "start" ? { bucket } : undefined),
+		}),
+		headers: cookieHeaders,
+	});
 }

@@ -326,7 +326,7 @@ See [decisions.md](./decisions.md) for alternatives and tradeoffs.
 
 ### Secrets / environment
 
-FIRMS MAP_KEY, Supabase connection details, LLM API key, `CRON_SECRET` (authenticates Vercel Cron calls and the manual backfill routes). No secrets committed to the repo.
+FIRMS MAP_KEY, Supabase connection details, LLM API key, `CRON_SECRET` (authenticates Vercel Cron calls and the manual backfill routes), `REVIEWER_ACCESS_KEY` (the reviewers' chat quota) and `IP_HASH_SECRET` (hashes client IPs for the chat rate limits). No secrets committed to the repo.
 
 ---
 
