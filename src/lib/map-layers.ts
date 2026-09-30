@@ -1,7 +1,7 @@
 // Client-side shaping of the map layer responses: GeoJSON built once per response, and the
 // 24h / 3 days / 7 days windows applied as MapLibre filters, so switching windows never refetches.
 // Type-only imports from the map modules: their runtime code needs the database.
-import type { CircleLayerSpecification } from "maplibre-gl";
+import type { CircleLayerSpecification, ExpressionSpecification } from "maplibre-gl";
 import type { SourceAttribution } from "@/lib/data-sources";
 import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
 import type { FirmsMapRow } from "@/lib/firms/map";
@@ -113,9 +113,43 @@ export function firmsGeoJson(rows: FirmsMapRow[]): PointCollection<{ id: string;
 }
 
 /**
- * Each point's latest reading, placed at the model grid cell its values describe. Every window
- * ends at the response's `end`, so the latest reading in the widest window is the latest in each
- * narrower one too; the window filter hides a point whose latest reading falls before the window.
+ * Zoomed out, satellite thermal detections close together draw as one ring sized by their count, so
+ * a dense group doesn't read as a single dot. MapLibre clusters below clusterMaxZoom + 1, so from
+ * zoom 7 (regional) every detection is its own circle again, where its popup and pixel footprint
+ * mean something. Tuned on local data (2026-09-29): a week had one group of ~1,650 detections
+ * within 7 km of each other and dozens of recurring 10–60 groups, and a radius of 30 px (~40 km at
+ * statewide zoom) merged separate areas into groups of ~300 that competed with the large one. At
+ * 10 px (~14 km) and at least 10 detections, groups stay separate and the size scale below lets
+ * the large one stand out. MapLibre clusters in the source, before layer filters, so the source must hold
+ * only the detections in the shown span. A cluster's `time` is its newest detection's, which the
+ * timeline's fade reads like a detection's.
+ */
+export const FIRMS_CLUSTER = {
+	cluster: true,
+	clusterMaxZoom: 6,
+	clusterRadius: 10,
+	clusterMinPoints: 10,
+	clusterProperties: { time: ["max", ["get", "time"]] },
+};
+
+// Pixels, growing with the square root of the detection count so a ring's area, not its radius,
+// tracks the count, and capped: a large group mustn't hide the recorded observations around it.
+// ~8 px at 50 detections, ~11 px at 200, 20 px from ~1,000.
+export const FIRMS_CLUSTER_MAX_RADIUS = 20;
+export const FIRMS_CLUSTER_RADIUS: ExpressionSpecification = [
+	"interpolate",
+	["linear"],
+	["sqrt", ["get", "point_count"]],
+	Math.sqrt(FIRMS_CLUSTER.clusterMinPoints),
+	6,
+	Math.sqrt(1_000),
+	FIRMS_CLUSTER_MAX_RADIUS,
+];
+
+/**
+ * Each point's latest reading among `rows`, placed at the model grid cell its values describe.
+ * The map passes the rows in the shown span (the window, or the timeline handle's hour), so a point
+ * with no reading in it is left out.
  */
 export function weatherGeoJson(
 	points: WeatherMapPoint[],

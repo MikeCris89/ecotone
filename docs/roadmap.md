@@ -54,15 +54,20 @@
 
 ## Phase 7: Timeline
 
-- [ ] Time buckets, scrubbing and playback over loaded data
-  - Open for discussion before building: timeline granularity, playback speed and visual design (brief section 8), the charting library (decisions.md, 19), and whether buckets are computed on the client from the loaded rows or pre-aggregated in the database (brief 5.2)
-  - Weather follows the scrubber, on the map and in its popup (both show each point's latest hour in the window today)
-  - The map recounts every loaded feature (up to ~80,000) and scans for the selected one on each render (`src/components/live-map.tsx`). Fine for clicks and window changes, but scrubbing re-renders constantly: memoize per window or bucket
-  - A popup closes when its record leaves the shown set (6c), so scrubbing past a record will close its popup. Decide whether that's wanted, or whether the popup should stay while the record is off the current bucket
+- [x] 7a: Hourly timeline and scrubbing
+  - Decided (decisions.md, 19): the handle steps by the hour. The map shows the 24 hours up to the handle, older records fading to half opacity. Every layer loads 7 days whatever window is selected, so a step's trailing day can reach back before the selected window; only the 7 days window starts its steps a day in (`stepWindow`), and "Whole window" still shows all 7 days. Weather (map and popup) shows one hour: the handle's, or the newest when the whole window is shown. A point without that hour's reading shows its latest one up to 3 hours earlier, faded, with its age in the popup (`WEATHER_MAX_AGE_HOURS`); past that it's left out. Bars are counted on the client from the loaded rows and drawn as plain SVG, scaled per row, with the time a layer hasn't loaded (capped, not yet refreshed, or not loaded at all) shaded. Date-only recorded observations are counted once per date in their own band. Every time in the app is California time, labelled PT
+  - The timeline spans the selected window, ending at the newest layer response's `end`. "Whole window" returns to the Phase 6 view for records. A refresh or a narrower window moves the handle to the timeline's nearest end instead of resetting it. A handle position reaches the map through at most one state update per animation frame, and only when the hour changes, so MapLibre gets at most one `setFilter` per layer per frame. Shown counts and the selected-record lookup are memoized per span, and the timeline doesn't re-render on map hovers (`src/lib/timeline.ts`, `src/components/timeline.tsx`)
+  - The panel and timeline stack in one column, so the panel scrolls rather than hiding under a taller timeline; the basemap attribution moved to the top right
+  - A popup closes when its record leaves the trailing span (the 6c rule). A weather popup for an earlier reading says its retrieval time isn't loaded: the layer only carries each point's newest reading's
+  - Verified locally (2026-09-29): tests (181 passing), typecheck, lint. The first and last six steps' loaded rows, shown rows and fade ranges were replayed against the local database for the 7 days and 24h windows: every step shows a full 24 hours, and weather has all 169 points from the first step. Checked in the browser during review, including the FIRMS clusters. To confirm after merge: in production, scrubbing is smooth, the newest steps show faded weather rather than none, and times match between the timeline and popups
+  - Side change (asked for during 7a review): zoomed out (below zoom 7), 10 or more satellite thermal detections within ~10 px draw as one ring, its radius growing with the square root of the count and capped at 20 px so it doesn't hide the recorded observations around it (tuned on local data, see `FIRMS_CLUSTER`), and clicking one zooms in until it splits (`FIRMS_CLUSTER` in `src/lib/map-layers.ts`). MapLibre clusters in the source, before layer filters, so the FIRMS source holds only the detections in the shown span instead of using a filter
+- [ ] 7b: Playback: play/pause and a 1× / 4× speed toggle (about 4 hours per second at 1×), stopping at the end
 
 ## Phase 8: Freshness and data quality UI
 
 - [ ] Feed health vs data recency per source, upload-lag zone, empty states
+  - Mark on the timeline where each source's coverage ends. Today the timeline shades only past each response's `end`, so hours a source hasn't published yet draw as zero bars and old, faded records: FIRMS runs ~3 hours or more behind its passes, and locally nothing polls, so every source stops at the last backfill. FIRMS needs its ingestion coverage, not its newest detection (a quiet night is real), combined with run status as below
+  - Coverage alone still overstates completeness, so add a likely-incomplete band: the last few hours of FIRMS coverage, and the last ~1–2 days for iNaturalist (upload lag). FIRMS's `covered_until` already stops 3 hours before each poll (`NRT_LATENCY_MS`), but that margin is its typical latency, not a guarantee: a slow pass can still add detections before `covered_until` on the next poll (Phase 3 limitations). iNaturalist's `covered_until` is its updated-time cursor, which says nothing about observed time, so its band comes from upload lag instead (Phase 5 limitations)
   - Never show `covered_until` on its own. Combine it with the run's `status` into one plain statement:
     - `succeeded`: "complete through 14:00"
     - `partial`, `covered_until` set: "read through 14:00", plus the run's reason, e.g. "some records rejected" or "next poll continues". No exact rejected count (no column for it; `records_skipped` also counts records excluded on purpose)
@@ -101,7 +106,8 @@
 - Prune live records that fall outside the retention window (polling only bounds what's fetched, not what's kept)
 - Extra weather points near thermal-detection clusters, on top of the fixed grid
 - Live soil moisture (needs a pinned model that provides it; HRRR doesn't)
-- Derive the map's 7-day window from the dataset's `retention_days` instead of hardcoding 168 hours
+- Derive the map's 7-day window from the dataset's `retention_days` instead of hardcoding 168 hours (the routes' default, and the loaded window in `src/components/live-map.tsx`)
+- A weather details lookup (like iNaturalist's and FIRMS's) so a popup for an earlier reading shows that reading's own retrieval times, not "not loaded"
 - Incremental map refreshes (e.g. a `since` parameter) instead of re-downloading each whole layer on every refetch (~2 MB of iNaturalist every 5 minutes per open tab)
 - Fix the flaky weather poll test (issue #9)
 - Draw each precise recorded observation's accuracy radius at its ground size when zoomed in (the map rows already carry positional accuracy)
@@ -149,6 +155,12 @@
 - **Seeding is manual:** the backfill routes aren't scheduled; iNaturalist takes one call per date
 - **Counts reflect observer effort, not wildlife abundance:** Saturday 2026-09-26 had 6,226 recorded observations and Sunday 4,863, against ~4,000–4,500 on each weekday. Day-to-day differences track when people go out. Flagged for Phase 10
 - **The latest days are undercounted:** uploads lag observations, so the most recent 1–2 days are incomplete when seeded (Monday 2026-09-28 had 3,068, below every other weekday). The live poll's updated-since cursor adds late uploads as they arrive. Flagged for Phase 10
+
+### Known limitations from Phase 7 (check later)
+
+- **Unpublished hours look like no activity:** the timeline shades only past each layer response's `end`, so hours a source hasn't published yet show zero bars and older, faded records (FIRMS ~3 hours or more; locally, everything after the last backfill). Marking coverage is Phase 8
+- **Weather grid cell assumed constant per point:** popups for earlier readings use the point's newest reading's grid cell, distance and elevation. True for every stored reading locally (checked 2026-09-29: none of 169 points changed cell), not enforced
+- **The 7 days window steps through 6 days:** its first day has no full trailing day loaded, so the handle starts a day in. Loading 8 days would fix it, at ~14% more payload and a longer retention window
 
 ### Known limitations from Phase 6 (check later)
 

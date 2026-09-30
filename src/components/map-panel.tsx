@@ -9,7 +9,8 @@ import {
 } from "@/components/map-colors";
 import type { SourceAttribution } from "@/lib/data-sources";
 import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
-import { type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
+import { FIRMS_CLUSTER, type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
+import { CALIFORNIA_TIME_ZONE, WEATHER_MAX_AGE_HOURS } from "@/lib/timeline";
 
 export type LayerVisibility = { inaturalist: boolean; firms: boolean; weather: boolean };
 
@@ -38,27 +39,33 @@ type MapPanelProps = {
 	onVisibleChange: (visible: LayerVisibility) => void;
 	inaturalist: LayerSummary;
 	firms: LayerSummary;
-	weather: LayerSummary & { latestHour: number | null };
+	// The hour the weather layer shows (null when no point has a reading for it), and how many
+	// points fall back to an earlier reading.
+	weather: LayerSummary & { hourShown: number | null; stale: number };
 };
 
+// Every time in the app is California time, whatever the browser's zone, so the timeline, legend
+// and popups agree. "PT" rather than PDT or PST, so the label doesn't flip at the DST change.
+const timeFormat = new Intl.DateTimeFormat([], {
+	timeZone: CALIFORNIA_TIME_ZONE,
+	month: "short",
+	day: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+});
+
 export function formatTime(epochMs: number) {
-	return new Date(epochMs).toLocaleString([], {
-		month: "short",
-		day: "numeric",
-		hour: "numeric",
-		minute: "2-digit",
-		timeZoneName: "short",
-	});
+	return `${timeFormat.format(epochMs)} PT`;
 }
 
-// Top-left, leaving the bottom edge for the timeline and the right side for the chat panel.
+// Top-left, above the timeline (the parent stacks them), leaving the right side for the chat panel.
 export function MapPanel(props: MapPanelProps) {
 	const { mapWindow, onWindowChange, visible, onVisibleChange, inaturalist, firms, weather } = props;
 	const toggle = (layer: keyof LayerVisibility) => (checked: boolean) =>
 		onVisibleChange({ ...visible, [layer]: checked });
 
 	return (
-		<div className="absolute top-3 left-3 max-h-[calc(100%-1.5rem)] w-80 space-y-3 overflow-y-auto rounded-lg bg-white/95 p-3 text-sm text-zinc-900 shadow-md">
+		<div className="pointer-events-auto min-h-0 w-80 space-y-3 overflow-y-auto rounded-lg bg-white/95 p-3 text-sm text-zinc-900 shadow-md">
 			<h1 className="font-semibold">Live California</h1>
 
 			<div className="flex rounded-md border border-zinc-200 p-0.5" role="group" aria-label="Time window">
@@ -111,7 +118,16 @@ export function MapPanel(props: MapPanelProps) {
 				summary={firms}
 				count={firms.inWindow.toLocaleString()}
 				emptyText="No qualifying satellite thermal detections in this window."
-			/>
+			>
+				<p className="flex items-center gap-1">
+					<span
+						className="size-4 shrink-0 rounded-full border-2"
+						style={{ borderColor: DETECTION_COLOR, backgroundColor: `${DETECTION_COLOR}26` }}
+					/>
+					Zoomed out, {FIRMS_CLUSTER.clusterMinPoints} or more detections close together draw as one ring, bigger
+					for more; click it to zoom in.
+				</p>
+			</LayerEntry>
 
 			<LayerEntry
 				label="Modeled conditions"
@@ -120,9 +136,15 @@ export function MapPanel(props: MapPanelProps) {
 				onChange={toggle("weather")}
 				summary={weather}
 				count={`${weather.inWindow.toLocaleString()} points`}
-				emptyText="No modeled conditions in this window."
+				emptyText={`No modeled conditions within ${WEATHER_MAX_AGE_HOURS} h of the hour shown.`}
 			>
-				{weather.latestHour !== null && <p>Latest hour: {formatTime(weather.latestHour * 1000)}</p>}
+				{weather.hourShown !== null && <p>Hour shown: {formatTime(weather.hourShown * 1000)}</p>}
+				{weather.stale > 0 && (
+					<p className="text-amber-800">
+						{weather.stale.toLocaleString()} {weather.stale === 1 ? "point shows" : "points show"} an earlier
+						reading, up to {WEATHER_MAX_AGE_HOURS} h old, drawn faded.
+					</p>
+				)}
 				<TemperatureScale />
 			</LayerEntry>
 		</div>
