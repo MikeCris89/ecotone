@@ -277,6 +277,15 @@ describe("observationsNearDetections", () => {
 		expect(near.result!.otherClusters).toEqual({ clusters: 1, observations: 0 });
 	});
 
+	it("counts observations near the unlisted clusters only when they're near none of the listed ones", async () => {
+		// At 25 km, the observations near the largest cluster are also near b1, 19 km east.
+		const { result } = await observationsNearDetections({ area: AREA, range: RANGE, radiusKm: 25, maxClusters: 1 });
+
+		expect(result!.observations.total).toBe(3);
+		expect(result!.clusters[0].observations.total).toBe(3);
+		expect(result!.otherClusters).toEqual({ clusters: 1, observations: 0 });
+	});
+
 	it("leaves out detections below a minimum power, and says so", async () => {
 		const [near, summary] = await Promise.all([
 			observationsNearDetections({ area: AREA, range: RANGE, minFrpMw: 10 }),

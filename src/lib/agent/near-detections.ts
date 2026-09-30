@@ -79,7 +79,8 @@ export type NearDetections = {
 		closest: Pair | null;
 	}[];
 	clusterCount: number;
-	// Clusters beyond maxClusters, and the recorded observations near them (unique).
+	// Clusters beyond maxClusters, and the recorded observations near them but near none of the
+	// listed clusters (unique), so "near the smaller clusters instead" holds.
 	otherClusters: { clusters: number; observations: number };
 };
 
@@ -197,7 +198,9 @@ export async function observationsNearDetections(
 				(select count(distinct inat_id) from counted where gap_hours >= 0)::int as "afterDetection",
 				(select count(distinct source_id) from counted)::int as "detectionsWithObservations",
 				(select count(distinct inat_id) from counted join clusters using (cluster)
-					where rank > ${maxClusters})::int as "otherObservations",
+					where rank > ${maxClusters} and inat_id not in (
+						select inat_id from counted join clusters using (cluster) where rank <= ${maxClusters}
+					))::int as "otherObservations",
 				(select count(distinct inat_id) from pairs
 					where observed_at is not null and (obscured or positional_accuracy_m > ${PRECISE_ACCURACY_M}))::int as imprecise,
 				(select count(distinct inat_id) from pairs
@@ -295,8 +298,9 @@ export async function observationsNearDetections(
 				"not obscured); the others are counted in `excluded`. A detection near the area's edge may have observations " +
 				"just outside it that aren't counted.",
 			"`observations.total` counts each observation once. One can be both before one detection and after another, " +
-				"so beforeDetection + afterDetection can exceed it: never add them up. The same holds across clusters: an " +
-				"observation near two clusters counts in each.",
+				"so beforeDetection + afterDetection can exceed it: never add them up. The same holds across the listed clusters: an " +
+				"observation near two of them counts in each. otherClusters.observations only counts observations near " +
+				"none of them.",
 			"Distances are from the detection's pixel centre; the heat source can be anywhere in its pixel (~375 m, wider at the swath edge).",
 			`Clusters join detections within ${clusterDistanceKm} km of each other and are ranked by size, as summarize_detections ranks them.`,
 			DETECTION_LIMITATIONS.notFires,
