@@ -66,9 +66,9 @@ function evidenceTime(evidence: Evidence) {
 }
 
 // Chips and list labels are buttons only in the newest finished answer, whose evidence the map shows.
-type Pick = ((entry: NumberedEvidence) => void) | undefined;
+type OnPick = ((entry: NumberedEvidence) => void) | undefined;
 
-function Chip({ entry, onPick }: { entry: NumberedEvidence; onPick: Pick }) {
+function Chip({ entry, onPick }: { entry: NumberedEvidence; onPick: OnPick }) {
 	const { record, number } = entry;
 	const title = `${record.label}, ${evidenceTime(record)}`;
 	const className = "mx-0.5 rounded bg-zinc-100 px-1 py-px text-[11px] whitespace-nowrap text-zinc-600";
@@ -86,7 +86,7 @@ function Chip({ entry, onPick }: { entry: NumberedEvidence; onPick: Pick }) {
 	);
 }
 
-function InlineText({ inlines, numbered, onPick }: { inlines: Inline[]; numbered: NumberedEvidence[]; onPick: Pick }) {
+function InlineText({ inlines, numbered, onPick }: { inlines: Inline[]; numbered: NumberedEvidence[]; onPick: OnPick }) {
 	return inlines.map((inline, index) => {
 		if (inline.type === "bold") {
 			return (
@@ -106,7 +106,7 @@ function InlineText({ inlines, numbered, onPick }: { inlines: Inline[]; numbered
 }
 
 // React elements only, never HTML: the text is the model's, so it's untrusted.
-function Answer({ text, numbered, onPick }: { text: string; numbered: NumberedEvidence[]; onPick: Pick }) {
+function Answer({ text, numbered, onPick }: { text: string; numbered: NumberedEvidence[]; onPick: OnPick }) {
 	return parseAnswer(text).map((block, index) => {
 		if (block.type === "paragraph") {
 			return (
@@ -136,7 +136,7 @@ function Answer({ text, numbered, onPick }: { text: string; numbered: NumberedEv
 }
 
 /** The answer's evidence: the cited records numbered as their chips, the rest of the samples behind "Show all". */
-function EvidenceList({ numbered, onPick }: { numbered: NumberedEvidence[]; onPick: Pick }) {
+function EvidenceList({ numbered, onPick }: { numbered: NumberedEvidence[]; onPick: OnPick }) {
 	const cited = numbered.filter((entry) => entry.cited);
 	const uncited = numbered.filter((entry) => !entry.cited);
 	const item = (entry: NumberedEvidence) => {
@@ -240,7 +240,7 @@ function readReply(message: ChatMessage) {
 	};
 }
 
-type ReplyProps = { message: ChatMessage; finished: boolean; failed: boolean; onPick: Pick };
+type ReplyProps = { message: ChatMessage; finished: boolean; failed: boolean; onPick: OnPick };
 
 function Reply({ message, finished, failed, onPick }: ReplyProps) {
 	const { texts, unmatched, numbered, notes } = useMemo(() => readReply(message), [message]);

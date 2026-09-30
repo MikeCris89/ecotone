@@ -627,11 +627,11 @@ export function LiveMap() {
 					</div>
 					<div className="flex max-h-full min-h-0 flex-col pt-8">
 						<ChatPanel
-								context={chatContext}
-								suggestions={suggestions}
-								onHighlight={showEvidence}
-								onFocus={focusEvidence}
-							/>
+							context={chatContext}
+							suggestions={suggestions}
+							onHighlight={showEvidence}
+							onFocus={focusEvidence}
+						/>
 					</div>
 				</div>
 				{timeline && observationsPerHour && detectionsPerHour && (
