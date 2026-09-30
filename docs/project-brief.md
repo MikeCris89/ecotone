@@ -320,7 +320,7 @@ See [decisions.md](./decisions.md) for alternatives and tradeoffs.
 
 ### Open for discussion
 
-- Charting library for timeline and metrics
+- Charting library for the agent's metrics (the timeline uses plain SVG, decisions.md, 19)
 
 ### Secrets / environment
 
