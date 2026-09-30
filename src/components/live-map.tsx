@@ -43,6 +43,7 @@ import {
 	lastHour,
 	recencyFade,
 	spanToHour,
+	stepWindow,
 	TRAILING_HOURS,
 	timedInatTimes,
 	weatherLookback,
@@ -189,18 +190,24 @@ export function LiveMap() {
 	// A layer whose data ends earlier has its last hours shaded as not loaded on the timeline.
 	const ends = [inaturalist.data, firms.data, weather.data].flatMap((data) => (data ? [Date.parse(data.end)] : []));
 	const latestEnd = ends.length ? Math.max(...ends) : null;
+	// Every layer loads the 7-day window (the routes' default) whatever window is selected.
+	const loaded = useMemo(
+		() => (latestEnd === null ? null : windowBounds(new Date(latestEnd).toISOString(), "7d")),
+		[latestEnd],
+	);
 	const timeline = useMemo(
-		() => (latestEnd === null ? null : windowBounds(new Date(latestEnd).toISOString(), mapWindow)),
-		[latestEnd, mapWindow],
+		() => loaded && stepWindow(windowBounds(new Date(loaded.end * 1000).toISOString(), mapWindow), loaded),
+		[loaded, mapWindow],
 	);
 	// A refresh slides the window forward and a narrower window drops its oldest hours: keep the
 	// handle on the timeline, at its nearest end, rather than jumping back to the whole window.
 	if (hour !== null && timeline && clampHour(hour, timeline) !== hour) setHour(clampHour(hour, timeline));
 
-	// Records show for the trailing hours to the handle.
+	// Records show for the trailing day to the handle, which can reach back before the selected
+	// window into the loaded data.
 	const trailing = useMemo(
-		() => (hour !== null && timeline ? spanToHour(hour, TRAILING_HOURS, timeline) : null),
-		[hour, timeline],
+		() => (hour !== null && loaded ? spanToHour(hour, TRAILING_HOURS, loaded) : null),
+		[hour, loaded],
 	);
 	const inatSpan = useShownSpan(inaturalist.data?.end, mapWindow, trailing);
 	const firmsSpan = useShownSpan(firms.data?.end, mapWindow, trailing);
@@ -440,6 +447,7 @@ export function LiveMap() {
 					<Timeline
 						window={timeline}
 						hour={hour}
+						span={trailing}
 						onHourChange={setHour}
 						observations={observationsPerHour}
 						detections={detectionsPerHour}

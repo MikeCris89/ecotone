@@ -14,6 +14,7 @@ import {
 	recencyFade,
 	STALE_WEATHER_OPACITY,
 	spanToHour,
+	stepWindow,
 	TRAILING_HOURS,
 	timedInatTimes,
 	WEATHER_MAX_AGE_HOURS,
@@ -50,6 +51,27 @@ describe("clampHour", () => {
 	});
 });
 
+describe("stepWindow", () => {
+	it("starts the 7 days window's steps a day in, where the first full trailing day is loaded", () => {
+		expect(stepWindow(window7d, window7d)).toEqual({ start: at("2026-09-23T12:00:00Z"), end: window7d.end });
+	});
+
+	it("keeps a narrower window's own hours, since its trailing days reach into the loaded data", () => {
+		expect(stepWindow(window24, window7d)).toEqual({ start: at("2026-09-28T13:00:00Z"), end: window24.end });
+		expect(stepWindow(windowBounds(END, "3d"), window7d).start).toBe(at("2026-09-26T13:00:00Z"));
+	});
+
+	it.each(["24h", "3d", "7d"] as const)("gives every %s step a full trailing day inside the loaded data", (name) => {
+		const steps = stepWindow(windowBounds(END, name), window7d);
+		const { first, count } = hourAxis(steps);
+		for (let hour = first; hour < first + (count - 1) * HOUR; hour += HOUR) {
+			const span = spanToHour(hour, TRAILING_HOURS, window7d);
+			expect(span.end - span.start).toBe(TRAILING_HOURS * HOUR);
+			expect(span.start).toBeGreaterThanOrEqual(window7d.start);
+		}
+	});
+});
+
 describe("spanToHour", () => {
 	it("shows the trailing hours ending with the handle's hour", () => {
 		const hour = at("2026-09-27T10:00:00Z");
@@ -59,7 +81,7 @@ describe("spanToHour", () => {
 		});
 	});
 
-	it("clips to the window's start instead of reaching before it", () => {
+	it("clips to its bounds' start instead of reaching before them", () => {
 		const hour = at("2026-09-28T14:00:00Z");
 		expect(spanToHour(hour, TRAILING_HOURS, window24)).toEqual({
 			start: window24.start,

@@ -11,7 +11,6 @@ import {
 	hourAxis,
 	lastHour,
 	localMidnights,
-	spanToHour,
 	TRAILING_HOURS,
 	WEATHER_MAX_AGE_HOURS,
 } from "@/lib/timeline";
@@ -24,8 +23,10 @@ const NOT_LOADED_COLOR = "#e4e4e7";
 
 type TimelineProps = {
 	window: TimeWindow;
-	// The start of the handle's hour (epoch seconds), or null for the whole window.
+	// The start of the handle's hour (epoch seconds), or null for the whole window, and the span the
+	// map shows for it, which can start before `window`.
 	hour: number | null;
+	span: TimeWindow | null;
 	onHourChange: (hour: number | null) => void;
 	// Per hour of the window's axis (hourAxis).
 	observations: number[];
@@ -39,7 +40,7 @@ type TimelineProps = {
 // Along the bottom edge, under the panel; the right side stays free for the chat. Memoized, since
 // the map re-renders on every mouse move over it.
 export const Timeline = memo(function Timeline(props: TimelineProps) {
-	const { window, hour, onHourChange, observations, detections, dateOnly } = props;
+	const { window, hour, span, onHourChange, observations, detections, dateOnly } = props;
 	const { first, count } = hourAxis(window);
 	const last = lastHour(window);
 	const midnights = useMemo(() => localMidnights(window), [window]);
@@ -91,9 +92,8 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 		} else if (event.key === "Escape") setHourNow(null);
 	};
 
-	// Positions on the axis, as percentages of its width.
-	const at = (time: number) => ((time - first) / (count * HOUR)) * 100;
-	const span = hour === null ? null : spanToHour(hour, TRAILING_HOURS, window);
+	// Positions on the axis, as percentages of its width, clamped to it: a span can start before it.
+	const at = (time: number) => Math.min(Math.max(((time - first) / (count * HOUR)) * 100, 0), 100);
 
 	return (
 		<div className="pointer-events-auto w-full shrink-0 space-y-2 rounded-lg bg-white/95 p-3 text-xs text-zinc-700 shadow-md">
@@ -110,7 +110,7 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 				</button>
 				{span && hour !== null ? (
 					<p>
-						Showing {formatSeconds(span.start)} – {formatSeconds(span.end)}: up to {TRAILING_HOURS} hours to the handle,
+						Showing {formatSeconds(span.start)} – {formatSeconds(span.end)}: the {TRAILING_HOURS} hours to the handle,
 						older records fainter. Modeled conditions for the hour from {formatSeconds(hour)}, or the latest reading
 						up to {WEATHER_MAX_AGE_HOURS} h earlier, faded.
 					</p>

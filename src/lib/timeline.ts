@@ -25,14 +25,25 @@ export function hourAxis({ start, end }: TimeWindow) {
 }
 
 /**
- * What the map shows with the handle on the hour starting at `hour`: the `hours` ending with that
- * hour, clipped to the window. So in the 24h window, the handle at its third hour shows three hours,
- * not a day reaching into data the window excludes.
+ * The window the handle steps through: whole hours of the selected window, starting no earlier
+ * than the first hour whose trailing span is fully loaded. The map loads a fixed window (`loaded`,
+ * 7 days) whatever is selected, so the 24h and 3 days windows reach back into it for every step's
+ * trailing day, and only the 7 days window gives up its first day of steps. Without this, early
+ * steps would show a few hours, and sparse satellite passes would leave them empty.
  */
-export function spanToHour(hour: number, hours: number, window: TimeWindow): TimeWindow {
+export function stepWindow(selected: TimeWindow, loaded: TimeWindow): TimeWindow {
+	const earliest = Math.max(selected.start, loaded.start + (TRAILING_HOURS - 1) * HOUR);
+	return { start: Math.ceil(earliest / HOUR) * HOUR, end: selected.end };
+}
+
+/**
+ * What the map shows with the handle on the hour starting at `hour`: the `hours` ending with that
+ * hour, clipped to `bounds` (the loaded data, which a stepWindow step's trailing day never leaves).
+ */
+export function spanToHour(hour: number, hours: number, bounds: TimeWindow): TimeWindow {
 	return {
-		start: Math.max(hour + HOUR - hours * HOUR, window.start),
-		end: Math.min(hour + HOUR, window.end),
+		start: Math.max(hour + HOUR - hours * HOUR, bounds.start),
+		end: Math.min(hour + HOUR, bounds.end),
 	};
 }
 
@@ -54,8 +65,7 @@ export const WEATHER_MAX_AGE_HOURS = 3;
 
 /**
  * The readings the weather layer may use for the hour starting at `hour`: that hour's, or ones up
- * to WEATHER_MAX_AGE_HOURS earlier. Not clipped to the window's start, so the axis's first hour,
- * which starts before the window, can still use a loaded reading.
+ * to WEATHER_MAX_AGE_HOURS earlier, from the loaded data, which reaches back before the steps.
  */
 export function weatherLookback(hour: number): TimeWindow {
 	return { start: hour - WEATHER_MAX_AGE_HOURS * HOUR, end: hour + HOUR };
@@ -121,8 +131,9 @@ export function localMidnights({ start, end }: TimeWindow, timeZone = CALIFORNIA
 	}
 }
 
-// Opacity of the oldest records in the trailing span, relative to the newest.
-export const FADED_OPACITY = 0.3;
+// Opacity of the oldest records in the trailing span, relative to the newest. Orange detections
+// fainter than this get hard to see on the light basemap.
+export const FADED_OPACITY = 0.5;
 
 /**
  * An opacity factor for scrubbing: 1 for records at the span's end, fading to FADED_OPACITY at the
