@@ -71,7 +71,13 @@
 - [x] 8a: Coverage and feed health per source (`src/lib/freshness.ts`, `GET /api/freshness`)
   - Coverage is intervals on observation (or acquisition) time: the union of each source's `succeeded` runs' `[window_start, covered_until]`, so an outage shows as a gap and a re-run backfill date covers its superseded attempts. Partial or interrupted runs are "likely incomplete", never complete: over what they read, or their whole window when they have no `covered_until` (a backfill cut off partway, a weather poll that lost a batch). Failed runs stored nothing. FIRMS counts an hour complete only once all three satellites are, and names each satellite's end when they differ. iNaturalist's live polls count as one unbroken read from the first poll in the window to the cursor: a record is uploaded after it's observed, so everything observed in that stretch and uploaded by the cursor has been read. Records a live poll rejected are skipped for good (the cursor moves past them) and can't be placed in time, so the statement gives the number of rejections in the window, even after later polls succeed. That counts rejections, not records: the 2-minute overlap between polls can re-read and re-count one bad record, and runs don't record which records were rejected
   - Likely-incomplete bands at the newest read hours: 3 hours for FIRMS (`FIRMS_SETTLING_HOURS`, on top of `NRT_LATENCY_MS`), 48 hours for iNaturalist uploads (`UPLOAD_LAG_HOURS`). Weather has none
-  - Feed health: the latest live poll's start, and "behind" once a whole poll is missed (two intervals). The latest poll that finished (or died) gets a statement; for FIRMS, the worst satellite's. A run still `running` after 15 minutes is interrupted (`INTERRUPTED_AFTER_MINUTES`); one younger may still be going and is skipped
+  - Feed health: the latest live poll's start, and "behind" once a whole poll is missed (two intervals). The latest poll that finished (or died) gets a statement; for FIRMS, the worst satellite's. A run still `running` after 15 minutes is interrupted (`INTERRUPTED_AFTER_MINUTES`); one younger may still be going and is skipped. How runs get stuck `running`, and the optional sweep for them: issue #9
+  - A run's statement never shows `covered_until` without its `status` (`runStatement`):
+    - `succeeded`: "complete through 2:00 PM PT" (a live iNaturalist poll: "all updates read through …", since it reads by updated time)
+    - `partial`, `covered_until` set: "read through 2:00 PM PT; 12 records failed validation", or another reason with its count
+    - `partial`, `covered_until` null: "incomplete, cut off partway"
+    - `failed`: "failed, nothing stored from this run". Every source keeps that true: a run that stored anything before failing is `partial`
+    - `running` for over 15 minutes: "interrupted, may be incomplete". The run died without recording an outcome, possibly after storing some pages
   - Each source gets one `statement` combining coverage, the latest poll and feed health (decisions.md, 20). How far a source has been read is kept apart from how settled it is, so no stretch is called both complete and incomplete: "Read through Sep 29, 9:40 AM PT. Last 3 h may still fill in as satellite passes are published. No live poll in this window." Weather has no settling band, so it says "Complete through". The panel shows it, and the Phase 10 freshness tool returns it. Partial reasons are matched from the error messages the ingestion code writes, with their counts (`PARTIAL_REASONS`, e.g. "12 records failed validation"); anything else is "stopped by an error"
   - `formatTime` moved to `src/lib/timeline.ts` so server code formats times the same way (PT)
   - The route is CDN-cached for a minute, stale for one more
@@ -81,19 +87,8 @@
   - The panel fetches `/api/freshness` every minute. Each layer shows its `statement` and the last poll's time (left out when behind, since the statement already says how long). A time rather than "N min ago", which a cached response would understate; "behind" is judged when the server answered, up to ~3 minutes earlier. When the span shown reaches past what's been read (complete or not, as the timeline shades it), by more than two poll intervals: "Satellite thermal detections after 9:40 AM PT aren't published yet", or "Nothing read after …: live polling is behind" when it is. If the whole span is unread, that note replaces "No … in this window" (`layerCoverage`). Weather gets the statement only: its layer already falls back to earlier readings
   - The interval math moved to `src/lib/coverage.ts` (no database code), shared by the server's coverage and the timeline
   - `formatTime` is pinned to en-US, so server-written statements read like the times the browser formats
-  - Verified locally (2026-09-30): tests (208 passing), typecheck, lint. Not yet checked in the browser
+  - Verified locally (2026-09-30): tests (208 passing), typecheck, lint, and in the browser during review: shading, hatching, tooltips, panel statements and the "not read" note on the local data
   - To confirm after merge: `curl -s <production URL>/api/freshness | jq '.sources[].statement'`. Locally every feed is behind, so production is the first real test of the healthy path: expect no "No live poll" sentences, each "Last poll" time within the source's interval, FIRMS read through about 3 hours ago, and on the timeline, a grey stretch plus a hatched band at the FIRMS row's right edge and a 48-hour hatch on recorded observations
-- Background for both:
-  - Mark on the timeline where each source's coverage ends. Today the timeline shades only past each response's `end`, so hours a source hasn't published yet draw as zero bars and old, faded records: FIRMS runs ~3 hours or more behind its passes, and locally nothing polls, so every source stops at the last backfill. FIRMS needs its ingestion coverage, not its newest detection (a quiet night is real), combined with run status as below
-  - Coverage alone still overstates completeness, so add a likely-incomplete band: the last few hours of FIRMS coverage, and the last ~1–2 days for iNaturalist (upload lag). FIRMS's `covered_until` already stops 3 hours before each poll (`NRT_LATENCY_MS`), but that margin is its typical latency, not a guarantee: a slow pass can still add detections before `covered_until` on the next poll (Phase 3 limitations). iNaturalist's `covered_until` is its updated-time cursor, which says nothing about observed time, so its band comes from upload lag instead (Phase 5 limitations)
-  - Never show `covered_until` on its own. Combine it with the run's `status` into one plain statement:
-    - `succeeded`: "complete through 14:00"
-    - `partial`, `covered_until` set: "read through 14:00", plus the run's reason, e.g. "some records rejected" or "next poll continues". No exact rejected count (no column for it; `records_skipped` also counts records excluded on purpose)
-    - `partial`, `covered_until` null: "incomplete, cut off partway"
-    - `failed`: "failed, nothing stored from this run". Every source keeps that true: a run that stored anything before failing is `partial`
-    - stale `running` runs: "interrupted, may be incomplete". The run died without recording an outcome, possibly after storing some pages
-  - A backfilled date's coverage comes from its latest `succeeded` run, not its latest run, so partial runs a later re-run superseded don't show as gaps (e.g. iNaturalist 2026-09-24)
-  - How runs get stuck `running` (only when recording the outcome itself fails, or the function is killed), and the optional sweep for them: see issue #9
 
 ## Phase 9: CZU case study
 
@@ -105,7 +100,7 @@
 - [ ] Deterministic tools with the tool contract, count guardrails, tests
   - Weather tool results must include the distance from the queried location to the weather point used
   - Evidence carries each record's license and attribution: the record's own for iNaturalist, otherwise its source's (record -> ingestion run -> `data_sources`)
-  - Coverage follows the Phase 8 rule: tools never return a bare `covered_until`, only the statement combined with `status`
+  - Coverage comes from `getFreshness` (`src/lib/freshness.ts`): tools return its per-source `statement` and spans, never a bare `covered_until` (decisions.md, 20)
   - Recorded-observation counts track observer effort and upload lag (see Phase 5 limitations): tools must not present day-to-day differences as changes in wildlife, and must flag the most recent 1–2 days as undercounted
   - Use the map's default filters (`src/lib/default-filters.ts`) and state them in `limitations`, so answers match what the map shows (decisions.md, 18)
   - Proximity analyses count a recorded observation as precisely located by `PRECISE_ACCURACY_M` (≤1 km, `src/lib/default-filters.ts`), the rule the map styles by
@@ -179,6 +174,14 @@
 - **Unpublished hours look like no activity:** fixed in Phase 8b. Hours a source hasn't read are shaded grey on the timeline, and the panel says they aren't published yet
 - **Weather grid cell assumed constant per point:** popups for earlier readings use the point's newest reading's grid cell, distance and elevation. True for every stored reading locally (checked 2026-09-29: none of 169 points changed cell), not enforced
 - **The 7 days window steps through 6 days:** its first day has no full trailing day loaded, so the handle starts a day in. Loading 8 days would fix it, at ~14% more payload and a longer retention window
+
+### Known limitations from Phase 8 (check later)
+
+- **Partial-run reasons come from error text:** `PARTIAL_REASONS` matches the messages the ingestion code writes. A reworded message falls back to "stopped by an error". A reason code column on `ingestion_runs` would fix it, at the cost of a migration
+- **Rejections, not rejected records:** the iNaturalist statement counts rejections across live polls, and one bad record re-read by the 2-minute overlap counts again. Runs don't record which records were rejected, so there's no distinct count
+- **Settling bands are fixed estimates:** 3 hours for FIRMS and 48 hours for iNaturalist uploads, not measured from the data. A slower day can still add records before the band
+- **Feed health is judged when the server answers:** `/api/freshness` is cached up to ~2 minutes and refetched every minute, so "behind" and "No live poll for …" can be ~3 minutes late. Small next to the 10/30/120-minute thresholds
+- **Test runs left in the local database:** the flaky weather poll test (issue #9) can leave a `running` run with a 2001 window. Freshness ignores it (its window is outside the Live window), but it stays in `ingestion_runs`
 
 ### Known limitations from Phase 6 (check later)
 

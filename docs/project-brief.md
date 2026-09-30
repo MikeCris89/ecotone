@@ -69,7 +69,7 @@ The app opens here. This mode is what satisfies the "real-time feeds" requiremen
 - **Time window:** a fixed retention window (e.g. 7 days) with selectable sub-ranges (24h / 3 days / 7 days). The window is **seeded from upstream recent history** at setup, then kept current by scheduled polling. Seeded records keep their original observation times
 - **Bounded loading:** the browser loads the Live window (California, 7 days) once per layer, capped per layer, and narrows it locally. The API routes accept a viewport bbox and time window, for when the data outgrows one load (see decisions.md, 18)
 - **Shows:** recent FIRMS thermal detections, recent iNaturalist wildlife observations, current and recent weather context
-- **Freshness is visible:** each source shows when it was last successfully ingested and how old its newest record is
+- **Freshness is visible:** each source shows when it was last polled, whether polling is on schedule, and how far its data has been read and how settled that is (see decisions.md, 20)
 - Much of the time there may be little thermal activity. That is fine. Empty results are reported honestly, not hidden
 
 The live mode's job is to demonstrate the full pipeline operating today: external APIs, scheduled ingestion, normalization, persistent storage, freshness metadata, querying, agent.
@@ -175,7 +175,7 @@ The exact schema is **open for discussion**, but these constraints are decided:
 
 This is an explicit evaluation criterion, so it is a product feature, not an afterthought.
 
-- **Stale:** per-source freshness indicators. Keep two things separate: **feed health** (did the last poll succeed, and on schedule?) and **data recency** (how old is the newest record?). An old newest thermal detection with healthy polling means no recent qualifying activity, not a broken feed. Warn clearly when polling has failed or fallen behind its expected cadence
+- **Stale:** per-source freshness indicators. Keep two things separate: **feed health** (did the last poll succeed, and on schedule?) and **coverage** (how far has the source been read, and how settled is it?). No recent thermal detections with healthy polling and current coverage means no recent qualifying activity, not a broken feed. Warn clearly when polling has failed or fallen behind its expected cadence
 - **Missing:** empty results are stated plainly ("No qualifying thermal detections in this area during the selected period"). Absence of observations is never presented as absence of animals
 - **Upload lag:** the most recent hours of iNaturalist data are visibly marked as likely incomplete
 - **Conflicting / uncertain:** positional uncertainty, off-perimeter thermal detections, modeled vs measured weather, and quality grades are surfaced rather than hidden
