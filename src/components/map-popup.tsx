@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Image from "next/image";
 import { type ReactNode, useEffect, useRef } from "react";
+import { citationLabel, type NumberedEvidence } from "@/lib/chat/ui";
 import type { SourceAttribution } from "@/lib/data-sources";
 import type { FirmsMapDetails } from "@/lib/firms/map";
 import type { InatMapDetails } from "@/lib/inaturalist/map";
@@ -40,6 +41,47 @@ type MapPopupContentProps = {
 };
 
 export function MapPopupContent({ selection, weather, onResize }: MapPopupContentProps) {
+	return (
+		<PopupFrame onResize={onResize}>
+			{selection.source === "inaturalist" && <InatDetails id={selection.id} />}
+			{selection.source === "firms" && <FirmsDetails id={selection.id} />}
+			{selection.source === "weather" && weather && <WeatherDetails {...weather} />}
+			{selection.more > 0 && (
+				<p className="border-t border-zinc-200 pt-1 text-zinc-500">
+					+{selection.more} more {selection.more === 1 ? "record" : "records"} here; zoom in to pick one.
+				</p>
+			)}
+		</PopupFrame>
+	);
+}
+
+/**
+ * A record an answer rests on, opened from the chat or its marker. Observations and detections are
+ * looked up by ID like the layers' popups. Weather shows only what the tool returned: the layer's
+ * copy of that hour can differ, since HRRR revises its newest hours.
+ */
+export function EvidencePopupContent({ entry, onResize }: { entry: NumberedEvidence; onResize: () => void }) {
+	const { record, number } = entry;
+	return (
+		<PopupFrame onResize={onResize}>
+			<p className="text-zinc-500">{citationLabel(record.source, number)} in the answer</p>
+			{record.source === "inaturalist" && <InatDetails id={Number(record.id)} />}
+			{record.source === "firms" && <FirmsDetails id={record.id} />}
+			{record.source === "open-meteo" && (
+				<>
+					<header>
+						<p className="text-sm font-semibold">{record.observedAt && formatTime(Date.parse(record.observedAt))}</p>
+						<p>{record.label}</p>
+					</header>
+					<SourceLink href={record.url}>{record.attribution}</SourceLink>
+				</>
+			)}
+		</PopupFrame>
+	);
+}
+
+// Reports size changes, e.g. when details replace "Loading…".
+function PopupFrame({ onResize, children }: { onResize: () => void; children: ReactNode }) {
 	const ref = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		const observer = new ResizeObserver(onResize);
@@ -49,14 +91,7 @@ export function MapPopupContent({ selection, weather, onResize }: MapPopupConten
 
 	return (
 		<div ref={ref} className="w-64 space-y-2 text-xs text-zinc-900">
-			{selection.source === "inaturalist" && <InatDetails id={selection.id} />}
-			{selection.source === "firms" && <FirmsDetails id={selection.id} />}
-			{selection.source === "weather" && weather && <WeatherDetails {...weather} />}
-			{selection.more > 0 && (
-				<p className="border-t border-zinc-200 pt-1 text-zinc-500">
-					+{selection.more} more {selection.more === 1 ? "record" : "records"} here; zoom in to pick one.
-				</p>
-			)}
+			{children}
 		</div>
 	);
 }
