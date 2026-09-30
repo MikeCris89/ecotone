@@ -274,7 +274,7 @@ describe("observationsNearDetections", () => {
 		expect(near.result!.clusters.map(({ rank, detections }) => ({ rank, detections }))).toEqual([
 			{ rank: 1, detections: summary.result!.clusters[0].detections },
 		]);
-		expect(near.result!.otherClusters).toEqual({ clusters: 1, observations: 0 });
+		expect(near.result!.otherClusters).toEqual({ clusters: 1, observations: 0, closest: null });
 	});
 
 	it("counts observations near the unlisted clusters only when they're near none of the listed ones", async () => {
@@ -283,15 +283,32 @@ describe("observationsNearDetections", () => {
 
 		expect(result!.observations.total).toBe(3);
 		expect(result!.clusters[0].observations.total).toBe(3);
-		expect(result!.otherClusters).toEqual({ clusters: 1, observations: 0 });
+		expect(result!.otherClusters).toEqual({ clusters: 1, observations: 0, closest: null });
 	});
 
-	it("counts the observations near only an unlisted cluster", async () => {
+	it("counts the observations near only an unlisted cluster, and cites their closest pair", async () => {
 		// From 10 MW, b1 (50 MW) ranks first and a2 (20 MW) second; both observations are near a2 only.
-		const { result } = await observationsNearDetections({ area: AREA, range: RANGE, minFrpMw: 10, maxClusters: 1 });
+		const { result, evidence } = await observationsNearDetections({
+			area: AREA,
+			range: RANGE,
+			minFrpMw: 10,
+			maxClusters: 1,
+		});
 
 		expect(result!.clusters.map((cluster) => cluster.observations.total)).toEqual([0]);
-		expect(result!.otherClusters).toEqual({ clusters: 1, observations: 2 });
+		expect(result!.otherClusters).toEqual({
+			clusters: 1,
+			observations: 2,
+			// BEFORE is ~690 m from a2, AFTER ~1.1 km.
+			closest: {
+				observationId: String(BEFORE.inat_id),
+				detectionId: "test:agent:a2",
+				label: "Anna's Hummingbird (Calypte anna)",
+				distanceKm: expect.closeTo(0.69, 1),
+				hoursFromDetection: -4,
+			},
+		});
+		expect(evidence.map((e) => e.id)).toEqual([String(BEFORE.inat_id), "test:agent:a2"]);
 	});
 
 	it("leaves out detections below a minimum power, and says so", async () => {

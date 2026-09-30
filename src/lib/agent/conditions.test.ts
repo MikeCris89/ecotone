@@ -14,7 +14,7 @@ const PLACE = { longitude: -140, latitude: 41 };
 const RANGE = { start: "2003-06-02T10:00:00Z", end: "2003-06-02T13:00:00Z" };
 
 let pointId: string;
-let runId: string;
+const runIds: string[] = [];
 
 function reading(validAt: string, overrides: Partial<WeatherReadingRow>): WeatherReadingRow {
 	return {
@@ -37,6 +37,38 @@ function reading(validAt: string, overrides: Partial<WeatherReadingRow>): Weathe
 	};
 }
 
+// A succeeded backfill run over [start, end) that stored `readings`.
+async function storeRun(datasetId: string, start: string, end: string, readings: WeatherReadingRow[]) {
+	const runId = await startRun({
+		source: "open-meteo",
+		datasetId,
+		mode: "backfill",
+		bbox: { west: -142, south: 40, east: -139, north: 42 },
+		windowStart: new Date(start),
+		windowEnd: new Date(end),
+		timeField: "observed",
+		filters: { test: "agent/conditions.test.ts" },
+	});
+	runIds.push(runId);
+	await upsertReadings(readings, runId);
+	await recordRunProgress(runId, {
+		pagesFetched: 1,
+		recordsFetched: readings.length,
+		recordsInserted: readings.length,
+		recordsUpdated: 0,
+		recordsSkipped: 0,
+		coveredUntil: new Date(end),
+	});
+	await finishRun(runId, "succeeded");
+}
+
+// Hourly readings from `start`, `count` of them.
+function hourly(start: string, count: number): WeatherReadingRow[] {
+	return Array.from({ length: count }, (_, index) =>
+		reading(new Date(Date.parse(start) + index * 3_600_000).toISOString(), { precipitation_mm: 0.5 }),
+	);
+}
+
 beforeAll(async () => {
 	const czu = await getDataset("czu-2020");
 	[{ id: pointId }] = await sql<{ id: string }[]>`
@@ -44,52 +76,32 @@ beforeAll(async () => {
 		values (${czu.id}, extensions.st_setsrid(extensions.st_makepoint(-140.02, 41.02), 4326)::extensions.geography)
 		returning id
 	`;
-	runId = await startRun({
-		source: "open-meteo",
-		datasetId: czu.id,
-		mode: "backfill",
-		bbox: { west: -142, south: 40, east: -139, north: 42 },
-		windowStart: new Date("2003-06-01T00:00:00Z"),
-		windowEnd: new Date("2003-06-04T00:00:00Z"),
-		timeField: "observed",
-		filters: { test: "agent/conditions.test.ts" },
-	});
-	await upsertReadings(
-		[
-			reading("2003-06-02T10:00:00.000Z", {}),
-			reading("2003-06-02T11:00:00.000Z", {
-				temperature_c: 26,
-				relative_humidity_pct: 12,
-				wind_speed_kmh: 20,
-				wind_direction_deg: 300,
-				wind_gusts_kmh: 35,
-			}),
-			reading("2003-06-02T12:00:00.000Z", {
-				temperature_c: 24,
-				relative_humidity_pct: 25,
-				precipitation_mm: null,
-				wind_speed_kmh: 30,
-				wind_direction_deg: 315,
-				wind_gusts_kmh: 50,
-			}),
-		],
-		runId,
-	);
-	await recordRunProgress(runId, {
-		pagesFetched: 1,
-		recordsFetched: 3,
-		recordsInserted: 3,
-		recordsUpdated: 0,
-		recordsSkipped: 0,
-		coveredUntil: new Date("2003-06-04T00:00:00Z"),
-	});
-	await finishRun(runId, "succeeded");
+	await storeRun(czu.id, "2003-06-01T00:00:00Z", "2003-06-04T00:00:00Z", [
+		reading("2003-06-02T10:00:00.000Z", {}),
+		reading("2003-06-02T11:00:00.000Z", {
+			temperature_c: 26,
+			relative_humidity_pct: 12,
+			wind_speed_kmh: 20,
+			wind_direction_deg: 300,
+			wind_gusts_kmh: 35,
+		}),
+		reading("2003-06-02T12:00:00.000Z", {
+			temperature_c: 24,
+			relative_humidity_pct: 25,
+			precipitation_mm: null,
+			wind_speed_kmh: 30,
+			wind_direction_deg: 315,
+			wind_gusts_kmh: 50,
+		}),
+	]);
+	// June 12 to 14 (California dates) whole, June 15's first 6 hours: 78 of the run's 96.
+	await storeRun(czu.id, "2003-06-12T07:00:00Z", "2003-06-16T07:00:00Z", hourly("2003-06-12T07:00:00Z", 78));
 });
 
 afterAll(async () => {
 	await sql`delete from weather_readings where point_id = ${pointId}`;
 	await sql`delete from weather_points where id = ${pointId}`;
-	await sql`delete from ingestion_runs where id = ${runId}`;
+	await sql`delete from ingestion_runs where id in ${sql(runIds)}`;
 	await sql.end();
 });
 
@@ -125,9 +137,10 @@ describe("getConditions", () => {
 	it("cites the latest, driest and gustiest hours once each, as the sample point with its reading links", async () => {
 		const { evidence } = await getConditions({ location: PLACE, range: RANGE });
 
+		// One ID per reading, so a citation names the hour it means.
 		expect(evidence.map((e) => [e.id, e.observedAt])).toEqual([
-			[pointId, "2003-06-02T12:00:00.000Z"],
-			[pointId, "2003-06-02T11:00:00.000Z"],
+			[`${pointId}:2003-06-02T12:00:00.000Z`, "2003-06-02T12:00:00.000Z"],
+			[`${pointId}:2003-06-02T11:00:00.000Z`, "2003-06-02T11:00:00.000Z"],
 		]);
 		expect(evidence[0]).toMatchObject({
 			source: "open-meteo",
@@ -180,6 +193,71 @@ describe("getConditions", () => {
 		});
 
 		expect(insufficient?.reason).toBe("No stored open-meteo data covers this area and range.");
+	});
+
+	it("answers a range read under 80% from the hours with readings, and says how many and how old", async () => {
+		// Read to Jun 4 00:00 of Jun 2 10:00 to Jun 5 10:00 (38 of 72 hours); readings for 3 of them.
+		const { result, coverage, limitations, insufficient } = await getConditions({
+			location: PLACE,
+			range: { start: "2003-06-02T10:00:00Z", end: "2003-06-05T10:00:00Z" },
+		});
+
+		expect(insufficient).toBeUndefined();
+		expect(coverage.sources[0].readFraction).toBeLessThan(0.8);
+		expect(result).toMatchObject({ hours: 3, requestedHours: 72, fallback: null, summary: { windGustsMaxKmh: 50 } });
+		expect(limitations[0]).toMatch(/^Readings for 3 of 72 hours in the range; .* cover only those hours/);
+		// Newest Jun 2 12:00 UTC, the range's last hour Jun 5 09:00 UTC.
+		expect(limitations[0]).toContain("69 h before the range's last hour");
+	});
+
+	it("counts the hour marks in a range that starts mid-hour, so nothing is called missing", async () => {
+		// 3.67 hours, with readings at all three hour marks (10:00, 11:00, 12:00).
+		const { result, limitations } = await getConditions({
+			location: PLACE,
+			range: { start: "2003-06-02T09:20:00Z", end: "2003-06-02T13:00:00Z" },
+		});
+
+		expect(result).toMatchObject({ hours: 3, requestedHours: 3 });
+		expect(limitations.some((limitation) => limitation.startsWith("Readings for"))).toBe(false);
+	});
+
+	it("marks a day partial only when readings are missing from its hours in the range", async () => {
+		const { result, limitations } = await getConditions({
+			location: PLACE,
+			range: { start: "2003-06-12T07:00:00Z", end: "2003-06-16T07:00:00Z" },
+		});
+
+		expect(result).toMatchObject({ hours: 78, requestedHours: 96, hourly: null });
+		const day = (date: string, hours: number, partial: boolean, precipitationMm: number | null) =>
+			expect.objectContaining({ date, hours, hoursInRange: 24, hoursInDay: 24, partial, precipitationMm });
+		expect(result!.daily).toEqual([
+			day("2003-06-12", 24, false, 12),
+			day("2003-06-13", 24, false, 12),
+			day("2003-06-14", 24, false, 12),
+			day("2003-06-15", 6, true, null),
+		]);
+		expect(limitations[0]).toMatch(/^Readings for 78 of 96 hours/);
+		expect(limitations[1]).toMatch(/^Days marked partial/);
+		expect(limitations.some((limitation) => limitation.includes("hoursInRange below hoursInDay"))).toBe(false);
+	});
+
+	it("doesn't call a day cut by the range's start or end partial when its hours in the range are read", async () => {
+		// Noon Jun 12 to 6 AM Jun 15 (PDT): every hour in the range has a reading.
+		const { result, limitations } = await getConditions({
+			location: PLACE,
+			range: { start: "2003-06-12T19:00:00Z", end: "2003-06-15T13:00:00Z" },
+		});
+
+		expect(result).toMatchObject({ hours: 66, requestedHours: 66 });
+		expect(result!.daily).toEqual([
+			expect.objectContaining({ date: "2003-06-12", hours: 12, hoursInRange: 12, hoursInDay: 24, partial: false }),
+			expect.objectContaining({ date: "2003-06-13", hours: 24, hoursInRange: 24, partial: false }),
+			expect.objectContaining({ date: "2003-06-14", hours: 24, hoursInRange: 24, partial: false }),
+			expect.objectContaining({ date: "2003-06-15", hours: 6, hoursInRange: 6, hoursInDay: 24, partial: false }),
+		]);
+		expect(result!.daily![0].precipitationMm).toBe(6);
+		expect(limitations.some((limitation) => /^(Readings for|Days marked partial)/.test(limitation))).toBe(false);
+		expect(limitations[0]).toMatch(/^A day with hoursInRange below hoursInDay is cut by the range's start or end/);
 	});
 
 	it("is insufficient where no weather was read and nothing was stored before", async () => {
