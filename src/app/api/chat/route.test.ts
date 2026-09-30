@@ -258,6 +258,45 @@ describe("POST /api/chat", () => {
 
 		expect(recordUsage).toHaveBeenCalledWith("42", expect.objectContaining({ steps: 8, noAnswer: true }));
 	});
+
+	it("logs the finished steps' usage when the model fails mid-reply", async () => {
+		const failure = { type: "error" as const, error: new Error("Overloaded") };
+		mocks.model = new MockLanguageModelV4({
+			doStream: [toolCallStep("call-1"), { stream: simulateReadableStream({ chunks: [failure] }) }],
+		});
+		vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await chunks(await POST(chatRequest([question("Any detections?")])));
+
+		expect(recordUsage).toHaveBeenLastCalledWith("42", {
+			durationMs: expect.any(Number),
+			inputTokens: 10,
+			outputTokens: 5,
+			cacheReadTokens: null,
+			cacheWriteTokens: null,
+			// The failed call counts as a step, with no usage reported.
+			steps: 2,
+			noAnswer: null,
+		});
+	});
+
+	it("logs the finished steps' usage when the client leaves mid-reply", async () => {
+		const client = new AbortController();
+		let calls = 0;
+		mocks.model = new MockLanguageModelV4({
+			doStream: async () => {
+				if (calls++ === 0) return toolCallStep("call-1");
+				client.abort();
+				return textStep("Never read.");
+			},
+		});
+
+		await chunks(await POST(new Request(chatRequest([question("Any detections?")]), { signal: client.signal })));
+
+		expect(recordUsage).toHaveBeenCalledTimes(1);
+		expect(recordUsage).toHaveBeenCalledWith("42", expect.objectContaining({ inputTokens: 10, steps: 1, noAnswer: null }));
+	});
+
 });
 
 describe("POST /api/chat access and limits", () => {
