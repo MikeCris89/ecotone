@@ -19,7 +19,7 @@ const DAY = 24 * 60 * 60;
 
 // What MapLibre itself decides for a feature with these properties.
 function mapLibreKeeps(filter: ReturnType<typeof inatWindowFilter>, properties: Record<string, number>) {
-	return featureFilter(filter, "layers[0].filter").filter({ zoom: 0 }, { type: "Point", properties });
+	return featureFilter(filter).filter({ zoom: 0 }, { type: "Point", properties });
 }
 
 describe("windowBounds", () => {
