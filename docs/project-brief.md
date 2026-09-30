@@ -76,6 +76,8 @@ The live mode's job is to demonstrate the full pipeline operating today: externa
 
 ### 3.2 CZU Lightning Complex 2020 (historical case study)
 
+**Status (2026-09-30): stretch goal.** The agent comes first with one day left (decisions.md, 21); CZU is loaded for the agent only if time allows, and the mode switch comes later.
+
 The deep analytical showcase, one click away from Live. Data is loaded through a **backfill path that shares the same normalization, storage, and query contracts** as live ingestion, not a separate system.
 
 - **Analysis region (bounding box):** west -122.40, south 36.96, east -122.03, north 37.33

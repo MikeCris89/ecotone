@@ -3,9 +3,9 @@
 // The map and the agent describe coverage only through these statements, never through a bare
 // covered_until: it says how far a run read, and only its status says whether that was everything.
 import { formatDuration, type Interval, intersect, subtract, union } from "@/lib/coverage";
-import { type Dataset, liveWindowStart } from "@/lib/datasets";
+import { type Bbox, type Dataset, liveWindowStart } from "@/lib/datasets";
 import { sql } from "@/lib/db";
-import { LIVE_PRODUCTS, type Product } from "@/lib/firms/client";
+import { LIVE_PRODUCTS, NRT_LATENCY_MS, type Product } from "@/lib/firms/client";
 import type { RunMode, Source } from "@/lib/ingestion-runs";
 import { LAYER_REFRESH_MINUTES } from "@/lib/map-layers";
 import { formatTime } from "@/lib/timeline";
@@ -85,6 +85,8 @@ export type SourceFreshness = {
 	// complete spans are "mostly complete".
 	complete: Span[];
 	likelyIncomplete: IncompleteSpan[];
+	// Rejections by live polls in the window (rejectedRecords); 0 for sources without them.
+	rejected: number;
 	// Coverage, the latest poll's outcome and feed health in one line.
 	statement: string;
 };
@@ -127,7 +129,7 @@ function partialReason(error: string | null): string {
 // retries them: only a fix and a backfill of their dates recovers them. Rejections, not records:
 // each poll re-reads the last 2 minutes before the previous cursor (and a page re-reads the second
 // it stopped on), so one bad record can be counted more than once, and runs don't record which.
-function rejectedRecords(runs: FreshnessRun[]): number {
+export function rejectedRecords(runs: FreshnessRun[]): number {
 	return runs.reduce((sum, run) => sum + Number(/(\d+) records failed validation/.exec(run.error ?? "")?.[1] ?? 0), 0);
 }
 
@@ -184,10 +186,28 @@ function observedCoverage(runs: FreshnessRun[], now: number) {
 function inatLiveCoverage(runs: FreshnessRun[]): Interval[] {
 	const read = runs.filter((run) => run.coveredUntil !== null);
 	if (read.length === 0) return [];
-	return [[Math.min(...read.map((run) => run.windowStart)), Math.max(...read.map((run) => run.coveredUntil!))]];
+	// reduce rather than Math.max(...): a long range can load tens of thousands of polls.
+	return [
+		[
+			read.reduce((min, run) => Math.min(min, run.windowStart), Infinity),
+			read.reduce((max, run) => Math.max(max, run.coveredUntil!), -Infinity),
+		],
+	];
 }
 
-const toSpan = ([start, end]: Interval): Span => ({
+// What observation-time runs read settled: an hour is settled once every record arriving in the
+// `lag` after it has been read. `readUntil` is how far a run's uploads (or publications) were read:
+// its start, or later when live polling carried on from there.
+function settledReads(runs: FreshnessRun[], lag: number, readUntil = (run: FreshnessRun) => run.startedAt): Interval[] {
+	return union(
+		runs
+			.filter((run) => run.timeField === "observed" && run.coveredUntil !== null)
+			.map((run): Interval => [run.windowStart, Math.min(run.coveredUntil!, readUntil(run) - lag)])
+			.filter(([start, end]) => start < end),
+	);
+}
+
+export const toSpan = ([start, end]: Interval): Span => ({
 	start: new Date(start).toISOString(),
 	end: new Date(end).toISOString(),
 });
@@ -204,13 +224,14 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 
 	let complete: Interval[];
 	let partial: Interval[];
-	// The newest read hours can still gain records, and how many depends on the source. `describe`
-	// says how settled the read stretch is, given where it ends and whether anything before the
-	// band is left.
+	// Hours read too soon after they happened can still gain records: a read settles only what's
+	// at least `lag` older than the read itself. So live data's newest hours are settling, while
+	// history backfilled years later has settled entirely. `describe` says how settled the read
+	// stretch is, given where the settling band starts and whether anything before it is left.
 	let settling: {
-		hours: number;
 		reason: IncompleteSpan["reason"];
-		describe: (through: number, before: boolean) => string[];
+		settled: Interval[];
+		describe: (bandStart: number, before: boolean) => string[];
 	} | null = null;
 	// FIRMS: each satellite's complete-through time, named in the statement when they differ.
 	let satellites: { label: string; through: number | null }[] = [];
@@ -230,22 +251,35 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 			label: SATELLITE_LABELS[product],
 			through: complete.at(-1)?.[1] ?? null,
 		}));
+		// A live poll reads through one typical latency before it starts, so its last
+		// FIRMS_SETTLING_HOURS read are the settling band. Settled only once every satellite's are.
+		const lag = NRT_LATENCY_MS + FIRMS_SETTLING_HOURS * HOUR_MS;
 		settling = {
-			hours: FIRMS_SETTLING_HOURS,
 			reason: "publishing-lag",
+			settled: LIVE_PRODUCTS.map((product) => settledReads(runs.filter((run) => run.product === product), lag)).reduce<
+				Interval[]
+			>((all, settled) => intersect(all, settled), [window]),
 			describe: () => [`Last ${FIRMS_SETTLING_HOURS} h may still fill in as satellite passes are published`],
 		};
 	} else if (source === "inaturalist") {
-		const backfill = observedCoverage(runs.filter((run) => run.mode === "backfill"), now);
-		complete = union([...backfill.complete, ...inatLiveCoverage(live)]);
+		const backfills = runs.filter((run) => run.mode === "backfill");
+		const backfill = observedCoverage(backfills, now);
+		const liveCoverage = inatLiveCoverage(live);
+		complete = union([...backfill.complete, ...liveCoverage]);
 		partial = subtract(backfill.partial, complete);
+		const lag = UPLOAD_LAG_HOURS * HOUR_MS;
+		// Live polls read every upload from the first poll's start to the cursor, whatever its
+		// observation time. So an hour is settled once the cursor is `lag` past it, and a backfill
+		// that ran after live polling began hands its later uploads on to the cursor.
+		const [liveStart, cursor] = liveCoverage[0] ?? [Infinity, -Infinity];
 		settling = {
-			hours: UPLOAD_LAG_HOURS,
 			reason: "upload-lag",
-			describe: (through, before) => [
-				...(before
-					? [`Before ${formatTime(through - UPLOAD_LAG_HOURS * HOUR_MS)}: mostly complete, late uploads still possible`]
-					: []),
+			settled: union([
+				...settledReads(backfills, lag, (run) => (run.startedAt >= liveStart ? Math.max(run.startedAt, cursor) : run.startedAt)),
+				...intersect(liveCoverage, [[-Infinity, cursor - lag]]),
+			]),
+			describe: (bandStart, before) => [
+				...(before ? [`Before ${formatTime(bandStart)}: mostly complete, late uploads still possible`] : []),
 				`Last ${UPLOAD_LAG_HOURS} h: likely incomplete while uploads arrive`,
 			],
 		};
@@ -260,8 +294,7 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 	// Anything before `through` that wasn't read at all, or was read only partly.
 	const gaps = subtract(readBefore, [...complete, ...partial]).length > 0;
 	const partlyReadBefore = intersect(partial, readBefore).length > 0;
-	const settlingSpans =
-		settling && through !== null ? intersect(complete, [[through - settling.hours * HOUR_MS, through]]) : [];
+	const settlingSpans = settling ? subtract(complete, settling.settled) : [];
 	complete = subtract(complete, settlingSpans);
 
 	// The latest finished poll; for FIRMS, each satellite's, reporting the worst.
@@ -302,7 +335,9 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 		if (gaps) coverage += ", with gaps";
 		sentences.push(coverage);
 		if (partlyReadBefore) sentences.push("Some earlier stretches were read only partly");
-		if (settling) sentences.push(...settling.describe(through, complete.length > 0));
+		if (settling && settlingSpans.length > 0) {
+			sentences.push(...settling.describe(settlingSpans[0][0], complete.length > 0));
+		}
 	}
 	const rejected = source === "inaturalist" ? rejectedRecords(live) : 0;
 	if (rejected > 0) {
@@ -331,8 +366,64 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 			...partial.map((interval) => ({ ...toSpan(interval), reason: "partial" as const })),
 			...settlingSpans.map((interval) => ({ ...toSpan(interval), reason: settling!.reason })),
 		].sort((a, b) => a.start.localeCompare(b.start)),
+		rejected,
 		statement: `${sentences.join(". ")}.`,
 	};
+}
+
+type RunRow = Omit<FreshnessRun, "windowStart" | "windowEnd" | "coveredUntil" | "startedAt"> & {
+	windowStart: Date;
+	windowEnd: Date;
+	coveredUntil: Date | null;
+	startedAt: Date;
+};
+
+const runColumns = () => sql`
+	source,
+	mode,
+	time_field as "timeField",
+	filters->>'product' as product,
+	status,
+	window_start as "windowStart",
+	window_end as "windowEnd",
+	covered_until as "coveredUntil",
+	started_at as "startedAt",
+	error
+`;
+
+const toFreshnessRun = (row: RunRow): FreshnessRun => ({
+	...row,
+	windowStart: row.windowStart.getTime(),
+	windowEnd: row.windowEnd.getTime(),
+	coveredUntil: row.coveredUntil?.getTime() ?? null,
+	startedAt: row.startedAt.getTime(),
+});
+
+/**
+ * The sources' runs, of any dataset, whose requested bbox contains `bbox` and whose window overlaps
+ * [start, end + the longest settling lag], started by `now`. For coverage of an arbitrary area and
+ * range (the agent tools): what's stored decides, not a dataset's retention window. A run's bbox
+ * contains the area when every record in the area was in its request. Runs starting past the lag
+ * can't change the range's coverage or how settled it is, so an old range doesn't load every poll
+ * since. No index covers the windows; ingestion_runs is small (~600 runs a day).
+ */
+export async function getRunsCovering(
+	sources: Source[],
+	bbox: Bbox,
+	{ start, end }: { start: Date; end: Date },
+	now: Date,
+): Promise<FreshnessRun[]> {
+	const rows = await sql<RunRow[]>`
+		select ${runColumns()}
+		from ingestion_runs
+		where source in ${sql(sources)}
+			and west <= ${bbox.west} and east >= ${bbox.east}
+			and south <= ${bbox.south} and north >= ${bbox.north}
+			and window_end > ${start}
+			and window_start < ${new Date(end.getTime() + UPLOAD_LAG_HOURS * HOUR_MS)}
+			and started_at <= ${now}
+	`;
+	return rows.map(toFreshnessRun);
 }
 
 /** Every source's freshness over the dataset's live window, ending at `now`. */
@@ -341,38 +432,15 @@ export async function getFreshness(dataset: Dataset, now: Date): Promise<Freshne
 	// A run's window ends by the time it starts, so only runs started within the window can reach
 	// into it. The started_at bound lets the (source, started_at) index skip older runs; the hour's
 	// margin covers the few milliseconds between a run's window end and its started_at default.
-	const rows = await sql<
-		(Omit<FreshnessRun, "windowStart" | "windowEnd" | "coveredUntil" | "startedAt"> & {
-			windowStart: Date;
-			windowEnd: Date;
-			coveredUntil: Date | null;
-			startedAt: Date;
-		})[]
-	>`
-		select
-			source,
-			mode,
-			time_field as "timeField",
-			filters->>'product' as product,
-			status,
-			window_start as "windowStart",
-			window_end as "windowEnd",
-			covered_until as "coveredUntil",
-			started_at as "startedAt",
-			error
+	const rows = await sql<RunRow[]>`
+		select ${runColumns()}
 		from ingestion_runs
 		where dataset_id = ${dataset.id}
 			and started_at >= ${new Date(windowStart.getTime() - HOUR_MS)}
 			and started_at <= ${now}
 			and window_end > ${windowStart}
 	`;
-	const runs: FreshnessRun[] = rows.map((row) => ({
-		...row,
-		windowStart: row.windowStart.getTime(),
-		windowEnd: row.windowEnd.getTime(),
-		coveredUntil: row.coveredUntil?.getTime() ?? null,
-		startedAt: row.startedAt.getTime(),
-	}));
+	const runs = rows.map(toFreshnessRun);
 
 	const window: Interval = [windowStart.getTime(), now.getTime()];
 	const sources = (["inaturalist", "firms", "open-meteo"] as const).map((source) =>

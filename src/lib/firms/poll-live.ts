@@ -1,5 +1,5 @@
 import { getDataset, LIVE_DATASET_SLUG, liveWindowStart, type Dataset } from "@/lib/datasets";
-import { fetchDetections, LIVE_PRODUCTS, type Product } from "@/lib/firms/client";
+import { fetchDetections, LIVE_PRODUCTS, NRT_LATENCY_MS, type Product } from "@/lib/firms/client";
 import { normalizeDetection, type FirmsDetectionRow } from "@/lib/firms/normalize";
 import { upsertDetections } from "@/lib/firms/store";
 import {
@@ -19,10 +19,6 @@ const DAY_MS = 24 * 60 * 60_000;
 const DAYS = 2;
 // FIRMS's limit per request.
 const MAX_DAYS = 5;
-// Typical delay between a satellite pass and its NRT detections appearing in FIRMS. The window is
-// on acquisition time, so a complete response still can't vouch for the last few hours: passes
-// in them may not be published yet. Typical, not guaranteed; a slower day can exceed it.
-const NRT_LATENCY_MS = 3 * 60 * 60_000;
 
 export type ProductPollSummary = RunProgress & {
 	runId: string;

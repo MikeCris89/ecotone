@@ -16,6 +16,7 @@ function source(overrides: Partial<SourceFreshness> = {}): SourceFreshness {
 		latestPoll: null,
 		complete: [{ start: iso(at(0)), end: iso(at(57)) }],
 		likelyIncomplete: [{ start: iso(at(57)), end: iso(at(60)), reason: "publishing-lag" }],
+		rejected: 0,
 		statement: "Read through …",
 		...overrides,
 	};
