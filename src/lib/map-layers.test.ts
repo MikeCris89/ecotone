@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { NO_VALUE_COLOR, TEMPERATURE_COLOR } from "@/components/map-colors";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 import {
+	groundRadius,
 	inatInWindow,
 	inatPrecision,
 	inatWindowFilter,
@@ -26,7 +27,7 @@ function mapLibreKeeps(filter: ReturnType<typeof inatWindowFilter>, properties: 
 // Evaluates a circle paint value the way MapLibre does, throwing instead of logging a warning and
 // falling back to the default.
 function evaluatePaint(
-	property: "circle-color",
+	property: "circle-color" | "circle-radius",
 	value: unknown,
 	zoom: number,
 	properties: Record<string, unknown> = {},
@@ -144,5 +145,20 @@ describe("TEMPERATURE_COLOR", () => {
 	it.each([-15, 0, 20, 55])("colours %i °C on the scale, clamped at the ends", (temperatureC) => {
 		const color = evaluatePaint("circle-color", TEMPERATURE_COLOR, 8, { temperatureC });
 		expect(color).not.toEqual(Color.parse(NO_VALUE_COLOR));
+	});
+});
+
+describe("groundRadius", () => {
+	// A 375 m VIIRS footprint: 187.5 m radius, ~3.8 m per pixel at zoom 14 and 37°N.
+	const radius = groundRadius(187.5, 3);
+
+	it("keeps a minimum size statewide", () => {
+		expect(evaluatePaint("circle-radius", radius, 4)).toBe(3);
+		expect(evaluatePaint("circle-radius", radius, 8)).toBe(3);
+	});
+
+	it("draws the ground size once zoomed in, doubling each zoom level", () => {
+		expect(evaluatePaint("circle-radius", radius, 14)).toBeCloseTo(49.1, 1);
+		expect(evaluatePaint("circle-radius", radius, 15)).toBeCloseTo(98.3, 1);
 	});
 });

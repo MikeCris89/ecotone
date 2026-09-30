@@ -15,6 +15,7 @@ import type { FirmsMapRow } from "@/lib/firms/map";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 import {
 	firmsGeoJson,
+	groundRadius,
 	inatGeoJson,
 	inatInWindow,
 	inatWindowFilter,
@@ -35,6 +36,9 @@ const CALIFORNIA: [[number, number], [number, number]] = [
 	[-124.5, 32.5],
 	[-114.1, 42],
 ];
+
+// A VIIRS pixel is ~375 m across at nadir (larger toward the swath edges).
+const VIIRS_FOOTPRINT_M = 375;
 
 // Sources stay mounted with no features until their data arrives, so the layers keep their
 // stacking order whichever response lands first.
@@ -212,7 +216,7 @@ export function LiveMap() {
 						{...windowFilter(firmsFilter)}
 						layout={{ visibility: visibility("firms") }}
 						paint={{
-							"circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 3, 10, 6],
+							"circle-radius": groundRadius(VIIRS_FOOTPRINT_M / 2, 3),
 							"circle-color": DETECTION_COLOR,
 							"circle-stroke-color": "#ffffff",
 							"circle-stroke-width": 1,
