@@ -45,7 +45,8 @@ export type Conditions = {
 	model: string;
 	// The grid cell the values describe: its centre, elevation, and distance from the queried place.
 	gridCell: { longitude: number; latitude: number; elevationM: number; distanceKm: number };
-	// Hours with a reading, of the hours in the range (0 when falling back).
+	// Hours with a reading (0 when falling back), of the hour marks in the range: the hours that
+	// could have one.
 	hours: number;
 	requestedHours: number;
 	// Set when the range has no readings (not stored, or not read yet): the values are the point's
@@ -69,9 +70,12 @@ export type Conditions = {
 	daily:
 		| {
 				date: string;
-				// Hours with a reading, of the hours the date has. A partial day's values cover only its
-				// readings (e.g. only night hours understate the high).
+				// Hours with a reading, of the day's hours in the range, of the hours the date has. A day
+				// cut by the range's start or end has hoursInRange < hoursInDay with nothing missing; it's
+				// partial only when hours < hoursInRange. Either way its values cover only its readings
+				// (e.g. only night hours understate the high).
 				hours: number;
+				hoursInRange: number;
 				hoursInDay: number;
 				partial: boolean;
 				temperatureMinC: number | null;
@@ -79,7 +83,7 @@ export type Conditions = {
 				humidityMinPct: number | null;
 				windMaxKmh: number | null;
 				gustMaxKmh: number | null;
-				// Null unless every hour of the day has a reading with a value.
+				// Null unless every hour of the day in the range has a reading with a value.
 				precipitationMm: number | null;
 		  }[]
 		| null;
@@ -119,8 +123,9 @@ export async function getConditions(
 		sources,
 	};
 	// Unlike the counting tools, a range read under MIN_READ_FRACTION is answered from the hours with
-	// readings, saying how many (decisions.md, 36). Refused: an area no run read, and a range with no
-	// readings that doesn't reach the present (the fallback below).
+	// readings, saying how many (decisions.md, 36). A range no run read, or with no readings, gets the
+	// fallback below when it reaches the present (the hour's poll may not have run yet), and is
+	// refused otherwise.
 	const insufficient = insufficientCoverage(sources);
 	const neverRead = sources[0].readHours === 0;
 
@@ -160,7 +165,8 @@ export async function getConditions(
 				order by p.location <-> ${place}
 				limit 1
 			`;
-	// Nothing to answer from, or readings no run over this area read (a place outside every run): refused.
+	// Refused: no reading to answer from (a past range, or nothing stored before a present one), or
+	// readings in a range no run over this area read.
 	if (!inRange && insufficient && (!newest || newest.validAt >= window.start)) {
 		return { result: null, evidence: [], coverage, limitations: [], insufficient };
 	}
@@ -241,14 +247,15 @@ export async function getConditions(
 	const driest = extreme((reading) => reading.relativeHumidityPct, true);
 	const gustiest = extreme((reading) => reading.windGustsKmh, false);
 	const latest = readings.at(-1)!;
-	const requestedHours = Math.round((window.end.getTime() - window.start.getTime()) / 3_600_000);
-	const days = readings.length <= MAX_HOURLY_READINGS ? null : daily(readings);
+	const requestedHours = hourMarks(window.start.getTime(), window.end.getTime());
+	const days = readings.length <= MAX_HOURLY_READINGS ? null : daily(readings, window);
 
 	// Newest first, each reading once: the latest hour, then the driest and gustiest.
 	const evidenceReadings = [...new Set([latest, driest, gustiest].filter((reading) => reading !== null))];
 	const evidence: Evidence[] = evidenceReadings.map((reading) => ({
 		source: "open-meteo",
-		id: point.id,
+		// One record per reading, so each can be cited on its own.
+		id: `${point.id}:${reading.validAt.toISOString()}`,
 		url: reading.url,
 		label: `Modeled conditions (${point.model}), ${distanceKm} km from the place asked about`,
 		longitude: cell.longitude,
@@ -291,8 +298,14 @@ export async function getConditions(
 				: []),
 			...(days?.some((day) => day.partial)
 				? [
-						"Days marked partial have readings for only some of their hours (the range's first or last day, or hours " +
-							"not stored), so their highs, lows and gusts cover only those hours, and they get no precipitation total.",
+						"Days marked partial are missing readings for some of their hours in the range, so their highs, lows and " +
+							"gusts cover only the hours read, and they get no precipitation total.",
+					]
+				: []),
+			...(days?.some((day) => day.hoursInRange < day.hoursInDay)
+				? [
+						"A day with hoursInRange below hoursInDay is cut by the range's start or end: its values cover only the " +
+							"hours in the range, and nothing is missing unless it's also marked partial.",
 					]
 				: []),
 			`Modeled conditions from ${point.model} for one grid cell whose centre is ${distanceKm} km from the place asked about; ` +
@@ -312,6 +325,10 @@ function fallbackLimitation({ validAt, ageHours, current }: NonNullable<Conditio
 		: `The weather feed is behind: no reading is stored for the range, and the latest is from ${when}. These are ` +
 				"the last available modeled conditions, not current ones: say so, and don't describe them as current.";
 }
+
+/** The hour marks in [start, end) (epoch ms): the hours that can have a reading. */
+const hourMarks = (start: number, end: number) =>
+	Math.max(0, Math.ceil(end / (HOUR * 1000)) - Math.ceil(start / (HOUR * 1000)));
 
 /** The start of the range's last hour, in epoch seconds. */
 const lastHourOf = (end: Date) => Math.floor((end.getTime() - 1) / (HOUR * 1000)) * HOUR;
@@ -364,23 +381,23 @@ export function prevailingWindFrom(readings: Pick<Reading, "windSpeedKmh" | "win
 	return COMPASS[Math.round(degrees / 22.5) % 16];
 }
 
-function daily(readings: Reading[]): NonNullable<Conditions["daily"]> {
+function daily(readings: Reading[], range: { start: Date; end: Date }): NonNullable<Conditions["daily"]> {
 	const byDate = new Map<string, Reading[]>();
 	for (const reading of readings) {
 		const date = localDate(reading.validAt, CALIFORNIA_TIME_ZONE);
 		byDate.set(date, [...(byDate.get(date) ?? []), reading]);
 	}
 	return [...byDate].map(([date, day]) => {
-		// 23 or 25 on the days clocks change.
-		const hoursInDay =
-			(startOfLocalDate(nextDate(date), CALIFORNIA_TIME_ZONE).getTime() -
-				startOfLocalDate(date, CALIFORNIA_TIME_ZONE).getTime()) /
-			(HOUR * 1000);
-		const partial = day.length < hoursInDay;
+		const dayStart = startOfLocalDate(date, CALIFORNIA_TIME_ZONE).getTime();
+		const dayEnd = startOfLocalDate(nextDate(date), CALIFORNIA_TIME_ZONE).getTime();
+		const hoursInRange = hourMarks(Math.max(dayStart, range.start.getTime()), Math.min(dayEnd, range.end.getTime()));
+		const partial = day.length < hoursInRange;
 		return {
 			date,
 			hours: day.length,
-			hoursInDay,
+			hoursInRange,
+			// 23 or 25 on the days clocks change.
+			hoursInDay: hourMarks(dayStart, dayEnd),
 			partial,
 			temperatureMinC: stats(day.map((reading) => reading.temperatureC))?.min ?? null,
 			temperatureMaxC: stats(day.map((reading) => reading.temperatureC))?.max ?? null,

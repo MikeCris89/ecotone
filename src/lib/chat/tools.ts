@@ -104,7 +104,7 @@ export const CHAT_TOOLS = {
 			"(at most 72, default 24) before or after a detection. observations.total is the unique count: beforeDetection and " +
 			"afterDetection overlap, so never add them. Also breaks the counts down for the maxClusters largest detection " +
 			"clusters (ranked as summarize_detections ranks them), each with its closest pair, then the observations near only " +
-				"the smaller clusters (otherClusters) with their closest pair, and returns what was excluded " +
+			"the smaller clusters (otherClusters) with their closest pair, and returns what was excluded " +
 			"(imprecise, unknown accuracy, date only). Optional minFrpMw leaves out weaker detections. State the radius and " +
 			"time window in the answer.",
 		inputSchema: observationsNearDetectionsInput,
@@ -116,7 +116,7 @@ export const CHAT_TOOLS = {
 			"Modeled conditions (Open-Meteo, NOAA HRRR model) at a location over a range: temperature, humidity, precipitation, " +
 			"wind and gusts, from the ~3 km grid cell of the nearest sample point. Returns the grid cell's distance from the " +
 			"location: always state it. Refused past 50 km. Hour by hour up to 48 readings, otherwise by day. When hours are " +
-				"missing, it answers from the ones stored and says how many (hours of requestedHours). For an area, pass its " +
+			"missing, it answers from the ones stored and says how many (hours of requestedHours). For an area, pass its " +
 			"centre, or a cluster centre from summarize_detections.",
 		inputSchema: getConditionsInput,
 		execute: (input) => run("get_conditions", () => getConditions(input)),

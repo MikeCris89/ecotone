@@ -94,7 +94,7 @@ export function labelGroups(groups: readonly { group: string | null; count: numb
 /** One record behind a result, with what's needed to follow it to its source and show it on the map. */
 export type Evidence = {
 	source: Source;
-	// The map's ID for the record. For weather, the sample point's: a reading is its point and observedAt.
+	// The map's ID for the record. For weather, a reading's: its sample point's ID, ":", and its observedAt.
 	id: string;
 	url: string;
 	label: string;
