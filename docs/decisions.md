@@ -87,6 +87,8 @@ Also considered: React Native, Three.js, and RAG as the "new technology." Each w
 
 WebGL rendering keeps thousands of points smooth while the timeline scrubs, and MapLibre is open source with no access token. **Tradeoff:** heavier than Leaflet. deck.gl can be added later if a layer needs it.
 
+**Pinned to maplibre-gl v5 (Phase 6b):** v6 loads its web worker from a separate file next to the library, found through `import.meta.url`. Turbopack's browser runtime replaces `import.meta.url` with a placeholder `file://` URL, so the map fails with "Worker failed to load", and the worker copy Turbopack emits can't import its shared chunk. v5 inlines the worker and needs no setup. **Upgrade path:** copy `maplibre-gl-worker.mjs` and `maplibre-gl-shared.mjs` from `node_modules` into `public/` at build time and call `setWorkerUrl()`.
+
 ## 11. LLM provider
 
 **Decision:** Anthropic Claude via the Vercel AI SDK.

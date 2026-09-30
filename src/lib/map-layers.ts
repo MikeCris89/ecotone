@@ -1,0 +1,136 @@
+// Client-side shaping of the map layer responses: GeoJSON built once per response, and the
+// 24h / 3 days / 7 days windows applied as MapLibre filters, so switching windows never refetches.
+// Type-only imports from the map modules: their runtime code needs the database.
+import type { CircleLayerSpecification } from "maplibre-gl";
+import type { SourceAttribution } from "@/lib/data-sources";
+import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
+import type { FirmsMapRow } from "@/lib/firms/map";
+import type { InatMapRow } from "@/lib/inaturalist/map";
+import type { MapLayer } from "@/lib/map-query";
+import type { WeatherMapPoint, WeatherMapRow } from "@/lib/open-meteo/map";
+
+// Every window ends at the request time. The map loads the widest once and narrows it on the client,
+// so switching windows (and, later, scrubbing) never waits on the network.
+export const WINDOW_HOURS = { "24h": 24, "3d": 72, "7d": 168 } as const;
+export type MapWindow = keyof typeof WINDOW_HOURS;
+
+/** A map layer route's JSON body. `start` and `end` are ISO timestamps. */
+export type MapLayerResponse<Row> = MapLayer<Row> & { start: string; end: string; attribution: SourceAttribution };
+export type WeatherLayerResponse = MapLayerResponse<WeatherMapRow> & { points: WeatherMapPoint[] };
+
+/** A half-open window [start, end), in epoch seconds like the rows' times. */
+export type TimeWindow = { start: number; end: number };
+
+type Filter = NonNullable<CircleLayerSpecification["filter"]>;
+
+// The slice of GeoJSON the layers use; structurally what MapLibre's GeoJSON sources accept.
+export type PointFeature<Properties> = {
+	type: "Feature";
+	geometry: { type: "Point"; coordinates: [number, number] };
+	properties: Properties;
+};
+export type PointCollection<Properties> = { type: "FeatureCollection"; features: PointFeature<Properties>[] };
+
+/**
+ * The window ending at the response's `end`, not the browser clock: a CDN-cached response can be
+ * minutes old, and the window must match the data it holds.
+ */
+export function windowBounds(responseEnd: string, window: MapWindow): TimeWindow {
+	const end = Date.parse(responseEnd) / 1000;
+	return { start: end - WINDOW_HOURS[window] * 60 * 60, end };
+}
+
+// Each window rule exists twice: in TypeScript for counts, and as a MapLibre filter for display.
+// The tests run both over the same rows to keep them in agreement.
+
+/** The overlap rule from InatMapRow: a date-only record is in every window its date overlaps. */
+export function inatInWindow(observedFrom: number, observedTo: number, { start, end }: TimeWindow) {
+	return observedFrom < end && (observedTo > start || observedFrom >= start);
+}
+
+export function inatWindowFilter({ start, end }: TimeWindow): Filter {
+	return [
+		"all",
+		["<", ["get", "from"], end],
+		["any", [">", ["get", "to"], start], [">=", ["get", "from"], start]],
+	];
+}
+
+/** For single instants: FIRMS acquisition times and weather hours. */
+export function instantInWindow(time: number, { start, end }: TimeWindow) {
+	return time >= start && time < end;
+}
+
+export function instantWindowFilter({ start, end }: TimeWindow): Filter {
+	return ["all", [">=", ["get", "time"], start], ["<", ["get", "time"], end]];
+}
+
+// Precise means accuracy known and within PRECISE_ACCURACY_M. Obscured wins over accuracy: a
+// randomized location is imprecise whatever accuracy it reports.
+export type InatPrecision = "precise" | "imprecise" | "unknown-accuracy";
+
+export function inatPrecision(row: InatMapRow): InatPrecision {
+	const [, , , , , , accuracy, obscured] = row;
+	if (obscured) return "imprecise";
+	if (accuracy === null) return "unknown-accuracy";
+	return accuracy <= PRECISE_ACCURACY_M ? "precise" : "imprecise";
+}
+
+export function inatGeoJson(
+	rows: InatMapRow[],
+): PointCollection<{ from: number; to: number; precision: InatPrecision }> {
+	return {
+		type: "FeatureCollection",
+		features: rows.map((row) => {
+			const [, lon, lat, from, to] = row;
+			return {
+				type: "Feature",
+				geometry: { type: "Point", coordinates: [lon, lat] },
+				properties: { from, to, precision: inatPrecision(row) },
+			};
+		}),
+	};
+}
+
+export function firmsGeoJson(rows: FirmsMapRow[]): PointCollection<{ time: number }> {
+	return {
+		type: "FeatureCollection",
+		features: rows.map(([, lon, lat, time]) => ({
+			type: "Feature",
+			geometry: { type: "Point", coordinates: [lon, lat] },
+			properties: { time },
+		})),
+	};
+}
+
+/**
+ * Each point's latest reading, placed at the model grid cell its values describe. Every window
+ * ends at the response's `end`, so the latest reading in the widest window is the latest in each
+ * narrower one too; the window filter hides a point whose latest reading falls before the window.
+ */
+export function weatherGeoJson(
+	points: WeatherMapPoint[],
+	rows: WeatherMapRow[],
+): PointCollection<{ time: number; temperatureC: number | null }> {
+	const latest = new Map<number, WeatherMapRow>();
+	for (const row of rows) {
+		const current = latest.get(row[0]);
+		if (!current || row[1] > current[1]) latest.set(row[0], row);
+	}
+
+	return {
+		type: "FeatureCollection",
+		features: points.flatMap(([id, , , gridLon, gridLat]) => {
+			const row = latest.get(id);
+			if (!row) return [];
+			// Null temperatures stay null (no model value), never zero.
+			const [, time, temperatureC] = row;
+			const feature: PointFeature<{ time: number; temperatureC: number | null }> = {
+				type: "Feature",
+				geometry: { type: "Point", coordinates: [gridLon, gridLat] },
+				properties: { time, temperatureC },
+			};
+			return [feature];
+		}),
+	};
+}
