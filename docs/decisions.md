@@ -205,6 +205,38 @@ Live ingestion always has small gaps (a failed poll, an API hiccup), so refusing
 
 Every record would swamp the model: a California-wide 3-day summary matches ~12,000. A handful of records can't prove a total, but the query reproduces it, and the IDs let the map highlight the samples. Random samples would make the evals flaky. **Tradeoff:** the model sees examples, not the full set, so the UI must offer the full set through the query.
 
-## 25. Open decisions
+## 25. Observations near thermal detections
+
+**Decision:** The proximity tool counts recorded observations before and after nearby satellite thermal detections separately (within 25 km and 72 hours at most), with the unique total alongside, and states how many it excluded: imprecise (over 1 km), unknown accuracy, or date only.
+
+**Considered:** one "within H hours" count; silently dropping imprecise records.
+
+An observation a day before a detection and one a day after mean different things, so the direction is explicit. One observation can fall on both sides of different detections, so the two counts must never be added. Dropping imprecise records silently would hide how much of the data the answer rests on. **Tradeoff:** answers are longer, and the model has to be told never to add before and after.
+
+## 26. Thermal detection clusters in metres
+
+**Decision:** Detections are clustered with `ST_ClusterDBSCAN` in California Albers (EPSG:3310), 2 km apart by default.
+
+**Considered:** clustering in degrees.
+
+A degree of longitude shrinks northward (about 93 km at the Mexican border, 83 km at the Oregon border), so a distance in degrees means something different across the state. EPSG:3310 is in metres and made for California, CZU included. **Tradeoffs:** clustering is spatial only, so one cluster can span several days; DBSCAN chains nearby detections, so one big fire becomes one cluster; and the projection only suits California.
+
+## 27. Weather from the nearest sample point
+
+**Decision:** The conditions tool reads the nearest sample point with readings and states its distance, refusing past 50 km to the grid cell.
+
+**Considered:** interpolating between nearby sample points.
+
+Interpolation would invent values the model never produced, while the nearest point's values are real model output with a known distance. **Tradeoff:** a point up to ~35 km away (farther on the coast) describes a different place, so the distance is part of every answer.
+
+## 28. Chat rate limits in Postgres
+
+**Decision:** Chat rate limits and per-request usage live in one Postgres table, checked in a transaction before each message.
+
+**Considered:** in-memory counters; Vercel Firewall rate limiting; Upstash Redis.
+
+Serverless instances don't share memory, so in-memory counters reset between calls and can't cap a day's spend. Redis would be new infrastructure for a few hundred rows a day. The table doubles as the usage log (tokens, steps, duration), which shows what a message really costs before I tune the limits. A per-IP limit alone doesn't cap spend when IPs rotate, so each bucket also has a daily cap. **Tradeoff:** a database round trip before every message, and a table that grows by one row per message.
+
+## 29. Open decisions
 
 - Charting library for the agent's metrics (the timeline uses plain SVG, 19)
