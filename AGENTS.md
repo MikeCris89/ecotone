@@ -53,9 +53,9 @@ Ecotone Explorer: a California wildfire + wildlife explorer (Inversa take-home, 
 
 No coverage targets. Test where bugs would make the app misleading: normalization, time handling, spatial queries, period comparisons, count guardrails, ingestion idempotency.
 
-Run tests with `pnpm test` (Vitest). Database tests need the local Supabase stack running and always target it (`vitest.config.mts` overrides `DATABASE_URL`), never production. Mock upstream APIs in tests; don't call them. Tests share that database with local dev, and test files run in parallel: keep fixtures apart (their own dates and places: the limit tests are dated 2101, after any real use, since the limits' counts have no upper time bound), or dev data and other files leak in (issue #9).
+Run tests with `pnpm test` (Vitest). Database tests need the local Supabase stack running and always target it (`vitest.config.mts` overrides `DATABASE_URL`), never production. Mock upstream APIs in tests; don't call them. Tests share that database with local dev, so keep fixtures apart (their own dates and places: the limit tests are dated 2101, after any real use, since the limits' counts have no upper time bound). Test files run one at a time (`fileParallelism: false`): in parallel they interfered through that shared database (issue #9). The proper fix is a separate test database through `TEST_DATABASE_URL`.
 
-Before handing off a phase, run the full `pnpm test` and report the result.
+A full `pnpm test` is slow now that files run serially, so agents don't run it: run the test files a change touches, then ask Mike to run the full `pnpm test` (with the exact command) and wait for his result before handing off a phase. Report which targeted files passed and that the full run is his.
 
 Typecheck with `pnpm exec tsc --noEmit`. In a fresh workspace, run `pnpm exec next typegen` first: route types such as `LayoutProps` and `RouteContext` are generated into `.next/`, and `tsc` fails without them.
 
