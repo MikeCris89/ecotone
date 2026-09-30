@@ -1,8 +1,9 @@
 import { Color, expression, featureFilter, latest } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
 import { NO_VALUE_COLOR, TEMPERATURE_COLOR } from "@/components/map-colors";
-import type { InatMapRow } from "@/lib/inaturalist/map";
 import {
+	firmsGeoJson,
+	inatGeoJson,
 	inatInWindow,
 	inatPrecision,
 	inatWindowFilter,
@@ -75,12 +76,8 @@ describe("instant window rule (FIRMS, weather)", () => {
 });
 
 describe("inatPrecision", () => {
-	const row = (accuracy: number | null, obscured: boolean): InatMapRow => [
-		1, -122, 37, start, start, "Aves", accuracy, obscured, 0,
-	];
-
 	it("treats missing accuracy as unknown, not precise", () => {
-		expect(inatPrecision(row(null, false))).toBe("unknown-accuracy");
+		expect(inatPrecision(null, false)).toBe("unknown-accuracy");
 	});
 
 	it.each([
@@ -89,20 +86,34 @@ describe("inatPrecision", () => {
 		[1_001, "imprecise"],
 		[25_000, "imprecise"],
 	])("classifies a known accuracy of %i m as %s (the ≤1 km rule)", (accuracy, expected) => {
-		expect(inatPrecision(row(accuracy, false))).toBe(expected);
+		expect(inatPrecision(accuracy, false)).toBe(expected);
 	});
 
 	it("marks obscured records imprecise whatever accuracy they report", () => {
-		expect(inatPrecision(row(12, true))).toBe("imprecise");
-		expect(inatPrecision(row(null, true))).toBe("imprecise");
+		expect(inatPrecision(12, true)).toBe("imprecise");
+		expect(inatPrecision(null, true)).toBe("imprecise");
+	});
+
+	it("classifies each map feature by its row's accuracy and obscured flag", () => {
+		const { features } = inatGeoJson([
+			[1, -122, 37, start, start, "Aves", 12, false, 0],
+			[2, -122, 37, start, start, "Aves", null, false, 0],
+			[3, -122, 37, start, start, "Aves", 12, true, 0],
+		]);
+
+		expect(features.map(({ properties }) => properties.precision)).toEqual([
+			"precise",
+			"unknown-accuracy",
+			"imprecise",
+		]);
 	});
 });
 
 describe("weatherGeoJson", () => {
 	const points: WeatherMapPoint[] = [
-		[1, -122, 37, -122.01, 37.02, 100],
-		[2, -120, 36, -120.03, 35.99, 50],
-		[3, -118, 34, -118.02, 34.01, 10],
+		[1, -122, 37, -122.01, 37.02, 100, 2_300, end],
+		[2, -120, 36, -120.03, 35.99, 50, 2_900, end],
+		[3, -118, 34, -118.02, 34.01, 10, 2_400, end],
 	];
 	const reading = (point: number, time: number, temperature: number | null): WeatherMapRow => [
 		point, time, temperature, 50, 0, 10, 180, 20,
@@ -120,14 +131,24 @@ describe("weatherGeoJson", () => {
 			{
 				type: "Feature",
 				geometry: { type: "Point", coordinates: [-122.01, 37.02] },
-				properties: { time: end - 3600, temperatureC: 15 },
+				properties: { id: 1, time: end - 3600, temperatureC: 15 },
 			},
 			{
 				type: "Feature",
 				geometry: { type: "Point", coordinates: [-120.03, 35.99] },
-				properties: { time: end - 3600, temperatureC: null },
+				properties: { id: 2, time: end - 3600, temperatureC: null },
 			},
 		]);
+	});
+});
+
+describe("record IDs on features", () => {
+	it("carries each iNaturalist and FIRMS row's ID for click lookups", () => {
+		const inat = inatGeoJson([[42, -122, 37, start, start, "Aves", null, false, 0]]);
+		const firms = firmsGeoJson([["noaa20:2026-09-29T09:41:00.000Z:37.1,-122.1", -122.1, 37.1, start, 1.5]]);
+
+		expect(inat.features[0].properties.id).toBe(42);
+		expect(firms.features[0].properties.id).toBe("noaa20:2026-09-29T09:41:00.000Z:37.1,-122.1");
 	});
 });
 

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getDataset } from "@/lib/datasets";
 import { sql } from "@/lib/db";
 import { startRun } from "@/lib/ingestion-runs";
-import { getInatMapLayer } from "@/lib/inaturalist/map";
+import { getInatMapDetails, getInatMapLayer } from "@/lib/inaturalist/map";
 import type { InatObservationRow } from "@/lib/inaturalist/normalize";
 import { upsertObservations } from "@/lib/inaturalist/store";
 
@@ -46,10 +46,18 @@ function row(offset: number, overrides: Partial<InatObservationRow>): InatObserv
 const TIMED = FIRST_ID;
 const DATE_ONLY_JUNE_10 = FIRST_ID + 2;
 const DATE_ONLY_JUNE_11 = FIRST_ID + 3;
+const CASUAL = FIRST_ID + 5;
 const NEEDS_ID_AT_START = FIRST_ID + 8;
 
 const rows = [
-	row(0, { observed_at: "2002-06-10T20:00:00.000Z", positional_accuracy_m: 25000, obscured: true }),
+	row(0, {
+		observed_at: "2002-06-10T20:00:00.000Z",
+		positional_accuracy_m: 25000,
+		obscured: true,
+		license_code: "cc-by",
+		photo_url: "https://inaturalist-open-data.s3.amazonaws.com/photos/1/square.jpg",
+		photo_license: "cc-by-nc",
+	}),
 	// Just before the main test window.
 	row(1, { observed_at: "2002-06-10T11:59:59.000Z" }),
 	row(2, { observed_on: "2002-06-10" }),
@@ -156,5 +164,47 @@ describe("getInatMapLayer", () => {
 
 		expect(result.rows.map(([id]) => id)).toEqual([DATE_ONLY_JUNE_11, TIMED]);
 		expect(result).toMatchObject({ total: 4, truncated: true });
+	});
+});
+
+describe("getInatMapDetails", () => {
+	it("returns a record's details with its observed, uploaded, and retrieved times kept apart", async () => {
+		expect(await getInatMapDetails(TIMED)).toEqual({
+			id: TIMED,
+			commonName: "Variegated Meadowhawk",
+			scientificName: "Sympetrum corruptum",
+			taxonRank: "species",
+			iconicTaxon: "Insecta",
+			observedOn: "2002-06-10",
+			observedAt: "2002-06-10T20:00:00.000Z",
+			uploadedAt: "2002-06-12T00:00:00.000Z",
+			retrievedAt: "2002-06-12T00:00:00.000Z",
+			qualityGrade: "research",
+			positionalAccuracyM: 25000,
+			obscured: true,
+			observer: "test",
+			license: "cc-by",
+			photoUrl: "https://inaturalist-open-data.s3.amazonaws.com/photos/1/square.jpg",
+			photoLicense: "cc-by-nc",
+			sourceUrl: `https://www.inaturalist.org/observations/${TIMED}`,
+		});
+	});
+
+	it("keeps a missing time and unknown accuracy null", async () => {
+		expect(await getInatMapDetails(DATE_ONLY_JUNE_10)).toMatchObject({
+			observedOn: "2002-06-10",
+			observedAt: null,
+			positionalAccuracyM: null,
+			license: null,
+			photoUrl: null,
+		});
+	});
+
+	it("returns a record outside the default filters as stored", async () => {
+		expect(await getInatMapDetails(CASUAL)).toMatchObject({ qualityGrade: "casual" });
+	});
+
+	it("returns null for an unknown ID", async () => {
+		expect(await getInatMapDetails(FIRST_ID + 99)).toBeNull();
 	});
 });
