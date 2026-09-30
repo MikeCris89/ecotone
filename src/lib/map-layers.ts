@@ -22,7 +22,6 @@ export type WeatherLayerResponse = MapLayerResponse<WeatherMapRow> & { points: W
 export type TimeWindow = { start: number; end: number };
 
 type Filter = NonNullable<CircleLayerSpecification["filter"]>;
-type CircleRadius = NonNullable<CircleLayerSpecification["paint"]>["circle-radius"];
 
 // The slice of GeoJSON the layers use; structurally what MapLibre's GeoJSON sources accept.
 export type PointFeature<Properties> = {
@@ -64,21 +63,6 @@ export function instantInWindow(time: number, { start, end }: TimeWindow) {
 
 export function instantWindowFilter({ start, end }: TimeWindow): Filter {
 	return ["all", [">=", ["get", "time"], start], ["<", ["get", "time"], end]];
-}
-
-// Metres per pixel at zoom 0 (MapLibre's 512-pixel tiles) at 37°N, the middle of California. The
-// scale changes by about ±10% across the state, which is fine for a footprint drawn roughly to size.
-const METRES_PER_PIXEL_Z0 = (40_075_016.686 * Math.cos((37 * Math.PI) / 180)) / 512;
-
-/**
- * A circle radius drawing `metres` at its ground size, but never smaller than `minPixels`, so
- * circles stay visible statewide and grow to true size once zoomed in. Each zoom level doubles the
- * scale, so exponential base-2 interpolation between two stops is exact.
- */
-export function groundRadius(metres: number, minPixels: number): CircleRadius {
-	const pixelsAtZ0 = metres / METRES_PER_PIXEL_Z0;
-	const minZoom = Math.log2(minPixels / pixelsAtZ0);
-	return ["interpolate", ["exponential", 2], ["zoom"], minZoom, minPixels, 22, pixelsAtZ0 * 2 ** 22];
 }
 
 // Precise means accuracy known and within PRECISE_ACCURACY_M. Obscured wins over accuracy: a
