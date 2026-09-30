@@ -7,6 +7,10 @@ const REQUEST_TIMEOUT_MS = 30_000;
 // confidence scale would need a second row shape for a coarser view of the same fires.
 export const LIVE_PRODUCTS = ["VIIRS_SNPP_NRT", "VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT"] as const;
 export type Product = (typeof LIVE_PRODUCTS)[number];
+// Typical delay between a satellite pass and its NRT detections appearing in FIRMS. The window is
+// on acquisition time, so a complete response still can't vouch for the last few hours: passes
+// in them may not be published yet. Typical, not guaranteed; a slower day can exceed it.
+export const NRT_LATENCY_MS = 3 * 60 * 60_000;
 
 // Columns the normalizer reads. FIRMS may add or reorder columns, so rows are keyed by header name.
 const REQUIRED_COLUMNS = [

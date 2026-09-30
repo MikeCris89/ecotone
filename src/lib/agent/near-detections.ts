@@ -19,6 +19,7 @@ import { DETECTION_LIMITATIONS, detectionsIn, firmsEvidence } from "@/lib/agent/
 import { inatEvidence } from "@/lib/agent/observations";
 import { sql } from "@/lib/db";
 import { DEFAULT_FIRMS_CONFIDENCE, DEFAULT_QUALITY_GRADES, PRECISE_ACCURACY_M } from "@/lib/default-filters";
+import { inBbox } from "@/lib/map-query";
 import { CALIFORNIA_TIME_ZONE } from "@/lib/timeline";
 
 const HOUR_MS = 60 * 60_000;
@@ -124,7 +125,10 @@ export async function observationsNearDetections(
 			from detections d
 			join inat_observations o
 				on extensions.st_dwithin(o.location, d.location, ${radiusM})
+			-- Only inside the area, where iNaturalist's coverage was checked: past its edge, "none
+			-- nearby" could just mean "never read".
 			where o.quality_grade in ${sql(DEFAULT_QUALITY_GRADES)}
+				and ${inBbox("o.location", area)}
 				and o.observed_on between (d.acquired_at - ${interval}::interval)::date - 1
 					and (d.acquired_at + ${interval}::interval)::date + 1
 				and coalesce(o.observed_at, o.observed_on::timestamp at time zone ${CALIFORNIA_TIME_ZONE})
@@ -201,9 +205,12 @@ export async function observationsNearDetections(
 		evidence,
 		coverage,
 		limitations: [
-			`Counts recorded observations within ${radiusKm} km of a detection's pixel centre, observed up to ${withinHours} h ` +
-				"before or after it. Only precisely located, timed records count (known accuracy within 1 km, not obscured); " +
-				"the others are counted in `excluded`.",
+			`Counts recorded observations inside the area within ${radiusKm} km of a detection's pixel centre, observed up to ` +
+				`${withinHours} h before or after it. Only precisely located, timed records count (known accuracy within 1 km, ` +
+				"not obscured); the others are counted in `excluded`. A detection near the area's edge may have observations " +
+				"just outside it that aren't counted.",
+			"`observations.total` counts each observation once. One can be both before one detection and after another, " +
+				"so beforeDetection + afterDetection can exceed it: never add them up.",
 			"Distances are from the detection's pixel centre; the heat source can be anywhere in its pixel (~375 m, wider at the swath edge).",
 			DETECTION_LIMITATIONS.notFires,
 			LIMITATIONS.effort,

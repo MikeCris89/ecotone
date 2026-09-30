@@ -94,23 +94,20 @@ export async function summarizeDetections(
 	const insufficient = insufficientCoverage(sources);
 	if (insufficient) return { result: null, evidence: [], coverage, limitations: [], insufficient };
 
-	// minpoints 1: every detection belongs to a cluster, a lone one to its own.
-	const detections = () => sql`
-		detections as (
-			select
-				d.*,
-				extensions.st_clusterdbscan(
-					extensions.st_transform(d.location::extensions.geometry, ${CALIFORNIA_ALBERS}::int),
-					${clusterDistanceKm * 1000}::float8,
-					1
-				) over () as cluster
-			from (${detectionsIn(area, window)}) d
-		)
-	`;
-
-	const [clusters, satellites, evidence] = await Promise.all([
-		sql<(Omit<Cluster, "rank" | "firstAt" | "lastAt"> & { firstAt: Date; lastAt: Date })[]>`
-			with ${detections()},
+	// minpoints 1: every detection belongs to a cluster, a lone one to its own. DBSCAN's cluster
+	// numbers depend on scan order, so ties are broken by each cluster's first source ID instead.
+	const [clusters, satellites] = await Promise.all([
+		sql<(Omit<Cluster, "rank" | "firstAt" | "lastAt"> & { firstAt: Date; lastAt: Date; strongest: string })[]>`
+			with detections as (
+				select
+					d.*,
+					extensions.st_clusterdbscan(
+						extensions.st_transform(d.location::extensions.geometry, ${CALIFORNIA_ALBERS}::int),
+						${clusterDistanceKm * 1000}::float8,
+						1
+					) over () as cluster
+				from (${detectionsIn(area, window)}) d
+			),
 			centres as (
 				select cluster, extensions.st_centroid(extensions.st_collect(location::extensions.geometry)) as centre
 				from detections
@@ -125,30 +122,19 @@ export async function summarizeDetections(
 				round(sum(d.frp_mw)::numeric, 1)::float8 as "totalFrpMw",
 				min(d.acquired_at) as "firstAt",
 				max(d.acquired_at) as "lastAt",
-				array_agg(distinct to_char(d.acquired_at at time zone ${CALIFORNIA_TIME_ZONE}, 'YYYY-MM-DD')) as dates
+				array_agg(distinct to_char(d.acquired_at at time zone ${CALIFORNIA_TIME_ZONE}, 'YYYY-MM-DD')) as dates,
+				-- The cluster's strongest detection, its evidence.
+				(array_agg(d.source_id order by d.frp_mw desc, d.source_id))[1] as strongest
 			from detections d
 			join centres c using (cluster)
 			group by d.cluster, c.centre
-			order by detections desc, "maxFrpMw" desc
+			order by detections desc, "maxFrpMw" desc, min(d.source_id)
 		`,
 		sql<{ satellite: string; count: number }[]>`
-			with ${detections()}
-			select satellite, count(*)::int as count from detections group by satellite order by satellite
-		`,
-		// The strongest detection of each of the largest clusters, in the clusters' order.
-		sql<{ id: string }[]>`
-			with ${detections()},
-			ranked as (
-				select
-					count(*) over (partition by cluster) as size,
-					max(frp_mw) over (partition by cluster) as peak,
-					d.*
-				from detections d
-			)
-			select distinct on (size, peak, cluster) source_id as id
-			from ranked
-			order by size desc, peak desc, cluster, frp_mw desc, source_id
-			limit ${EVIDENCE_LIMIT}
+			select satellite, count(*)::int as count
+			from (${detectionsIn(area, window)}) d
+			group by satellite
+			order by satellite
 		`,
 	]);
 
@@ -159,8 +145,13 @@ export async function summarizeDetections(
 			matched: clusters.reduce((sum, cluster) => sum + cluster.detections, 0),
 			bySatellite: [...satellites],
 			clusters: top.map((cluster, index) => ({
-				...cluster,
 				rank: index + 1,
+				longitude: cluster.longitude,
+				latitude: cluster.latitude,
+				detections: cluster.detections,
+				radiusKm: cluster.radiusKm,
+				maxFrpMw: cluster.maxFrpMw,
+				totalFrpMw: cluster.totalFrpMw,
 				firstAt: cluster.firstAt.toISOString(),
 				lastAt: cluster.lastAt.toISOString(),
 				dates: [...cluster.dates].sort(),
@@ -168,7 +159,8 @@ export async function summarizeDetections(
 			clusterCount: clusters.length,
 			otherClusters: { clusters: rest.length, detections: rest.reduce((sum, cluster) => sum + cluster.detections, 0) },
 		},
-		evidence: await firmsEvidence(evidence.map(({ id }) => id)),
+		// The strongest detection of each listed cluster, in rank order.
+		evidence: await firmsEvidence(top.slice(0, EVIDENCE_LIMIT).map((cluster) => cluster.strongest)),
 		coverage,
 		limitations: [
 			DETECTION_LIMITATIONS.notFires,

@@ -109,8 +109,8 @@ describe("getConditions", () => {
 				relativeHumidityPct: { min: 12, max: 30, mean: 22.3 },
 				windSpeedKmh: { min: 10, max: 30, mean: 20 },
 				windGustsMaxKmh: 50,
-				// The null hour is unknown, not zero.
-				precipitationTotalMm: 0,
+				// The null hour is unknown, not zero: the total covers 2 of 3 hours.
+				precipitation: { totalMm: 0, hoursWithValue: 2 },
 				prevailingWindFrom: "WNW",
 			},
 			driestHour: { at: "2003-06-02T11:00:00.000Z", relativeHumidityPct: 12, windGustsKmh: 35 },

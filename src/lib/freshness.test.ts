@@ -263,6 +263,47 @@ describe("sourceFreshness", () => {
 		expect(sourceFreshness("inaturalist", [backfill(NOW - 36 * HOUR), backfill(NOW)], WINDOW).likelyIncomplete).toEqual([]);
 	});
 
+	it("settles live hours by how far the polls read uploads, not by when the latest one started", () => {
+		// A catch-up poll after an outage, stopped partway: it started now but read uploads only to 60 h ago.
+		const catchUp = run({
+			source: "inaturalist",
+			timeField: "updated",
+			windowStart: NOW - 150 * HOUR,
+			coveredUntil: NOW - 60 * HOUR,
+			startedAt: NOW - 5 * MINUTE,
+		});
+		const freshness = sourceFreshness("inaturalist", [catchUp], WINDOW);
+
+		expect(freshness.likelyIncomplete).toEqual([
+			{ start: iso(NOW - 108 * HOUR), end: iso(NOW - 60 * HOUR), reason: "upload-lag" },
+		]);
+	});
+
+	it("lets live polls settle a seed backfill that ran after they began", () => {
+		const live = run({
+			source: "inaturalist",
+			timeField: "updated",
+			windowStart: NOW - 72 * HOUR,
+			coveredUntil: NOW - 3 * MINUTE,
+			startedAt: NOW - 5 * MINUTE,
+		});
+		// Seeded the days before live polling began, an hour after it did.
+		const seed = run({
+			source: "inaturalist",
+			mode: "backfill",
+			windowStart: WINDOW[0],
+			windowEnd: NOW - 72 * HOUR,
+			coveredUntil: NOW - 72 * HOUR,
+			startedAt: NOW - 71 * HOUR,
+		});
+		const freshness = sourceFreshness("inaturalist", [live, seed], WINDOW);
+
+		// Only the newest 48 hours: the live polls have read every upload for the seeded days since.
+		expect(freshness.likelyIncomplete).toEqual([
+			{ start: iso(NOW - 3 * MINUTE - 48 * HOUR), end: iso(NOW - 3 * MINUTE), reason: "upload-lag" },
+		]);
+	});
+
 	it("keeps saying how many records live polls rejected after a later poll succeeds", () => {
 		const poll = (overrides: Partial<FreshnessRun>) =>
 			run({ source: "inaturalist", timeField: "updated", windowStart: WINDOW[0], coveredUntil: NOW - 20 * MINUTE, ...overrides });

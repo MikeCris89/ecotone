@@ -53,7 +53,8 @@ export type Conditions = {
 		relativeHumidityPct: Stats;
 		windSpeedKmh: Stats;
 		windGustsMaxKmh: number | null;
-		precipitationTotalMm: number | null;
+		// A total over the hours with a value: a missing hour is unknown, not zero. Null when none has one.
+		precipitation: { totalMm: number | null; hoursWithValue: number };
 		// Where the wind mostly blew from (speed-weighted), as a compass point.
 		prevailingWindFrom: string | null;
 	};
@@ -70,6 +71,7 @@ export type Conditions = {
 				humidityMinPct: number | null;
 				windMaxKmh: number | null;
 				gustMaxKmh: number | null;
+				// Null unless every hour of the day has a value.
 				precipitationMm: number | null;
 		  }[]
 		| null;
@@ -218,7 +220,10 @@ export async function getConditions(
 				relativeHumidityPct: stats(readings.map((reading) => reading.relativeHumidityPct)),
 				windSpeedKmh: stats(readings.map((reading) => reading.windSpeedKmh)),
 				windGustsMaxKmh: stats(readings.map((reading) => reading.windGustsKmh))?.max ?? null,
-				precipitationTotalMm: sum(readings.map((reading) => reading.precipitationMm)),
+				precipitation: {
+					totalMm: sum(readings.map((reading) => reading.precipitationMm)),
+					hoursWithValue: present(readings.map((reading) => reading.precipitationMm)).length,
+				},
 				prevailingWindFrom: prevailingWindFrom(readings),
 			},
 			driestHour: driest && hour(driest),
@@ -287,6 +292,8 @@ function daily(readings: Reading[]): NonNullable<Conditions["daily"]> {
 		humidityMinPct: stats(day.map((reading) => reading.relativeHumidityPct))?.min ?? null,
 		windMaxKmh: stats(day.map((reading) => reading.windSpeedKmh))?.max ?? null,
 		gustMaxKmh: stats(day.map((reading) => reading.windGustsKmh))?.max ?? null,
-		precipitationMm: sum(day.map((reading) => reading.precipitationMm)),
+		precipitationMm: day.some((reading) => reading.precipitationMm === null)
+			? null
+			: sum(day.map((reading) => reading.precipitationMm)),
 	}));
 }

@@ -128,12 +128,13 @@ beforeAll(async () => {
 		datasetId: dataset.id,
 		mode: "live",
 		bbox: { west: -139.4, south: 21.6, east: -139.1, north: 21.9 },
-		windowStart: new Date("2003-06-20T00:00:00Z"),
-		windowEnd: new Date("2003-06-21T00:00:00Z"),
+		windowStart: new Date("2003-06-03T00:00:00Z"),
+		windowEnd: new Date("2003-06-03T00:05:00Z"),
 		timeField: "updated",
 		filters: { test: "agent/observations.test.ts" },
 	});
 	await finishRun(rejectingRunId, "partial", "3 records failed validation and were not stored");
+	await sql`update ingestion_runs set started_at = '2003-06-03T00:05:00Z' where id = ${rejectingRunId}`;
 });
 
 afterAll(async () => {
@@ -260,7 +261,27 @@ describe("summarizeObservations", () => {
 
 		expect(coverage.complete).toBe(false);
 		expect(coverage.sources[0]).toMatchObject({ readHours: 72, rejected: 3 });
-		expect(coverage.sources[0].statement).toContain("Live polls since the range began rejected 3 records");
+		expect(coverage.sources[0].statement).toContain("Live polls that could have fetched this range's records rejected 3");
+	});
+
+	it("ignores rejections by polls that couldn't have fetched the range's records", async () => {
+		// The rejecting poll ran on Jun 3; records observed after it weren't uploaded yet.
+		const { coverage } = await summarizeObservations({
+			area: REJECTED_AREA,
+			range: { start: "2003-06-04T07:00:00Z", end: "2003-06-06T07:00:00Z" },
+		});
+
+		expect(coverage.sources[0].rejected).toBe(0);
+	});
+
+	it("only counts runs whose bbox contains the whole area", async () => {
+		// Straddles the run's east edge (-139): part of it was never requested.
+		const { insufficient } = await summarizeObservations({
+			area: { west: -139.5, south: 20.5, east: -138.5, north: 21.5 },
+			range: { start: JUN_2, end: JUN_5 },
+		});
+
+		expect(insufficient?.reason).toBe("No stored inaturalist data covers this area and range.");
 	});
 
 	it("is insufficient for a range in the future", async () => {

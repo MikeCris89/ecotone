@@ -5,7 +5,15 @@ import { z } from "zod";
 import { type Interval, intersect, subtract, union } from "@/lib/coverage";
 import type { Bbox } from "@/lib/datasets";
 import { DEFAULT_QUALITY_GRADES } from "@/lib/default-filters";
-import { getRunsCovering, type IncompleteSpan, sourceFreshness, type Span, UPLOAD_LAG_HOURS } from "@/lib/freshness";
+import {
+	getRunsCovering,
+	type IncompleteSpan,
+	rejectedRecords,
+	sourceFreshness,
+	type Span,
+	toSpan,
+	UPLOAD_LAG_HOURS,
+} from "@/lib/freshness";
 import type { Source } from "@/lib/ingestion-runs";
 import { formatTime } from "@/lib/timeline";
 
@@ -88,7 +96,8 @@ export type SourceCoverage = {
 	unread: Span[];
 	// Read, but a partial run, or the newest hours the source can still add to.
 	likelyIncomplete: IncompleteSpan[];
-	// Records live polls rejected since the range began (iNaturalist). They weren't stored and can't
+	// Records rejected by live polls that could have fetched the range's records (iNaturalist): those
+	// started from the range's start to UPLOAD_LAG_HOURS past its end. They weren't stored and can't
 	// be placed in time, so any of them may belong in the range.
 	rejected: number;
 	statement: string;
@@ -135,7 +144,6 @@ export function resolveRange(range: Range, now: Date): { start: Date; end: Date 
 }
 
 const hours = (intervals: Interval[]) => intervals.reduce((sum, [start, end]) => sum + (end - start), 0) / HOUR_MS;
-const toSpan = ([start, end]: Interval): Span => ({ start: new Date(start).toISOString(), end: new Date(end).toISOString() });
 
 /**
  * Each source's coverage of [start, end) over `area`, from the stored ingestion runs. Read hours
@@ -148,14 +156,24 @@ export async function getCoverage(
 	{ start, end }: { start: Date; end: Date },
 	now: Date,
 ): Promise<SourceCoverage[]> {
-	const runs = await getRunsCovering(area, start, now);
+	const runs = await getRunsCovering(sources, area, { start, end }, now);
 	const range: Interval = [start.getTime(), end.getTime()];
 	return sources.map((source) => {
-		const freshness = sourceFreshness(
-			source,
-			runs.filter((run) => run.source === source),
-			[start.getTime(), now.getTime()],
-		);
+		const sourceRuns = runs.filter((run) => run.source === source);
+		const freshness = sourceFreshness(source, sourceRuns, [start.getTime(), now.getTime()]);
+		// A poll before the range can't have fetched records observed in it; one after the upload lag
+		// only sees records re-identified long after (the settling rule's assumption).
+		const rejected =
+			source === "inaturalist"
+				? rejectedRecords(
+						sourceRuns.filter(
+							(run) =>
+								run.mode === "live" &&
+								run.startedAt >= start.getTime() &&
+								run.startedAt < end.getTime() + UPLOAD_LAG_HOURS * HOUR_MS,
+						),
+					)
+				: 0;
 		const toInterval = (span: Span): Interval => [Date.parse(span.start), Date.parse(span.end)];
 		const complete = intersect(freshness.complete.map(toInterval), [range]);
 		const likelyIncomplete = freshness.likelyIncomplete.flatMap((span) =>
@@ -173,8 +191,8 @@ export async function getCoverage(
 			read: read.map(toSpan),
 			unread: unread.map(toSpan),
 			likelyIncomplete,
-			rejected: freshness.rejected,
-			statement: coverageStatement(readHours, requestedHours, unread, likelyIncomplete, freshness.rejected),
+			rejected,
+			statement: coverageStatement(readHours, requestedHours, unread, likelyIncomplete, rejected),
 		};
 	});
 }
@@ -203,7 +221,7 @@ function coverageStatement(
 	}
 	if (rejected > 0) {
 		sentences.push(
-			`Live polls since the range began rejected ${rejected} record${rejected === 1 ? "" : "s"} that failed validation ` +
+			`Live polls that could have fetched this range's records rejected ${rejected} that failed validation ` +
 				"(a record re-read by a later poll counts again). They weren't stored and can't be placed in time, so some may belong here",
 		);
 	}

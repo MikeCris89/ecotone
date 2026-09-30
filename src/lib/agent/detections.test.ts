@@ -260,6 +260,17 @@ describe("observationsNearDetections", () => {
 		expect(result?.observations).toEqual({ total: 0, beforeDetection: 0, afterDetection: 0 });
 	});
 
+	it("only counts observations inside the area, where coverage was checked", async () => {
+		// Ends just north of the detections: BEFORE and AFTER are within 5 km of them, but outside.
+		const { result } = await observationsNearDetections({ area: { ...AREA, north: 31.003 }, range: RANGE });
+
+		expect(result).toMatchObject({
+			detections: 4,
+			observations: { total: 0, beforeDetection: 0, afterDetection: 0 },
+			excluded: { imprecise: 1, unknownAccuracy: 1, dateOnly: 1 },
+		});
+	});
+
 	it("rejects a radius over 25 km or a window over 72 hours", async () => {
 		await expect(observationsNearDetections({ area: AREA, range: RANGE, radiusKm: 30 })).rejects.toThrow(ZodError);
 		await expect(observationsNearDetections({ area: AREA, range: RANGE, withinHours: 96 })).rejects.toThrow(ZodError);
