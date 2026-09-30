@@ -190,7 +190,7 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 
 - [ ] Backfill iNaturalist, FIRMS CSV import, Open-Meteo archive, so the agent can answer CZU questions. The mode switch and CZU timeline come later
 - Why it matters more after the first agent runs (2026-09-30): the live window gives a fire's "during" with little or no "before" in the same place (the largest live cluster started on the window's first day), and few precise recorded observations close to it. CZU has 30 days before, 38 during and 30 after in one small, heavily recorded area, which is what `compare_periods` needs. It still can't show how wildlife responded: the drop from ~45 to ~16 recorded observations a day is as much evacuations and closures as anything else (brief 7). The README should pitch it as "how recording changed before, during and after", not as a wildlife response
-- Cheapest slice if time allows: iNaturalist only, through the existing backfill path (one call per date, ~100 dates), which already makes `summarize_observations` and `compare_periods` answer for CZU. FIRMS (CSV import) and weather (ERA5 archive) each need a new retrieval path
+- Cheapest slice if time allows: iNaturalist only. `backfillObservations` already takes any dataset; it needs a CZU `datasets` row (a migration) and the backfill route to accept it (today it only takes the live dataset's window), then one call per date (98 dates). That alone makes `summarize_observations` and `compare_periods` answer for CZU. FIRMS (CSV import) and weather (ERA5 archive) each need a new retrieval path
 
 ## Later
 
