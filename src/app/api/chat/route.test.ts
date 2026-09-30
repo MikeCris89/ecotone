@@ -6,13 +6,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/chat/route";
 import { summarizeDetections } from "@/lib/agent/detections";
 import { admitRequest, recordUsage } from "@/lib/chat/limits";
+import { getDataset } from "@/lib/datasets";
 
 const mocks = vi.hoisted(() => ({ model: null as unknown }));
 
 vi.mock("@ai-sdk/anthropic", () => ({ anthropic: () => mocks.model }));
 vi.mock("@/lib/datasets", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/datasets")>()),
-	getDataset: async () => ({ west: -124.5, south: 32.5, east: -114.1, north: 42 }),
+	getDataset: vi.fn(async () => ({ west: -124.5, south: 32.5, east: -114.1, north: 42 })),
 }));
 vi.mock("@/lib/chat/limits", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/chat/limits")>()),
@@ -310,6 +311,16 @@ describe("POST /api/chat access and limits", () => {
 	it("doesn't count requests it rejects before admission", async () => {
 		await POST(chatRequest([question("x".repeat(2001))]));
 
+		expect(admitRequest).not.toHaveBeenCalled();
+	});
+
+	it("doesn't use up a quota slot when the dataset lookup fails", async () => {
+		vi.mocked(getDataset).mockRejectedValueOnce(new Error("database down"));
+		vi.spyOn(console, "error").mockImplementationOnce(() => {});
+
+		const response = await POST(chatRequest([question("Hi")]));
+
+		expect(response.status).toBe(500);
 		expect(admitRequest).not.toHaveBeenCalled();
 	});
 });
