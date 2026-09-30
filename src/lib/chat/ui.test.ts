@@ -1,6 +1,8 @@
 import { APICallError, type UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { answerMissing, chatError, parseAnswer, stepLabel, suggestedQuestions } from "@/lib/chat/ui";
+import { answerMissing, chatError, loadedData, parseAnswer, stepLabel, suggestedQuestions } from "@/lib/chat/ui";
+import type { FirmsMapRow } from "@/lib/firms/map";
+import type { InatMapRow } from "@/lib/inaturalist/map";
 
 function apiError(status: number, responseBody: string) {
 	return new APICallError({
@@ -44,6 +46,31 @@ describe("suggestedQuestions", () => {
 		expect(suggestedQuestions({ window: "3d", observations: false, detections: false, weather: false })).toEqual([
 			"How fresh is the data right now?",
 		]);
+	});
+});
+
+describe("loadedData", () => {
+	const END = "2026-09-30T20:00:00.000Z";
+	const DAY = 24 * 60 * 60;
+	// Three days before the layers' end: in the 7-day window, outside the last 24 hours.
+	const threeDaysAgo = Date.parse(END) / 1000 - 3 * DAY;
+	const inat: InatMapRow = [1, -122, 37, threeDaysAgo, threeDaysAgo, "Aves", 10, false, 0];
+	const firms: FirmsMapRow = ["snpp:1", -122, 37, threeDaysAgo, 5];
+
+	it("checks the selected window, not the last day", () => {
+		const loaded = (window: "24h" | "7d") =>
+			loadedData(window, { rows: [inat], end: END }, { rows: [firms], end: END }, { rows: [], end: END });
+		expect(loaded("7d")).toEqual({ window: "7d", observations: true, detections: true, weather: false });
+		expect(loaded("24h")).toEqual({ window: "24h", observations: false, detections: false, weather: false });
+	});
+
+	it("has nothing before the layers load", () => {
+		expect(loadedData("7d", undefined, undefined, undefined)).toEqual({
+			window: "7d",
+			observations: false,
+			detections: false,
+			weather: false,
+		});
 	});
 });
 
