@@ -45,6 +45,7 @@ export type FreshnessRun = {
 	product: string | null;
 	status: "running" | "succeeded" | "partial" | "failed";
 	windowStart: number;
+	windowEnd: number;
 	coveredUntil: number | null;
 	startedAt: number;
 	error: string | null;
@@ -52,7 +53,7 @@ export type FreshnessRun = {
 
 export type RunOutcome = "succeeded" | "partial" | "failed" | "interrupted";
 
-/** A run's outcome as one plain statement, e.g. "read through Sep 30, 2:00 PM PT, some records rejected". */
+/** A run's outcome as one plain statement, e.g. "read through Sep 30, 2:00 PM PT; 12 records failed validation". */
 export type RunStatement = {
 	outcome: RunOutcome;
 	// How far into its window the run read (ISO), when it read anything.
@@ -66,7 +67,7 @@ export type RunStatement = {
 export type Span = { start: string; end: string };
 export type IncompleteSpan = Span & {
 	// partial: read, but not completely (a partial run, or not every FIRMS satellite). Otherwise the
-	// newest complete hours, which the source can still add to.
+	// newest read hours, which the source can still add to.
 	reason: "partial" | "publishing-lag" | "upload-lag";
 };
 
@@ -79,6 +80,8 @@ export type SourceFreshness = {
 	// The latest live poll that has finished (or died), prefixed with its satellite for FIRMS.
 	latestPoll: (RunStatement & { satellite: string | null }) | null;
 	// Within the window, on observation or acquisition time. Anything in neither list wasn't read.
+	// iNaturalist is never fully complete: late uploads can still arrive for any date, so its
+	// complete spans are "mostly complete".
 	complete: Span[];
 	likelyIncomplete: IncompleteSpan[];
 	// Coverage, the latest poll's outcome and feed health in one line.
@@ -125,19 +128,36 @@ export function runOutcome(run: FreshnessRun, now: number): RunOutcome | null {
 	return now - run.startedAt > INTERRUPTED_AFTER_MINUTES * MINUTE_MS ? "interrupted" : null;
 }
 
-// Matched against the messages the ingestion code records; anything else, such as a network error
-// partway through, is "stopped by an error". No counts: records_skipped also counts records
-// excluded on purpose, so there's no exact rejected count to give.
-const PARTIAL_REASONS: [RegExp, string][] = [
-	[/failed validation/, "some records rejected"],
-	[/next poll resumes/, "next poll continues"],
-	[/re-run starts the date over/, "stopped at its time limit"],
-	[/batches failed|missing or empty/, "some readings missing"],
+// "1 records" as the ingestion messages write it, reworded.
+function count(n: string, noun: string): string {
+	return `${n} ${n === "1" ? noun.slice(0, -1) : noun}`;
+}
+
+// Matched against the messages the ingestion code records (poll-live, backfill), keeping their
+// counts; anything else, such as a network error partway through, is "stopped by an error". A
+// reason code column would make this robust, at the cost of a migration.
+const PARTIAL_REASONS: [RegExp, (match: RegExpMatchArray) => string][] = [
+	[/(\d+) (records|readings) failed validation/, ([, n, noun]) => `${count(n, noun)} failed validation`],
+	[/(\d+) readings were missing or empty/, ([, n]) => `${count(n, "readings")} missing from the response`],
+	[/(\d+ of \d+) batches failed/, ([, n]) => `${n} batches of points failed`],
+	// Nothing is lost here: the cursor stays put, so each poll retries until the code is fixed.
+	[/All (\d+) records on the page failed validation/, ([, n]) => `paused, all ${count(n, "records")} on a page failed validation`],
+	[/next poll resumes/, () => "stopped at its page limit, the next poll continues"],
+	[/re-run starts the date over|deadline reached/, () => "stopped at its time limit"],
 ];
 
 function partialReason(error: string | null): string {
-	const reasons = PARTIAL_REASONS.filter(([pattern]) => pattern.test(error ?? "")).map(([, reason]) => reason);
-	return reasons.length > 0 ? reasons.join(" and ") : "stopped by an error";
+	const reasons = PARTIAL_REASONS.flatMap(([pattern, describe]) => {
+		const match = error?.match(pattern);
+		return match ? [describe(match)] : [];
+	});
+	return reasons.length > 0 ? reasons.join("; ") : "stopped by an error";
+}
+
+// Records a live iNaturalist poll rejected. Its cursor moves past them, so no later poll retries
+// them: only a fix and a backfill of their dates recovers them.
+function rejectedRecords(runs: FreshnessRun[]): number {
+	return runs.reduce((sum, run) => sum + Number(/(\d+) records failed validation/.exec(run.error ?? "")?.[1] ?? 0), 0);
 }
 
 /** A finished (or dead) run as a statement; null while it may still be going. */
@@ -160,26 +180,36 @@ export function runStatement(run: FreshnessRun, now: number): RunStatement | nul
 		return statement(run.timeField === "updated" ? `all updates read through ${time}` : `complete through ${time}`);
 	}
 	const reason = partialReason(run.error);
-	return statement(`${read} through ${time}, ${reason}`, reason);
+	return statement(`${read} through ${time}; ${reason}`, reason);
 }
 
-// What runs on observation time read: completely where one succeeded, partly where only partial
-// or interrupted runs got. A success covers what an earlier partial run missed, and a partial run
-// after it doesn't undo it, so a re-run backfill date doesn't show its superseded attempts as gaps.
-function observedCoverage(runs: FreshnessRun[]) {
-	const read = ({ windowStart, coveredUntil }: FreshnessRun): Interval[] =>
-		coveredUntil === null ? [] : [[windowStart, coveredUntil]];
-	const complete = union(runs.filter((run) => run.status === "succeeded").flatMap(read));
-	const partial = subtract(runs.filter((run) => run.status !== "succeeded").flatMap(read), complete);
-	return { complete, partial };
+// What runs on observation time read: completely where one succeeded, partly where a partial or
+// interrupted run got. One with no covered_until may still have stored some of its window (a
+// backfill cut off partway reads part of every hour; a weather poll can lose one batch of points),
+// so all of its window counts as partly read. Failed runs stored nothing. A success covers what an
+// earlier partial run missed, and a partial run after it doesn't undo it: these runs re-read their
+// whole window, so a re-run backfill date doesn't show its superseded attempts as gaps.
+function observedCoverage(runs: FreshnessRun[], now: number) {
+	const complete = union(
+		runs
+			.filter((run) => run.status === "succeeded" && run.coveredUntil !== null)
+			.map((run): Interval => [run.windowStart, run.coveredUntil!]),
+	);
+	const partlyRead = runs
+		.filter((run) => {
+			const outcome = runOutcome(run, now);
+			return outcome === "partial" || outcome === "interrupted";
+		})
+		.map((run): Interval => [run.windowStart, run.coveredUntil ?? run.windowEnd]);
+	return { complete, partial: subtract(partlyRead, complete) };
 }
 
 // Live iNaturalist polls read by updated time, resuming from the latest covered_until, so together
 // they form one unbroken read of every update from the first poll's start to that cursor. A record
 // is uploaded after it's observed, so every record observed in that stretch and uploaded by the
-// cursor has been read: the stretch is complete on observation time too, apart from late uploads
-// (the upload-lag band). Records rejected along the way are named by the latest poll's statement
-// only while it's the one that rejected them.
+// cursor has been read: the stretch is mostly complete on observation time too, apart from late
+// uploads (the upload-lag band) and rejected records (rejectedRecords), which can't be placed in
+// time and are stated instead.
 function inatLiveCoverage(runs: FreshnessRun[]): Interval[] {
 	const read = runs.filter((run) => run.coveredUntil !== null);
 	if (read.length === 0) return [];
@@ -203,15 +233,21 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 
 	let complete: Interval[];
 	let partial: Interval[];
-	// The newest complete hours can still gain records, and how many depends on the source.
-	let settling: { hours: number; reason: IncompleteSpan["reason"]; text: string } | null = null;
+	// The newest read hours can still gain records, and how many depends on the source. `describe`
+	// says how settled the read stretch is, given where it ends and whether anything before the
+	// band is left.
+	let settling: {
+		hours: number;
+		reason: IncompleteSpan["reason"];
+		describe: (through: number, before: boolean) => string[];
+	} | null = null;
 	// FIRMS: each satellite's complete-through time, named in the statement when they differ.
 	let satellites: { label: string; through: number | null }[] = [];
 
 	if (source === "firms") {
 		const perSatellite = LIVE_PRODUCTS.map((product) => ({
 			product,
-			...observedCoverage(runs.filter((run) => run.product === product)),
+			...observedCoverage(runs.filter((run) => run.product === product), now),
 		}));
 		// An hour is complete only once every satellite's passes over it are.
 		complete = perSatellite.reduce<Interval[]>((all, { complete }) => intersect(all, complete), [window]);
@@ -226,26 +262,33 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 		settling = {
 			hours: FIRMS_SETTLING_HOURS,
 			reason: "publishing-lag",
-			text: `the last ${FIRMS_SETTLING_HOURS} hours may still fill in`,
+			describe: () => [`Last ${FIRMS_SETTLING_HOURS} h may still fill in as satellite passes are published`],
 		};
 	} else if (source === "inaturalist") {
-		const backfill = observedCoverage(runs.filter((run) => run.mode === "backfill"));
+		const backfill = observedCoverage(runs.filter((run) => run.mode === "backfill"), now);
 		complete = union([...backfill.complete, ...inatLiveCoverage(live)]);
 		partial = subtract(backfill.partial, complete);
 		settling = {
 			hours: UPLOAD_LAG_HOURS,
 			reason: "upload-lag",
-			text: `the last ${UPLOAD_LAG_HOURS} hours are likely incomplete while uploads arrive`,
+			describe: (through, before) => [
+				...(before
+					? [`Before ${formatTime(through - UPLOAD_LAG_HOURS * HOUR_MS)}: mostly complete, late uploads still possible`]
+					: []),
+				`Last ${UPLOAD_LAG_HOURS} h: likely incomplete while uploads arrive`,
+			],
 		};
 	} else {
-		({ complete, partial } = observedCoverage(runs));
+		({ complete, partial } = observedCoverage(runs, now));
 	}
 
 	complete = intersect(complete, [window]);
 	partial = intersect(partial, [window]);
 	const through = complete.at(-1)?.[1] ?? null;
-	// Gaps: anything before `through` that wasn't read completely.
-	const gaps = through !== null && subtract([[windowStart, through]], complete).length > 0;
+	const readBefore: Interval[] = through === null ? [] : [[windowStart, through]];
+	// Anything before `through` that wasn't read at all, or was read only partly.
+	const gaps = subtract(readBefore, [...complete, ...partial]).length > 0;
+	const partlyReadBefore = intersect(partial, readBefore).length > 0;
 	const settlingSpans =
 		settling && through !== null ? intersect(complete, [[through - settling.hours * HOUR_MS, through]]) : [];
 	complete = subtract(complete, settlingSpans);
@@ -274,18 +317,27 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 	const pollEveryMinutes = POLL_MINUTES[source];
 	const behind = lastPoll === null || now - lastPoll > BEHIND_AFTER_POLLS * pollEveryMinutes * MINUTE_MS;
 
+	// How far the source has been read, then how settled that is, kept apart so no stretch is called
+	// both complete and incomplete. Weather has no settling band: every hour read is complete.
 	const sentences: string[] = [];
 	if (through === null) {
 		sentences.push("Nothing in this window was read completely");
 	} else {
-		let coverage = `Complete through ${formatTime(through)}`;
+		let coverage = `${settling ? "Read" : "Complete"} through ${formatTime(through)}`;
 		if (satellites.some((satellite) => satellite.through !== through)) {
 			const each = satellites.map(({ label, through }) => `${label} ${through === null ? "not read" : formatTime(through)}`);
 			coverage += ` (${each.join(", ")})`;
 		}
 		if (gaps) coverage += ", with gaps";
-		if (settling) coverage += `; ${settling.text}`;
 		sentences.push(coverage);
+		if (partlyReadBefore) sentences.push("Some earlier stretches were read only partly");
+		if (settling) sentences.push(...settling.describe(through, complete.length > 0));
+	}
+	const rejected = source === "inaturalist" ? rejectedRecords(live) : 0;
+	if (rejected > 0) {
+		sentences.push(
+			`${count(String(rejected), "records")} failed validation during live polls in this window and weren't stored`,
+		);
 	}
 	if (latestPoll && latestPoll.outcome !== "succeeded") {
 		sentences.push(`Latest ${latestPoll.satellite ? `${latestPoll.satellite} ` : ""}poll: ${latestPoll.text}`);
@@ -324,8 +376,9 @@ export async function getFreshness(dataset: Dataset, now: Date): Promise<Freshne
 	// into it. The started_at bound lets the (source, started_at) index skip older runs; the hour's
 	// margin covers the few milliseconds between a run's window end and its started_at default.
 	const rows = await sql<
-		(Omit<FreshnessRun, "windowStart" | "coveredUntil" | "startedAt"> & {
+		(Omit<FreshnessRun, "windowStart" | "windowEnd" | "coveredUntil" | "startedAt"> & {
 			windowStart: Date;
+			windowEnd: Date;
 			coveredUntil: Date | null;
 			startedAt: Date;
 		})[]
@@ -337,6 +390,7 @@ export async function getFreshness(dataset: Dataset, now: Date): Promise<Freshne
 			filters->>'product' as product,
 			status,
 			window_start as "windowStart",
+			window_end as "windowEnd",
 			covered_until as "coveredUntil",
 			started_at as "startedAt",
 			error
@@ -349,6 +403,7 @@ export async function getFreshness(dataset: Dataset, now: Date): Promise<Freshne
 	const runs: FreshnessRun[] = rows.map((row) => ({
 		...row,
 		windowStart: row.windowStart.getTime(),
+		windowEnd: row.windowEnd.getTime(),
 		coveredUntil: row.coveredUntil?.getTime() ?? null,
 		startedAt: row.startedAt.getTime(),
 	}));

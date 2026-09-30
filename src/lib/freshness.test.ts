@@ -31,6 +31,7 @@ function run(overrides: Partial<FreshnessRun>): FreshnessRun {
 		product: null,
 		status: "succeeded",
 		windowStart: NOW - 25 * HOUR,
+		windowEnd: NOW - 10 * MINUTE,
 		coveredUntil: NOW - HOUR,
 		startedAt: NOW - 10 * MINUTE,
 		error: null,
@@ -57,7 +58,7 @@ describe("runStatement", () => {
 		);
 	});
 
-	it("gives a partial run that read something its reasons, without counts", () => {
+	it("gives a partial run that read something its reasons, with their counts", () => {
 		const rejected = run({
 			status: "partial",
 			coveredUntil: through,
@@ -65,8 +66,8 @@ describe("runStatement", () => {
 		});
 		expect(runStatement(rejected, NOW)).toMatchObject({
 			outcome: "partial",
-			reason: "some records rejected",
-			text: `read through ${formatTime(through)}, some records rejected`,
+			reason: "3 records failed validation",
+			text: `read through ${formatTime(through)}; 3 records failed validation`,
 		});
 
 		const capped = run({
@@ -76,8 +77,26 @@ describe("runStatement", () => {
 			error: "Stopped after 20 pages; the next poll resumes; 2 records failed validation and were not stored",
 		});
 		expect(runStatement(capped, NOW)?.text).toBe(
-			`updates read through ${formatTime(through)}, some records rejected and next poll continues`,
+			`updates read through ${formatTime(through)}; 2 records failed validation; ` +
+				"stopped at its page limit, the next poll continues",
 		);
+
+		const weather = run({
+			status: "partial",
+			coveredUntil: through,
+			error: "1 readings failed validation and were not stored; 12 readings were missing or empty in the response",
+		});
+		expect(runStatement(weather, NOW)?.reason).toBe(
+			"1 reading failed validation; 12 readings missing from the response",
+		);
+
+		const paused = run({
+			timeField: "updated",
+			status: "partial",
+			coveredUntil: through,
+			error: "All 3 records on the page failed validation; the feed is paused until normalization is fixed",
+		});
+		expect(runStatement(paused, NOW)?.reason).toBe("paused, all 3 records on a page failed validation");
 
 		const dropped = run({ status: "partial", coveredUntil: through, error: "fetch failed" });
 		expect(runStatement(dropped, NOW)?.reason).toBe("stopped by an error");
@@ -141,29 +160,47 @@ describe("sourceFreshness", () => {
 
 	it("takes a backfilled date's coverage from its successful re-run, and marks unrepaired partial dates", () => {
 		const date = (day: number) => at(`2026-09-${day}T07:00:00Z`);
-		const backfill = (day: number, status: FreshnessRun["status"], error: string | null = null) =>
+		const backfill = (day: number, status: FreshnessRun["status"], error: string | null = null, read = true) =>
 			run({
 				source: "inaturalist",
 				mode: "backfill",
 				status,
 				windowStart: date(day),
-				coveredUntil: status === "failed" ? null : date(day + 1),
+				windowEnd: date(day + 1),
+				coveredUntil: read ? date(day + 1) : null,
 				error,
 			});
 		const runs = [
 			backfill(23, "succeeded"),
 			// Superseded by the re-run below.
-			backfill(24, "partial", "fetch failed"),
+			backfill(24, "partial", "fetch failed", false),
 			backfill(24, "succeeded"),
 			backfill(25, "partial", "5 records failed validation and were not stored"),
-			backfill(26, "succeeded"),
+			// Cut off partway: it read part of every hour of the date, so covered_until stays null.
+			backfill(26, "partial", "fetch failed", false),
+			backfill(27, "failed", "HTTP 503", false),
+			backfill(28, "succeeded"),
 		];
 		const freshness = sourceFreshness("inaturalist", runs, WINDOW);
 
-		expect(freshness.likelyIncomplete).toContainEqual({ start: iso(date(25)), end: iso(date(26)), reason: "partial" });
-		expect(freshness.likelyIncomplete.filter(({ reason }) => reason === "partial")).toHaveLength(1);
 		expect(freshness.complete[0]).toEqual({ start: iso(date(23)), end: iso(date(25)) });
-		expect(freshness.statement).toMatch(/, with gaps; /);
+		expect(freshness.likelyIncomplete.filter(({ reason }) => reason === "partial")).toEqual([
+			{ start: iso(date(25)), end: iso(date(27)), reason: "partial" },
+		]);
+		// The failed date stored nothing, so it's a gap rather than partly read.
+		expect(freshness.statement).toContain(", with gaps. Some earlier stretches were read only partly.");
+	});
+
+	it("marks a weather poll that lost a batch of points as partly read over its whole window", () => {
+		const earlier = run({ windowStart: NOW - 26 * HOUR, coveredUntil: NOW - 2 * HOUR, startedAt: NOW - 100 * MINUTE });
+		const lostBatch = run({ status: "partial", coveredUntil: null, error: "1 of 4 batches failed: HTTP 500" });
+		const freshness = sourceFreshness("open-meteo", [earlier, lostBatch], WINDOW);
+
+		expect(freshness.likelyIncomplete).toEqual([
+			{ start: iso(NOW - 2 * HOUR), end: iso(NOW - 10 * MINUTE), reason: "partial" },
+		]);
+		expect(freshness.latestPoll?.text).toBe("incomplete, cut off partway");
+		expect(freshness.latestPoll?.reason).toBe("1 of 4 batches of points failed");
 	});
 
 	it("treats iNaturalist's live polls as one unbroken read up to the cursor, with an upload-lag band", () => {
@@ -178,8 +215,24 @@ describe("sourceFreshness", () => {
 		expect(freshness.complete).toEqual([{ start: iso(WINDOW[0]), end: iso(lagStart) }]);
 		expect(freshness.likelyIncomplete).toEqual([{ start: iso(lagStart), end: iso(cursor), reason: "upload-lag" }]);
 		expect(freshness.statement).toBe(
-			`Complete through ${formatTime(cursor)}; the last ${UPLOAD_LAG_HOURS} hours are likely incomplete while uploads arrive.`,
+			`Read through ${formatTime(cursor)}. ` +
+				`Before ${formatTime(lagStart)}: mostly complete, late uploads still possible. ` +
+				`Last ${UPLOAD_LAG_HOURS} h: likely incomplete while uploads arrive.`,
 		);
+	});
+
+	it("keeps saying how many records live polls rejected after a later poll succeeds", () => {
+		const poll = (overrides: Partial<FreshnessRun>) =>
+			run({ source: "inaturalist", timeField: "updated", windowStart: WINDOW[0], coveredUntil: NOW - 20 * MINUTE, ...overrides });
+		const runs = [
+			poll({ status: "partial", startedAt: NOW - 20 * MINUTE, error: "4 records failed validation and were not stored" }),
+			poll({ status: "partial", startedAt: NOW - 15 * MINUTE, error: "Stopped after 20 pages; the next poll resumes" }),
+			poll({ startedAt: NOW - 5 * MINUTE, coveredUntil: NOW - 5 * MINUTE }),
+		];
+		const freshness = sourceFreshness("inaturalist", runs, WINDOW);
+
+		expect(freshness.latestPoll?.outcome).toBe("succeeded");
+		expect(freshness.statement).toContain("4 records failed validation during live polls in this window and weren't stored.");
 	});
 
 	it("counts FIRMS hours as complete only once every satellite's are, and names each when they differ", () => {
@@ -201,8 +254,8 @@ describe("sourceFreshness", () => {
 		]);
 		const [three, six] = [formatTime(NOW - 3 * HOUR), formatTime(NOW - 6 * HOUR)];
 		expect(freshness.statement).toBe(
-			`Complete through ${six} (S-NPP ${three}, NOAA-20 ${three}, NOAA-21 ${six}); ` +
-				`the last ${FIRMS_SETTLING_HOURS} hours may still fill in.`,
+			`Read through ${six} (S-NPP ${three}, NOAA-20 ${three}, NOAA-21 ${six}). ` +
+				`Last ${FIRMS_SETTLING_HOURS} h may still fill in as satellite passes are published.`,
 		);
 	});
 

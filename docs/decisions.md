@@ -165,6 +165,14 @@ The Live window is bounded (~32,000 recorded observations a week, ~2 MB as compa
 
 Showing a single hour makes the map flicker. Most hours have no satellite pass, so thermal detections would blink on for one step, and date-only records would seem to happen at whatever hour the handle is on. A trailing day keeps detections visible between passes, as fire maps do. Weather's newest hour usually isn't stored yet (the poll runs at :20), so a blank layer at the newest hour would look broken; a faded, dated reading shows the gap instead of hiding it. One clock means a time on the timeline matches the same time in a popup, wherever the viewer is. Counting the loaded rows takes a few milliseconds, needs no new table or endpoint, and the bars can't disagree with the map. About 170 bars don't need a library, and a custom drag handle is simpler without one. **Tradeoffs:** counting in the browser only works while the whole window is loaded (18); CZU's longer range may need database buckets (Phase 9). A date-only record stays on the map for up to 47 steps: its date, plus the trailing day after it.
 
-## 20. Open decisions
+## 20. Coverage and freshness
+
+**Decision:** A source's coverage is the union of its successful runs' read ranges, on observation (or acquisition) time. Partial runs count as likely incomplete, and the newest read hours are marked as settling: FIRMS 3 hours, iNaturalist uploads 48 hours. iNaturalist's update-time cursor counts as observation-time coverage, because a record is uploaded after it's observed. Each source gets one statement that keeps how far it has been read apart from how settled that is, e.g. "Read through Sep 29, 8:10 PM PT. Before Sep 27, 8:10 PM PT: mostly complete, late uploads still possible. Last 48 h: likely incomplete while uploads arrive." The map and the agent quote it rather than any bare `covered_until`.
+
+**Considered:** the latest run's `covered_until` only; a settling band sized from measured upload delays; a reason code column on `ingestion_runs`.
+
+The latest run alone hides outages in the middle of the window, and would show a backfill date's superseded partial attempts as gaps. Measured upload delays would be more precise, but the fixed bands match what seeding showed (Phase 5) and need no extra query. Partial-run reasons are read from the error messages the ingestion code writes, which needs no migration. **Tradeoffs:** the band widths are estimates, not guarantees. A reworded error message falls back to "stopped by an error". iNaturalist records rejected by validation can't be placed in time, so they're stated as a count rather than marked on the timeline.
+
+## 21. Open decisions
 
 - Charting library for the agent's metrics (the timeline uses plain SVG, 19)
