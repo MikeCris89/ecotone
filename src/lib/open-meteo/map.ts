@@ -51,7 +51,7 @@ export async function getWeatherMapLayer(
 	`;
 
 	// Numeric and bigint columns come back from postgres.js as strings; float8 keeps them numbers.
-	const readings = await sql<
+	const readingsQuery = sql<
 		{
 			point: number;
 			valid: number;
@@ -78,7 +78,7 @@ export async function getWeatherMapLayer(
 		order by r.valid_at desc, r.point_id
 		limit ${cap}
 	`;
-	const points = await sql<
+	const pointsQuery = sql<
 		{ id: number; lon: number; lat: number; gridLon: number; gridLat: number; elevation: number }[]
 	>`
 		select distinct on (p.id)
@@ -91,6 +91,8 @@ export async function getWeatherMapLayer(
 		${inWindow}
 		order by p.id, r.valid_at desc
 	`;
+	// postgres.js queries run when awaited; awaiting both together runs them in parallel.
+	const [readings, points] = await Promise.all([readingsQuery, pointsQuery]);
 
 	const total = readings[0]?.total ?? 0;
 	return {
