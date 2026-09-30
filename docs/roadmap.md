@@ -68,7 +68,19 @@
 
 ## Phase 8: Freshness and data quality UI
 
-- [ ] Feed health vs data recency per source, upload-lag zone, empty states
+- [x] 8a: Coverage and feed health per source (`src/lib/freshness.ts`, `GET /api/freshness`)
+  - Coverage is intervals on observation (or acquisition) time: the union of each source's `succeeded` runs' `[window_start, covered_until]`, so an outage shows as a gap and a re-run backfill date covers its superseded attempts. Partial or interrupted runs that read something are "likely incomplete", never complete. FIRMS counts an hour complete only once all three satellites are, and names each satellite's end when they differ. iNaturalist's live polls count as one unbroken read from the first poll in the window to the cursor: a record is uploaded after it's observed, so everything observed in that stretch and uploaded by the cursor has been read
+  - Likely-incomplete bands at the newest complete hours: 3 hours for FIRMS (`FIRMS_SETTLING_HOURS`, on top of `NRT_LATENCY_MS`), 48 hours for iNaturalist uploads (`UPLOAD_LAG_HOURS`). Weather has none
+  - Feed health: the latest live poll's start, and "behind" once a whole poll is missed (two intervals). The latest poll that finished (or died) gets a statement; for FIRMS, the worst satellite's. A run still `running` after 15 minutes is interrupted (`INTERRUPTED_AFTER_MINUTES`); one younger may still be going and is skipped
+  - Each source gets one `statement` combining coverage, the latest poll and feed health, e.g. "Complete through Sep 29, 9:40 AM PT; the last 3 hours may still fill in. No live poll in this window." The panel shows it, and the Phase 10 freshness tool returns it. Partial reasons are matched from the error messages the ingestion code writes (`PARTIAL_REASONS`); anything else is "stopped by an error"
+  - `formatTime` moved to `src/lib/timeline.ts` so server code formats times the same way (PT)
+  - The route is CDN-cached for a minute, stale for one more
+  - Verified locally (2026-09-30): tests (201 passing), typecheck, lint, and the local data's output read through by hand: every source is behind (nothing polls locally), FIRMS is complete to its backfill less 3 hours, iNaturalist's latest live poll was partial with rejected records
+- [ ] 8b: Show coverage (trimmed, 2026-09-30)
+  - Timeline: shade hours a source hasn't read in grey like "not loaded", and likely-incomplete hours hatched
+  - Empty state: when the handle's span reaches past coverage, say the source hasn't published those hours yet, instead of implying no activity
+  - Panel: one coverage line per layer (the `statement`) and "last poll N min ago". No newest-upload time or detailed feed-health states
+- Background for both:
   - Mark on the timeline where each source's coverage ends. Today the timeline shades only past each response's `end`, so hours a source hasn't published yet draw as zero bars and old, faded records: FIRMS runs ~3 hours or more behind its passes, and locally nothing polls, so every source stops at the last backfill. FIRMS needs its ingestion coverage, not its newest detection (a quiet night is real), combined with run status as below
   - Coverage alone still overstates completeness, so add a likely-incomplete band: the last few hours of FIRMS coverage, and the last ~1–2 days for iNaturalist (upload lag). FIRMS's `covered_until` already stops 3 hours before each poll (`NRT_LATENCY_MS`), but that margin is its typical latency, not a guarantee: a slow pass can still add detections before `covered_until` on the next poll (Phase 3 limitations). iNaturalist's `covered_until` is its updated-time cursor, which says nothing about observed time, so its band comes from upload lag instead (Phase 5 limitations)
   - Never show `covered_until` on its own. Combine it with the run's `status` into one plain statement:
