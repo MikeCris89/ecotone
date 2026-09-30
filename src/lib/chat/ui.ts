@@ -8,7 +8,9 @@ import { CITATION } from "@/lib/chat/citations";
 import { WINDOW_NAMES } from "@/lib/chat/context";
 import { answerText } from "@/lib/chat/messages";
 import type { CHAT_TOOLS } from "@/lib/chat/tools";
-import type { MapWindow } from "@/lib/map-layers";
+import type { FirmsMapRow } from "@/lib/firms/map";
+import type { InatMapRow } from "@/lib/inaturalist/map";
+import { inatInWindow, instantInWindow, type MapWindow, windowBounds } from "@/lib/map-layers";
 
 const STEP_LABELS: Record<keyof typeof CHAT_TOOLS, string> = {
 	get_data_status: "Checking data freshness and coverage",
@@ -26,6 +28,28 @@ export function stepLabel(toolName: string): string {
 
 /** Whether the map has loaded each kind of record for the selected window. */
 export type LoadedData = { window: MapWindow; observations: boolean; detections: boolean; weather: boolean };
+
+type Loaded<Row> = { rows: Row[]; end: string } | undefined;
+
+/**
+ * Whether the loaded layers hold each kind of record in the selected window: the window, not the
+ * timeline handle's day, since the questions name the window. All of the loaded map, not the view.
+ */
+export function loadedData(
+	window: MapWindow,
+	inaturalist: Loaded<InatMapRow>,
+	firms: Loaded<FirmsMapRow>,
+	weather: Loaded<unknown>,
+): LoadedData {
+	const inatSpan = inaturalist && windowBounds(inaturalist.end, window);
+	const firmsSpan = firms && windowBounds(firms.end, window);
+	return {
+		window,
+		observations: !!inatSpan && inaturalist!.rows.some(([, , , from, to]) => inatInWindow(from, to, inatSpan)),
+		detections: !!firmsSpan && firms!.rows.some(([, , , time]) => instantInWindow(time, firmsSpan)),
+		weather: !!weather?.rows.length,
+	};
+}
 
 /**
  * Suggested questions, only those the loaded data can answer (brief 6.7): no question about thermal

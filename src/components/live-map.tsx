@@ -23,7 +23,7 @@ import {
 	TEMPERATURE_COLOR,
 } from "@/components/map-colors";
 import type { ChatContext } from "@/lib/chat/context";
-import { suggestedQuestions } from "@/lib/chat/ui";
+import { loadedData, suggestedQuestions } from "@/lib/chat/ui";
 import { layerCoverage } from "@/lib/coverage";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { Freshness } from "@/lib/freshness";
@@ -352,22 +352,9 @@ export function LiveMap() {
 			end: latestEnd === null ? null : new Date(latestEnd).toISOString(),
 		};
 	}, [mapWindow, hour, latestEnd]);
-	// The suggestions ask about the selected window, so they check it rather than the handle's day,
-	// over everything loaded (as the legend counts), not just the view.
-	const inatWindow = useShownSpan(inaturalist.data?.end, mapWindow, null);
-	const firmsWindow = useShownSpan(firms.data?.end, mapWindow, null);
 	const suggestions = useMemo(
-		() =>
-			suggestedQuestions({
-				window: mapWindow,
-				observations:
-					!!inatWindow &&
-					inatData.features.some(({ properties }) => inatInWindow(properties.from, properties.to, inatWindow)),
-				detections:
-					!!firmsWindow && firmsData.features.some(({ properties }) => instantInWindow(properties.time, firmsWindow)),
-				weather: !!weather.data?.rows.length,
-			}),
-		[mapWindow, inatWindow, firmsWindow, inatData, firmsData, weather.data],
+		() => suggestedQuestions(loadedData(mapWindow, inaturalist.data, firms.data, weather.data)),
+		[mapWindow, inaturalist.data, firms.data, weather.data],
 	);
 
 	const visibility = (layer: keyof LayerVisibility) => (visible[layer] ? "visible" : "none");
