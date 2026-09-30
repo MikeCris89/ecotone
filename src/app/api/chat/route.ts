@@ -9,6 +9,7 @@ import {
 } from "ai";
 import { z } from "zod";
 import { type ChatMetadata, ipHash, reviewerAccess } from "@/lib/chat/access";
+import { citeAnswer, evidenceOf } from "@/lib/chat/citations";
 import { chatContextSchema, contextPrompt, earlierContextNote, resolveContext } from "@/lib/chat/context";
 import { admitRequest, chatLimits, recordUsage } from "@/lib/chat/limits";
 import { chatMessageSchema, messagesError, toModelMessages } from "@/lib/chat/messages";
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
 			: null;
 	let failed = false;
 	// The SDK awaits these callbacks and swallows their errors, so they're logged here.
-	const record = async (noAnswer: boolean | null) => {
+	const record = async (noAnswer: boolean | null, unmatchedCitations: number | null) => {
 		try {
 			await recordUsage(admission.id, {
 				durationMs: Date.now() - startedAt,
@@ -101,6 +102,7 @@ export async function POST(request: Request) {
 				cacheWriteTokens: sum((usage) => usage.inputTokenDetails.cacheWriteTokens),
 				steps: finished.length,
 				noAnswer,
+				unmatchedCitations,
 			});
 		} catch (error) {
 			console.error("Chat usage write failed", error);
@@ -124,13 +126,23 @@ export async function POST(request: Request) {
 		abortSignal: request.signal,
 		onStepEnd: ({ usage }) => void finished.push(usage),
 		// The SDK awaits this before closing the stream, so the write finishes within the request.
-		onEnd: ({ text }) => record(failed ? null : text.trim().length === 0),
-		// Cut off or failed: there's no answer to judge, so noAnswer stays null.
-		onAbort: () => record(null),
+		// Citations are checked in every step's text, as the panel shows it, against every tool result.
+		onEnd: ({ text, steps }) =>
+			failed
+				? record(null, null)
+				: record(
+						text.trim().length === 0,
+						citeAnswer(
+							steps.map((step) => step.text),
+							evidenceOf(steps.flatMap((step) => step.toolResults.map((result) => result.output))),
+						).unmatched,
+					),
+		// Cut off or failed: there's no answer to judge, so noAnswer and unmatchedCitations stay null.
+		onAbort: () => record(null, null),
 		onError: ({ error }) => {
 			console.error("Chat stream failed", error);
 			failed = true;
-			return record(null);
+			return record(null, null);
 		},
 	});
 

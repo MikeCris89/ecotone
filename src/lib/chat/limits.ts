@@ -114,6 +114,7 @@ export type Usage = {
 	steps: number;
 	// Null when the reply was cut off or failed.
 	noAnswer: boolean | null;
+	unmatchedCitations: number | null;
 };
 
 /** Fills in what a served request cost, once its reply has finished. */
@@ -127,7 +128,8 @@ export async function recordUsage(id: string, usage: Usage, now = new Date()) {
 			cache_read_tokens = ${usage.cacheReadTokens},
 			cache_write_tokens = ${usage.cacheWriteTokens},
 			steps = ${usage.steps},
-			no_answer = ${usage.noAnswer}
+			no_answer = ${usage.noAnswer},
+			unmatched_citations = ${usage.unmatchedCitations}
 		where id = ${id}
 	`;
 }

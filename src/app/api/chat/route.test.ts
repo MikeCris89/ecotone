@@ -273,7 +273,21 @@ describe("POST /api/chat", () => {
 			cacheWriteTokens: null,
 			steps: 2,
 			noAnswer: false,
+			unmatchedCitations: 0,
 		});
+	});
+
+	it("logs how many cited records no tool returned", async () => {
+		mocks.model = new MockLanguageModelV4({
+			doStream: [
+				toolCallStep("call-1"),
+				textStep("3 detections [firms:snpp:2026-09-30T10:00:00.000Z:37.5,-122], one invented [firms:snpp:made-up]."),
+			],
+		});
+
+		await chunks(await POST(chatRequest([question("Any detections?")])));
+
+		expect(recordUsage).toHaveBeenCalledWith("42", expect.objectContaining({ noAnswer: false, unmatchedCitations: 1 }));
 	});
 
 	it("flags a reply that ended without an answer", async () => {
@@ -304,6 +318,7 @@ describe("POST /api/chat", () => {
 			// The failed call counts as a step, with no usage reported.
 			steps: 2,
 			noAnswer: null,
+			unmatchedCitations: null,
 		});
 	});
 
@@ -321,7 +336,7 @@ describe("POST /api/chat", () => {
 		await chunks(await POST(new Request(chatRequest([question("Any detections?")]), { signal: client.signal })));
 
 		expect(recordUsage).toHaveBeenCalledTimes(1);
-		expect(recordUsage).toHaveBeenCalledWith("42", expect.objectContaining({ inputTokens: 10, steps: 1, noAnswer: null }));
+		expect(recordUsage).toHaveBeenCalledWith("42", expect.objectContaining({ inputTokens: 10, steps: 1, noAnswer: null, unmatchedCitations: null }));
 	});
 
 	it("answers when the messages sent start with an answer whose question was cut off", async () => {

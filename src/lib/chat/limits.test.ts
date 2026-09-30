@@ -113,6 +113,7 @@ describe("recordUsage", () => {
 				cacheWriteTokens: null,
 				steps: 3,
 				noAnswer: false,
+				unmatchedCitations: 1,
 			},
 			at(1),
 		);
@@ -128,6 +129,7 @@ describe("recordUsage", () => {
 			cache_write_tokens: null,
 			steps: 3,
 			no_answer: false,
+			unmatched_citations: 1,
 		});
 		expect(row.finished_at).toEqual(at(1));
 	});
