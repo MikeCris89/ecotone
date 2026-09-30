@@ -12,7 +12,7 @@ import {
 	type ToolResult,
 } from "@/lib/agent/contract";
 import { sql } from "@/lib/db";
-import { CALIFORNIA_TIME_ZONE } from "@/lib/timeline";
+import { CALIFORNIA_TIME_ZONE, formatTime, HOUR, WEATHER_MAX_AGE_HOURS, weatherLookback } from "@/lib/timeline";
 import { localDate } from "@/lib/dates";
 
 // The live grid keeps every point in California within ~35 km of a sample point; past this, the
@@ -45,9 +45,13 @@ export type Conditions = {
 	model: string;
 	// The grid cell the values describe: its centre, elevation, and distance from the queried place.
 	gridCell: { longitude: number; latitude: number; elevationM: number; distanceKm: number };
-	// Hours with a reading, of the hours in the range.
+	// Hours with a reading, of the hours in the range (0 when falling back).
 	hours: number;
 	requestedHours: number;
+	// Set when the range has no readings (not stored, or not read yet): the values are the point's
+	// latest reading before the range's end instead. Its age counts from the range's last hour;
+	// `current` when the map would still show it for that hour (WEATHER_MAX_AGE_HOURS).
+	fallback: { validAt: string; ageHours: number; current: boolean } | null;
 	summary: {
 		temperatureC: Stats;
 		relativeHumidityPct: Stats;
@@ -111,25 +115,59 @@ export async function getConditions(
 		sources,
 	};
 	const insufficient = insufficientCoverage(sources);
-	if (insufficient) return { result: null, evidence: [], coverage, limitations: [], insufficient };
 
 	const place = sql`extensions.st_setsrid(extensions.st_makepoint(${location.longitude}, ${location.latitude}), 4326)::extensions.geography`;
 	// The nearest sample point with readings in the range, and its most common model there.
-	const [point] = await sql<{ id: string; model: string }[]>`
-		select p.id, (
-			select mode() within group (order by r.model)
-			from weather_readings r
-			where r.point_id = p.id and r.valid_at >= ${window.start} and r.valid_at < ${window.end}
-		) as model
-		from weather_points p
-		where exists (
-			select 1 from weather_readings r
-			where r.point_id = p.id and r.valid_at >= ${window.start} and r.valid_at < ${window.end}
-		)
-		order by p.location <-> ${place}
-		limit 1
-	`;
+	const [inRange] = insufficient
+		? []
+		: await sql<{ id: string; model: string }[]>`
+				select p.id, (
+					select mode() within group (order by r.model)
+					from weather_readings r
+					where r.point_id = p.id and r.valid_at >= ${window.start} and r.valid_at < ${window.end}
+				) as model
+				from weather_points p
+				where exists (
+					select 1 from weather_readings r
+					where r.point_id = p.id and r.valid_at >= ${window.start} and r.valid_at < ${window.end}
+				)
+				order by p.location <-> ${place}
+				limit 1
+			`;
+	// None ("right now" before the hour's poll, or a feed that's behind): the nearest point's latest
+	// reading before the range's end, read as a one-hour range of its own.
+	const [newest] = inRange
+		? []
+		: await sql<{ id: string; model: string; validAt: Date }[]>`
+				select p.id, r.model, r.valid_at as "validAt"
+				from weather_points p
+				join lateral (
+					select model, valid_at from weather_readings
+					where point_id = p.id and valid_at < ${window.end}
+					order by valid_at desc
+					limit 1
+				) r on true
+				order by p.location <-> ${place}
+				limit 1
+			`;
+	// A range with readings but too little of it read is refused, not answered from its newest hour.
+	if (insufficient && (!newest || newest.validAt >= window.start)) {
+		return { result: null, evidence: [], coverage, limitations: [], insufficient };
+	}
+	const point = inRange ?? newest;
 	if (!point) return empty("No modeled conditions are stored for this range.", coverage);
+	let fallback: Conditions["fallback"] = null;
+	let readFrom = window;
+	if (newest) {
+		const lastHour = Math.floor((window.end.getTime() - 1) / (HOUR * 1000)) * HOUR;
+		const validAt = newest.validAt.getTime() / 1000;
+		fallback = {
+			validAt: newest.validAt.toISOString(),
+			ageHours: Math.max(0, lastHour - validAt) / HOUR,
+			current: validAt >= weatherLookback(lastHour).start,
+		};
+		readFrom = { start: newest.validAt, end: new Date((validAt + HOUR) * 1000) };
+	}
 
 	const [readings, [cell], [attribution]] = await Promise.all([
 		sql<Reading[]>`
@@ -145,7 +183,7 @@ export async function getConditions(
 				retrieved_at as "retrievedAt"
 			from weather_readings
 			where point_id = ${point.id} and model = ${point.model}
-				and valid_at >= ${window.start} and valid_at < ${window.end}
+				and valid_at >= ${readFrom.start} and valid_at < ${readFrom.end}
 			order by valid_at
 		`,
 		// The newest reading's grid cell (constant per point in practice, not enforced).
@@ -157,7 +195,7 @@ export async function getConditions(
 				extensions.st_distance(grid_location, ${place}) as "distanceM"
 			from weather_readings
 			where point_id = ${point.id} and model = ${point.model}
-				and valid_at >= ${window.start} and valid_at < ${window.end}
+				and valid_at >= ${readFrom.start} and valid_at < ${readFrom.end}
 			order by valid_at desc
 			limit 1
 		`,
@@ -213,8 +251,9 @@ export async function getConditions(
 		result: {
 			model: point.model,
 			gridCell: { longitude: cell.longitude, latitude: cell.latitude, elevationM: cell.elevationM, distanceKm },
-			hours: readings.length,
+			hours: fallback ? 0 : readings.length,
 			requestedHours: Math.round((window.end.getTime() - window.start.getTime()) / 3_600_000),
+			fallback,
 			summary: {
 				temperatureC: stats(readings.map((reading) => reading.temperatureC)),
 				relativeHumidityPct: stats(readings.map((reading) => reading.relativeHumidityPct)),
@@ -234,6 +273,7 @@ export async function getConditions(
 		evidence,
 		coverage,
 		limitations: [
+			...(fallback ? [fallbackLimitation(fallback)] : []),
 			`Modeled conditions from ${point.model} for one grid cell whose centre is ${distanceKm} km from the place asked about; ` +
 				"not measured there. Terrain between them can make real conditions differ.",
 			"Wind direction is where the wind blows from. Gusts are the strongest over each hour; precipitation is each hour's total.",
@@ -241,6 +281,15 @@ export async function getConditions(
 			"Reading links only work while Open-Meteo still serves that hour (about a week for HRRR).",
 		],
 	};
+}
+
+function fallbackLimitation({ validAt, ageHours, current }: NonNullable<Conditions["fallback"]>) {
+	const when = `${formatTime(Date.parse(validAt))}, ${ageHours} h before the range's last hour`;
+	return current
+		? `No reading is stored for the range yet. These are the latest modeled conditions, valid ${when}: recent enough ` +
+				`to count as current (up to ${WEATHER_MAX_AGE_HOURS} h, as on the map). Say how old they are.`
+		: `The weather feed is behind: no reading is stored for the range, and the latest is from ${when}. These are ` +
+				"the last available modeled conditions, not current ones: say so, and don't describe them as current.";
 }
 
 const present = (values: (number | null)[]) => values.filter((value) => value !== null);
