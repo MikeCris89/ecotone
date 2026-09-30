@@ -152,8 +152,10 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - Tests: the right key in the header sets the cookie; a wrong key doesn't and uses the public bucket; a cookie from a rotated key is rejected; reviewer and public counters are independent; hourly and daily limits each return their friendly 429; turned-away requests don't count; usage is written from the mocked model's token counts
   - Built as `src/lib/chat/access.ts` (bucket, cookie, IP hash) and `src/lib/chat/limits.ts` (`admitRequest`, `recordUsage`). Usage is written in `streamText`'s `onEnd`, which the SDK awaits before closing the stream, so the write finishes within the request. Cache reads and writes are logged separately (writes cost more than uncached input)
   - New env vars, in Vercel (production) and `.env.local`: `REVIEWER_ACCESS_KEY` (unset: no reviewer bucket), `IP_HASH_SECRET` (required: the route answers 500 without it), and optionally the four limits
-  - Verified locally (2026-09-30): tests (289 passing, the limit tests against the local database), typecheck, lint, and the first three questions by curl against the real model (10a-1). Before merge (Mike, 2026-09-30): `chat_requests` pushed to production, env vars set in Vercel. To confirm after merge: in production a question streams an answer, `/?key=…` gives `"bucket":"reviewer"` in the stream's start chunk, and `select bucket, limited, input_tokens, cache_read_tokens, steps, no_answer from chat_requests order by id desc limit 5` shows one row per question, with cache reads from the second question on
-- [ ] 10b: Chat panel on the right (the side 6b left free)
+  - Verified locally (2026-09-30): tests (289 passing, the limit tests against the local database), typecheck, lint, and the first three questions by curl against the real model (10a-1). Before merge (Mike, 2026-09-30): `chat_requests` pushed to production, env vars set in Vercel. Confirmed in production (Mike, 2026-09-30): `/?key=…` gave `"bucket":"reviewer"` in the start chunk. The fire question ("What wildlife was recorded near thermal activity this week?") made one tool call (`observations_near_detections`), took ~12 s and cost ~4 cents. It led with the largest cluster (1,601 detections, 7 recorded observations within 5 km / 24 h), explained the zeros near clusters 2 to 5, offered the 10 km / 48 h search, cited only returned IDs, and stated the unread hours. A freshness question called `get_data_status` (~5 s). Prompt caching works: the cached prefix is ~9k tokens, read once per step (first question: 8,989 written and 8,989 read; a second one 4 minutes later: 17,978 of 20,079 input tokens read from cache, none written)
+  - `CHAT_PUBLIC_DAILY` is 15 in production (Mike): at ~4 cents a question, 30 a day for a month would nearly fill the $40 monthly spend limit on its own
+  - `chat_requests.limited` stays nullable text, null meaning served: the partial indexes and `admitRequest` filter on `limited is null` (`where not limited` is a type error, not a silent skip)
+- [x] 10b: Chat panel on the right (the side 6b left free)
   - Streaming answers, with each tool step shown while it runs ("Checking data coverage…", "Finding thermal detection clusters…"): the wait feels interactive and the grounding is visible
   - Suggested questions that only appear when the current window can answer them (brief 6.7), e.g. no "near thermal activity" question when there are no detections
   - Sends the UI context (and the reviewer key from the URL, if any) with each message. A small "Reviewer access" label when the reviewer bucket was used; rate-limit messages shown in the panel
@@ -167,9 +169,18 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
     - Tool parts are typed `tool-<name>` with `state` input-available / output-available / output-error; step labels map from the six tool names in `src/lib/chat/tools.ts`
     - `turnEvidence` and `validCitations` (`src/lib/chat/citations.ts`) have no server imports and are ready for 10c
     - Locally nothing polls, so answers say the feeds are behind; production is the real test
+  - Built as `src/components/chat-panel.tsx` (memoized: the map re-renders on every pointer move) and `src/lib/chat/ui.ts` (step labels, suggestions, error messages, answer parsing), with `@ai-sdk/react` pinned to 4.0.121, the release that depends on exactly the installed `ai` (7.0.118): later ones would install a second copy. `REVIEWER_HEADER` moved to `src/lib/chat/context.ts`
+  - The context is read when a question is sent: the view from the map's bounds (no re-render per pan), the selected window, the handle's hour, and the newest layer response's `end`. The reviewer key is read from `window.location.search` at send time (`useSearchParams` would need a Suspense boundary on the static `/`)
+  - Suggestions show while the chat is empty, from the counts the legend shows (all of the loaded map, not the view): species when there are recorded observations, thermal activity when there are also detections, conditions when weather readings are loaded, freshness always. The questions name the selected window. Until 10d, detections just across the border count too
+  - Answers are parsed into paragraphs, bullet and numbered lists, bold and `[source:id]` citations (`parseAnswer`) and built as React elements, never HTML: model output is untrusted. Owning the parser makes 10c's citation links a small change. The system prompt now limits formatting to those; anything else shows as plain text. Citations show as small muted text until 10c
+  - Errors: a non-2xx response reaches useChat as an `APICallError` holding the body, so the route's own message is shown (and a 429's bucket); anything else is "Something went wrong. Try again." When a request fails, its error replaces the no-answer fallback rather than both showing. Input is disabled while a reply streams (a second question would use a quota slot and interleave replies) and capped at 2,000 characters with a counter near the limit. The panel scrolls to the newest step as the reply streams
+  - Verified (2026-09-30): tests (301 passing), typecheck, lint. Not seen in a browser by Claude (no dev server started): the layout, streaming steps, reviewer label and 429 message are Mike's to check
 - [ ] 10c: Evidence on the map
   - Evidence from the turn's tool results highlighted on the map by ID (iNaturalist and FIRMS IDs match the map's; weather evidence carries the sample point's ID), clicking one flies to it and opens its popup and source link. Evidence outside the loaded window is listed with its link instead. Inline `[source:id]` citations become links only if `validCitations` keeps them
   - An answer's coverage and limitations shown compactly under it
+- [ ] 10d: Clip "California" to the state outline (after 10c, before Phase 11)
+  - The Live bbox takes in parts of Nevada, Oregon, Arizona and Baja California, so statewide answers include e.g. a cluster at 40.82, -114.26 in Nevada (3.2 MW max, cluster #4 in the production fire answer, 2026-09-30). Once 10c shows clusters on the map, reviewers will see it
+  - Load California's outline as a polygon (public domain source, one migration) and add `ST_Intersects` to the shared tool queries alongside the bbox. Ingestion and coverage stay rectangle-based: coverage is what was read; the outline filters what's counted
 - Decision log candidates awaiting Mike's approval:
   - Reviewer key through a link, kept in a cookie (alternatives: a code typed into a form; real auth, a brief non-goal; one shared bucket, which public traffic could use up)
   - Evidence taken from tool results, and citations checked against them (alternative: trusting IDs in the model's text, which it can invent or garble)
@@ -179,12 +190,17 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - Proximity reported per detection cluster, largest first (alternatives: the closest pairs statewide, which surfaced static heat sources in towns; dropping weak detections by default, which also drops small real fires)
   - The model sees a trimmed tool result, the UI the full one (alternative: the same result for both, ~40% more input tokens per tool call)
   - A zero near the largest clusters is explained, and a 10 km / 48 h search offered (alternatives: reporting the zero bare, which reads as "no wildlife near fires"; offering the 25 km / 72 h maximum, which takes in almost every detection and can reach before the stored data)
+  - `chat_requests.limited` as nullable text, null meaning served (alternatives: a boolean plus a separate column for which limit; a `'none'` value). One column records which limit fired, and the partial indexes are built around `limited is null`
+  - Suggested questions only when the loaded window has the data (alternatives: a fixed list, which offers a thermal activity question with no detections; checking the current view, more accurate but needs map state per pan)
+  - Tool steps shown live with plain-language labels (alternative: a spinner until the answer arrives, hiding the 5 to 12 s of tool calls and what the answer rests on)
+  - Answers parsed by our own small renderer (alternatives: `react-markdown`, which needs a remark plugin or a text-node override to turn `[source:id]` into evidence links in 10c; raw text with visible asterisks). It builds React elements only, and the prompt limits formatting to what it handles
 
 ## Phase 11: Agent evals (right after Phase 10, not optional)
 
 - [ ] 10–15 questions with expected behaviour (answers, refuses, flags stale data, picks the right tool), run by `pnpm eval` against the deployed model. Graded by code, not an LLM. Kept out of `pnpm test`: it calls the real API
   - Include a question hard enough to use all 8 steps, checking the reply still ends with text (the last-step instruction works), alongside the `chat_requests` no-answer flag in production
   - Include a fire question, checking the answer leads with the largest clusters rather than the closest pairs statewide
+- [ ] Trim the tool schemas' ISO date patterns (~3k of the ~9k cached prefix, see "Known limitations from Phase 10")
 
 ## Phase 12: Weather on the map
 
@@ -217,7 +233,6 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - Incremental map refreshes (e.g. a `since` parameter) instead of re-downloading each whole layer on every refetch (~2 MB of iNaturalist every 5 minutes per open tab)
 - Fix the flaky weather poll test (issue #9)
 - Record why records failed validation (the first failing record's ID and Zod issue paths) on the ingestion run, so a paused iNaturalist feed can be diagnosed from the run alone
-- Clip "California" to the state outline, not its bounding box: the Live bbox takes in parts of Nevada, Oregon, Arizona and Baja California, so statewide answers include e.g. a 24-detection cluster near 40.82, -114.26 in Nevada (seen 2026-09-30)
 - Filter persistent static heat sources out of the detection tools: the same pixel lighting up on most nights (industrial sites, flares). Today they're only stated in limitations and pushed down by ranking clusters by size
 - Draw each precise recorded observation's accuracy radius at its ground size when zoomed in (the map rows already carry positional accuracy)
 - Upgrade maplibre-gl to v6 once the worker loads under Turbopack, or by serving its worker files ourselves (decisions.md, 10)
@@ -285,7 +300,7 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - **The reviewer key stays in the address bar:** by design (no redirect), so it shows in screenshots, browser history and Vercel's request logs. It only raises a rate limit, and rotating `REVIEWER_ACCESS_KEY` invalidates it and every cookie
 - **Tool schemas carry long ISO date patterns:** `z.iso.datetime` adds a ~600-character regex to every range field (~3k tokens across the six tools). Prompt caching makes it cheap after the first message; trimming it means changing `rangeSchema` (Phase 9)
 - **Chat counts can differ slightly from the map's:** same range, but the map's layer can be up to 40 minutes old (CDN) while the tools query the database now
-- **"California" is a bounding box:** statewide answers include detections and observations just across the border (see "Later")
+- **"California" is a bounding box:** statewide answers include detections and observations just across the border (fix planned in 10d)
 
 ### Known limitations from Phase 6 (check later)
 
