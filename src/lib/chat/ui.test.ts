@@ -1,6 +1,14 @@
 import { APICallError, type UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { answerMissing, chatError, loadedData, parseAnswer, stepLabel, suggestedQuestions } from "@/lib/chat/ui";
+import {
+	answerMissing,
+	chatError,
+	loadedData,
+	parseAnswer,
+	remainingNote,
+	stepLabel,
+	suggestedQuestions,
+} from "@/lib/chat/ui";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 
@@ -71,6 +79,15 @@ describe("loadedData", () => {
 			detections: false,
 			weather: false,
 		});
+	});
+});
+
+describe("remainingNote", () => {
+	it("names whichever limit comes first", () => {
+		expect(remainingNote({ hourly: 4, daily: 12 })).toBe("4 questions left this hour");
+		expect(remainingNote({ hourly: 5, daily: 1 })).toBe("1 question left today");
+		expect(remainingNote({ hourly: 0, daily: 0 })).toBe("0 questions left today");
+		expect(remainingNote(null)).toBeNull();
 	});
 });
 

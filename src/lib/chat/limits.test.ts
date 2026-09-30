@@ -1,7 +1,7 @@
 // Runs against the local Supabase stack (see vitest.config.mts). Requests are dated 2001, apart from
 // any real chat use, and their IP hashes start with "test:limits:".
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { admitRequest, chatLimits, recordUsage } from "@/lib/chat/limits";
+import { admitRequest, chatLimits, recordUsage, remainingQuota } from "@/lib/chat/limits";
 import { sql } from "@/lib/db";
 
 const LIMITS = { hourlyPerIp: 2, daily: 3 };
@@ -124,5 +124,16 @@ describe("recordUsage", () => {
 			no_answer: false,
 		});
 		expect(row.finished_at).toEqual(at(1));
+	});
+});
+
+describe("remainingQuota", () => {
+	it("says how many more questions the IP can ask this hour and the bucket today, never below zero", async () => {
+		await admitRequest("public", ip("a"), LIMITS, at(0));
+		await admitRequest("public", ip("b"), LIMITS, at(10));
+		expect(await remainingQuota("public", ip("a"), LIMITS, at(20))).toEqual({ hourly: 1, daily: 1 });
+		await admitRequest("public", ip("a"), LIMITS, at(30));
+		expect(await remainingQuota("public", ip("a"), LIMITS, at(40))).toEqual({ hourly: 0, daily: 0 });
+		expect(await remainingQuota("reviewer", ip("a"), LIMITS, at(40))).toEqual({ hourly: 2, daily: 3 });
 	});
 });

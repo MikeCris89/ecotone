@@ -73,6 +73,13 @@ export function answerMissing(message: UIMessage): boolean {
 	return answerText(message.parts) === "";
 }
 
+/** The limit the user will reach first, as a short note; null when the count is unknown. */
+export function remainingNote(remaining: { hourly: number; daily: number } | null): string | null {
+	if (!remaining) return null;
+	const [left, period] = remaining.hourly < remaining.daily ? [remaining.hourly, "this hour"] : [remaining.daily, "today"];
+	return `${left} ${left === 1 ? "question" : "questions"} left ${period}`;
+}
+
 const GENERIC_ERROR = "Something went wrong. Try again.";
 // The chat route's error body: every non-2xx answer carries a message meant for the user.
 const errorBodySchema = z.object({ error: z.string(), bucket: z.enum(["public", "reviewer"]).optional() });

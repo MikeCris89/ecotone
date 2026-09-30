@@ -88,6 +88,20 @@ export async function admitRequest(
 	});
 }
 
+/** How many more questions a bucket and IP can ask now: within the hourly and daily limits. */
+export async function remainingQuota(
+	bucket: Bucket,
+	ipHash: string,
+	limits: Limits,
+	now = new Date(),
+): Promise<{ hourly: number; daily: number }> {
+	const served = await servedCounts(sql, bucket, ipHash, now);
+	return {
+		hourly: Math.max(0, limits.hourlyPerIp - served.hourly),
+		daily: Math.max(0, limits.daily - served.daily),
+	};
+}
+
 export type Usage = {
 	durationMs: number;
 	inputTokens: number | null;
