@@ -3,6 +3,7 @@
 // counted separately, since they answer different questions.
 import { z } from "zod";
 import {
+	animalGroupLabel,
 	areaSchema,
 	type Coverage,
 	getCoverage,
@@ -65,7 +66,7 @@ export type NearDetections = {
 	// enough to count: location known only to over PRECISE_ACCURACY_M or obscured, unknown
 	// accuracy, or a date without a time.
 	excluded: { imprecise: number; unknownAccuracy: number; dateOnly: number };
-	animalGroups: { group: string | null; count: number }[];
+	animalGroups: { group: string | null; label: string; count: number }[];
 	// The largest detection clusters, whether or not anything was recorded near them, so the answer
 	// leads with the likeliest fires rather than with whichever detections sit closest to observers
 	// (often static heat sources in towns). `closest` is the cluster's closest pair.
@@ -268,7 +269,7 @@ export async function observationsNearDetections(
 			detectionsWithObservations,
 			observations: { total, beforeDetection, afterDetection },
 			excluded: { imprecise: counts.imprecise, unknownAccuracy: counts.unknownAccuracy, dateOnly: counts.dateOnly },
-			animalGroups: [...groups],
+			animalGroups: groups.map(({ group, count }) => ({ group, label: animalGroupLabel(group), count })),
 			clusters: clusterRows.map((row) => ({
 				rank: row.rank,
 				longitude: row.longitude,

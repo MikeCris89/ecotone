@@ -4,6 +4,7 @@
 import { z } from "zod";
 import {
 	ANIMAL_GROUPS,
+	animalGroupLabel,
 	areaSchema,
 	type Coverage,
 	DEFAULT_FILTERS,
@@ -173,13 +174,14 @@ async function totalsIn(area: Bbox, window: Window, filter: Filter): Promise<Tot
 }
 
 async function groupsIn(area: Bbox, window: Window, filter: Filter) {
-	return sql<{ group: string | null; count: number }[]>`
+	const groups = await sql<{ group: string | null; count: number }[]>`
 		${observationsIn(area, window, filter)}
 		select iconic_taxon as group, count(*)::int as count
 		from observations
 		group by iconic_taxon
 		order by count desc, iconic_taxon
 	`;
+	return groups.map(({ group, count }) => ({ group, label: animalGroupLabel(group), count }));
 }
 
 function dateOnlyLimitations(dateOnly: number): string[] {
@@ -222,7 +224,8 @@ export type ObservationSummary = Totals & {
 	// day that wasn't read isn't mistaken for a day with no recorded observations. Date-only records
 	// count on their own date.
 	days: { date: string; count: number; readHours: number }[];
-	animalGroups: { group: string | null; count: number }[];
+	// group is iNaturalist's iconic taxon (what the animalGroup filter takes), label its English name.
+	animalGroups: { group: string | null; label: string; count: number }[];
 	// Taxa as identified, species or coarser (a genus-level ID counts as its genus).
 	topTaxa: { scientificName: string; commonName: string | null; rank: string; count: number }[];
 };
@@ -353,6 +356,7 @@ export type PeriodComparison = {
 	refusedBecause: string | null;
 	animalGroups: {
 		group: string | null;
+		label: string;
 		before: number;
 		after: number;
 		percentChange: number | null;
@@ -456,6 +460,7 @@ export async function comparePeriods(
 			animalGroups: groupNames
 				.map((group) => ({
 					group,
+					label: animalGroupLabel(group),
 					before: countOf(beforeGroups, group),
 					after: countOf(afterGroups, group),
 					percentChange: change(countOf(beforeGroups, group), countOf(afterGroups, group)),

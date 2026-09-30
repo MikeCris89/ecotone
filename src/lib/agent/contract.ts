@@ -65,6 +65,27 @@ export const ANIMAL_GROUPS = [
 ] as const;
 export type AnimalGroup = (typeof ANIMAL_GROUPS)[number];
 
+// English names for answers, so the model never translates. "Animalia" holds the animals in none of
+// the other groups (crabs, woodlice, anemones, sea stars…) as well as records identified only as
+// animals, so it's "other animals".
+const ANIMAL_GROUP_LABELS: Record<AnimalGroup, string> = {
+	Aves: "birds",
+	Mammalia: "mammals",
+	Reptilia: "reptiles",
+	Amphibia: "amphibians",
+	Actinopterygii: "ray-finned fishes",
+	Mollusca: "mollusks",
+	Arachnida: "arachnids",
+	Insecta: "insects",
+	Animalia: "other animals",
+};
+
+/** A group's English label; an unexpected group keeps its own name. */
+export function animalGroupLabel(group: string | null): string {
+	if (group === null) return "no group recorded";
+	return ANIMAL_GROUP_LABELS[group as AnimalGroup] ?? group;
+}
+
 /** One record behind a result, with what's needed to follow it to its source and show it on the map. */
 export type Evidence = {
 	source: Source;
