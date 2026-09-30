@@ -22,7 +22,8 @@ const JUN_3 = day("2003-06-03").start;
 const JUN_4 = day("2003-06-04").start;
 const JUN_5 = day("2003-06-05").start;
 const JUN_6 = day("2003-06-06").start;
-// The run reads Jun 1 to Jun 10 (California dates). Its last 48 hours are the upload-lag band.
+// The run reads Jun 1 through Jun 9 (California dates) right as Jun 9 ends, so its last 48 hours
+// are the upload-lag band.
 const RUN_START = "2003-06-01T07:00:00Z";
 const RUN_END = "2003-06-10T07:00:00Z";
 
@@ -82,13 +83,19 @@ const rows = [
 	...[0, 1, 2, 3, 4].map((minute) =>
 		row({ observed_on: "2003-06-05", observed_at: `2003-06-05T18:0${minute}:00.000Z` }),
 	),
+	// Jun 10, after the run's window: stored (as a later live poll could), but in no read hour.
+	row({ observed_on: "2003-06-10", observed_at: "2003-06-10T09:00:00.000Z" }),
 	// Never counted: casual, outside the area, before every range.
 	row({ observed_on: "2003-06-02", observed_at: "2003-06-02T20:00:00.000Z", quality_grade: "casual" }),
 	row({ observed_on: "2003-06-02", observed_at: "2003-06-02T20:00:00.000Z", longitude: -142 }),
 	row({ observed_on: "2003-06-01", observed_at: "2003-06-01T12:00:00.000Z" }),
 ];
 
+// A corner of the run's bbox that a live poll with rejected records also covers.
+const REJECTED_AREA = { west: -139.3, south: 21.7, east: -139.2, north: 21.8 };
+
 let runId: string;
+let rejectingRunId: string;
 
 beforeAll(async () => {
 	const dataset = await getDataset("live-california");
@@ -112,11 +119,26 @@ beforeAll(async () => {
 		coveredUntil: new Date(RUN_END),
 	});
 	await finishRun(runId, "succeeded");
+	// Read as its window ended, like the live seed: its last 48 hours hadn't had time for late uploads.
+	await sql`update ingestion_runs set started_at = ${RUN_END} where id = ${runId}`;
+
+	// It read nothing (no covered_until), so it adds no coverage, only its rejections.
+	rejectingRunId = await startRun({
+		source: "inaturalist",
+		datasetId: dataset.id,
+		mode: "live",
+		bbox: { west: -139.4, south: 21.6, east: -139.1, north: 21.9 },
+		windowStart: new Date("2003-06-20T00:00:00Z"),
+		windowEnd: new Date("2003-06-21T00:00:00Z"),
+		timeField: "updated",
+		filters: { test: "agent/observations.test.ts" },
+	});
+	await finishRun(rejectingRunId, "partial", "3 records failed validation and were not stored");
 });
 
 afterAll(async () => {
 	await sql`delete from inat_observations where inat_id in ${sql(rows.map((r) => r.inat_id))}`;
-	await sql`delete from ingestion_runs where id = ${runId}`;
+	await sql`delete from ingestion_runs where id in ${sql([runId, rejectingRunId])}`;
 	await sql.end();
 });
 
@@ -201,6 +223,8 @@ describe("summarizeObservations", () => {
 			unread: [{ start: new Date(RUN_END).toISOString(), end: new Date(end).toISOString() }],
 		});
 		expect(coverage.sources[0].statement).toMatch(/^Read 192 of 197 hours\. Not read: /);
+		// The Jun 10 record is stored but in no read hour: counted, but not in the rate.
+		expect(result).toMatchObject({ matched: 15, matchedInReadHours: 14 });
 		expect(result!.perDay).toBe(Number(((14 / 192) * 24).toFixed(1)));
 	});
 
@@ -231,6 +255,14 @@ describe("summarizeObservations", () => {
 		expect(elsewhere.insufficient?.reason).toBe("No stored inaturalist data covers this area and range.");
 	});
 
+	it("says when live polls rejected records that may belong in the range, and isn't complete", async () => {
+		const { coverage } = await summarizeObservations({ area: REJECTED_AREA, range: { start: JUN_2, end: JUN_5 } });
+
+		expect(coverage.complete).toBe(false);
+		expect(coverage.sources[0]).toMatchObject({ readHours: 72, rejected: 3 });
+		expect(coverage.sources[0].statement).toContain("Live polls since the range began rejected 3 records");
+	});
+
 	it("is insufficient for a range in the future", async () => {
 		const { insufficient } = await summarizeObservations(
 			{ area: AREA, range: { start: JUN_2, end: JUN_5 } },
@@ -240,13 +272,16 @@ describe("summarizeObservations", () => {
 		expect(insufficient?.reason).toMatch(/future/);
 	});
 
-	it("rejects an inverted area or a range longer than the maximum", async () => {
+	it("rejects an inverted area, or a range shorter than an hour or longer than the maximum", async () => {
 		await expect(
 			summarizeObservations({ area: { ...AREA, west: -139, east: -141 }, range: { start: JUN_2, end: JUN_5 } }),
 		).rejects.toThrow(ZodError);
 		await expect(
 			summarizeObservations({ area: AREA, range: { start: "2003-05-01T00:00:00Z", end: "2003-06-05T00:00:00Z" } }),
 		).rejects.toThrow(/at most 31 days/);
+		await expect(
+			summarizeObservations({ area: AREA, range: { start: JUN_2, end: "2003-06-02T07:30:00Z" } }),
+		).rejects.toThrow(/at least 1 hour/);
 	});
 });
 

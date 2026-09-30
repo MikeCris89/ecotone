@@ -97,7 +97,7 @@ Reordered 2026-09-30 for the final day: the agent is the missing requirement, so
 - [x] 9a: Tool contract, input checks, coverage; data status, observation summary and period comparison tools (`src/lib/agent/`)
   - Coverage loads the runs whose bbox contains the requested area (`getRunsCovering`), from any dataset, and reuses `sourceFreshness`. Comparisons refuse when the periods' read shares differ by more than 10 points (`MAX_READ_FRACTION_DIFFERENCE`); percent changes need 5 recorded observations in both periods (`MIN_COMPARE_COUNT`)
   - Verified locally (2026-09-30): tests (222 passing), typecheck, lint, and each tool run once on the local data (California, 3 days: ~100 ms)
-  - Known limitation: the settling band sits at the newest read hours. An area with only historical runs (no live polls after them) would get its last 48 hours flagged as upload lag. That errs toward caution; revisit with CZU
+  - Review fixes: rates count only records in read hours and use unrounded read hours; ranges are at least 1 hour; live-poll rejections reach the coverage statement and make it incomplete. Settling bands now come from when hours were read (decisions.md, 20), so backfilled history has none
 - [ ] 9b: Thermal detection clusters, observations near detections, modeled conditions
 - Tools are plain functions taking an area and a time range, not tied to the live window, so stored history (CZU, fetched on request) works without changes. What data exists comes from ingestion-run coverage; a separate maximum range length only protects query speed
 - Coverage: rates are computed over the hours actually read, and each source reports "read N of M hours". `insufficient` only below 80% read; comparisons also refuse when the periods' coverage differs too much

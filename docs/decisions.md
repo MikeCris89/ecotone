@@ -167,12 +167,44 @@ Showing a single hour makes the map flicker. Most hours have no satellite pass, 
 
 ## 20. Coverage and freshness
 
-**Decision:** A source's coverage is the union of its successful runs' read ranges, on observation (or acquisition) time. Partial runs count as likely incomplete, and the newest read hours are marked as settling: FIRMS 3 hours, iNaturalist uploads 48 hours. iNaturalist's update-time cursor counts as observation-time coverage, because a record is uploaded after it's observed. Each source gets one statement that keeps how far it has been read apart from how settled that is, e.g. "Read through Sep 29, 8:10 PM PT. Before Sep 27, 8:10 PM PT: mostly complete, late uploads still possible. Last 48 h: likely incomplete while uploads arrive." The map and the agent quote it rather than any bare `covered_until`.
+**Decision:** A source's coverage is the union of its successful runs' read ranges, on observation (or acquisition) time. Partial runs count as likely incomplete, and hours read too soon after they happened are marked as settling: less than 48 hours before the read for iNaturalist uploads, 6 hours for FIRMS (3 hours of NRT latency plus 3 of publishing). So live data's newest hours settle, while history backfilled long after has no settling band. (Phase 9 review: the band first sat at the newest read hours, which would have flagged the last 48 hours of any backfilled history. Suggested by Claude; I agreed.) iNaturalist's update-time cursor counts as observation-time coverage, because a record is uploaded after it's observed. Each source gets one statement that keeps how far it has been read apart from how settled that is, e.g. "Read through Sep 29, 8:10 PM PT. Before Sep 27, 8:10 PM PT: mostly complete, late uploads still possible. Last 48 h: likely incomplete while uploads arrive." The map and the agent quote it rather than any bare `covered_until`.
 
 **Considered:** the latest run's `covered_until` only; a settling band sized from measured upload delays; a reason code column on `ingestion_runs`.
 
 The latest run alone hides outages in the middle of the window, and would show a backfill date's superseded partial attempts as gaps. Measured upload delays would be more precise, but the fixed bands match what seeding showed (Phase 5) and need no extra query. Partial-run reasons are read from the error messages the ingestion code writes, which needs no migration. **Tradeoffs:** the band widths are estimates, not guarantees. A reworded error message falls back to "stopped by an error". iNaturalist records rejected by validation can't be placed in time, so they're stated as a count of rejections (one record re-read by overlapping polls counts again) rather than marked on the timeline.
 
-## 21. Open decisions
+## 21. Agent before CZU
+
+**Decision:** With one day left, build the agent first (tools, chat, evals), then weather on the map and the README. CZU becomes a stretch goal, loaded for the agent only if time allows.
+
+**Considered:** CZU first as planned, with a thinner agent; the agent fetching missing history on demand instead of CZU.
+
+The production agent is the one evaluated requirement still missing, and natural-language questions are what the challenge is built around. On-demand fetching needs everything CZU needs plus coverage by area, abuse limits (the URL is public) and a map that can show other windows, so it's my answer to "how would this evolve", not a one-day build. **Tradeoff:** "historical" rests on the stored live window (a week and growing) until CZU lands. The tools are ready for it (22).
+
+## 22. Agent tools take an area and a time range
+
+**Decision:** Every tool is a plain function over a bbox and a time range. What data exists comes from the stored ingestion runs whose bbox contains the area, not from the live window. A separate 31-day cap only protects query speed. Suggested by Claude; I agreed.
+
+**Considered:** tools tied to the live window, or to a dataset or mode.
+
+Tied to Live, CZU and fetched history would each need their own tools. Reading coverage from runs means any backfilled area and range can be answered as soon as it's stored. **Tradeoff:** coverage is by bbox containment, so a run over all of California covers any area inside it, even where a source has no sample points (between weather grid points). The weather tool states its distance to the nearest point instead.
+
+## 23. Report coverage gaps instead of refusing
+
+**Decision:** Tools compute over the hours actually read and say so ("Read 192 of 197 hours"). Rates count only records in read hours, per read hour. Tools answer `insufficient` only below 80% read, and a comparison is refused when its periods' read shares differ by more than 10 points. The first plan refused on any gap; reviewing it with Claude's help, I changed it to this.
+
+**Considered:** refusing on any gap; answering over the whole range with a warning.
+
+Live ingestion always has small gaps (a failed poll, an API hiccup), so refusing on any gap would make the agent refuse constantly, which reads as broken rather than careful. Answering over the whole range would divide by hours nobody read. The two numbers are judgment calls: 80% is roughly where a total stops representing its range, and past 10 points apart, uneven reading can skew a comparison even per hour, since the gaps may fall on the busy hours. I'd tune both with real outage data. **Tradeoff:** an hour read only partly counts as read, so a partial run can still flatter a range's coverage; the statement names those stretches.
+
+## 24. Evidence for aggregate answers
+
+**Decision:** A count's evidence is the exact query (area, range, filters, coverage) plus up to 10 sample records picked deterministically (newest; closest for proximity), each with its ID, source link, license and times. Suggested by Claude; I agreed.
+
+**Considered:** returning every matching record; random samples.
+
+Every record would swamp the model: a California-wide 3-day summary matches ~12,000. A handful of records can't prove a total, but the query reproduces it, and the IDs let the map highlight the samples. Random samples would make the evals flaky. **Tradeoff:** the model sees examples, not the full set, so the UI must offer the full set through the query.
+
+## 25. Open decisions
 
 - Charting library for the agent's metrics (the timeline uses plain SVG, 19)

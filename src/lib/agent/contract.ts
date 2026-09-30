@@ -34,7 +34,8 @@ export const rangeSchema = z
 		start: z.iso.datetime({ offset: true }),
 		end: z.iso.datetime({ offset: true }),
 	})
-	.refine(({ start, end }) => Date.parse(start) < Date.parse(end), "start must be before end")
+	// Every source is stored by the hour at best, so a shorter range can't say anything reliable.
+	.refine(({ start, end }) => Date.parse(end) - Date.parse(start) >= HOUR_MS, "A range must be at least 1 hour")
 	.refine(
 		({ start, end }) => Date.parse(end) - Date.parse(start) <= MAX_RANGE_DAYS * 24 * HOUR_MS,
 		`A range can be at most ${MAX_RANGE_DAYS} days`,
@@ -76,13 +77,19 @@ export type Evidence = {
 /** How much of a range one source has read, over the requested area. Times are ISO. */
 export type SourceCoverage = {
 	source: Source;
+	// To the hundredth: rates divide by readHours, so they aren't rounded to whole hours.
 	requestedHours: number;
 	readHours: number;
 	readFraction: number;
+	// Read by a successful or partial run; rates count only records in these.
+	read: Span[];
 	// Never read: no successful or partial run covered them.
 	unread: Span[];
 	// Read, but a partial run, or the newest hours the source can still add to.
 	likelyIncomplete: IncompleteSpan[];
+	// Records live polls rejected since the range began (iNaturalist). They weren't stored and can't
+	// be placed in time, so any of them may belong in the range.
+	rejected: number;
 	statement: string;
 };
 
@@ -159,12 +166,14 @@ export async function getCoverage(
 		const readHours = hours(read);
 		return {
 			source,
-			requestedHours: Math.round(requestedHours),
-			readHours: Math.round(readHours),
+			requestedHours: Number(requestedHours.toFixed(2)),
+			readHours: Number(readHours.toFixed(2)),
 			readFraction: readHours / requestedHours,
+			read: read.map(toSpan),
 			unread: unread.map(toSpan),
 			likelyIncomplete,
-			statement: coverageStatement(readHours, requestedHours, unread, likelyIncomplete),
+			rejected: freshness.rejected,
+			statement: coverageStatement(readHours, requestedHours, unread, likelyIncomplete, freshness.rejected),
 		};
 	});
 }
@@ -175,7 +184,13 @@ const INCOMPLETE_REASONS: Record<IncompleteSpan["reason"], string> = {
 	"upload-lag": "uploads still arriving",
 };
 
-function coverageStatement(readHours: number, requestedHours: number, unread: Interval[], incomplete: IncompleteSpan[]) {
+function coverageStatement(
+	readHours: number,
+	requestedHours: number,
+	unread: Interval[],
+	incomplete: IncompleteSpan[],
+	rejected: number,
+) {
 	const sentences = [`Read ${Math.round(readHours)} of ${Math.round(requestedHours)} hours`];
 	if (unread.length > 0) {
 		sentences.push(`Not read: ${unread.map(([start, end]) => `${formatTime(start)} to ${formatTime(end)}`).join("; ")}`);
@@ -183,6 +198,12 @@ function coverageStatement(readHours: number, requestedHours: number, unread: In
 	for (const span of incomplete) {
 		sentences.push(
 			`${formatTime(Date.parse(span.start))} to ${formatTime(Date.parse(span.end))}: likely incomplete, ${INCOMPLETE_REASONS[span.reason]}`,
+		);
+	}
+	if (rejected > 0) {
+		sentences.push(
+			`Live polls since the range began rejected ${rejected} record${rejected === 1 ? "" : "s"} that failed validation ` +
+				"(a record re-read by a later poll counts again). They weren't stored and can't be placed in time, so some may belong here",
 		);
 	}
 	return `${sentences.join(". ")}.`;
@@ -202,7 +223,9 @@ export function insufficientCoverage(coverage: SourceCoverage[]): { reason: stri
 }
 
 export const isComplete = (coverage: SourceCoverage[]) =>
-	coverage.every((source) => source.unread.length === 0 && source.likelyIncomplete.length === 0);
+	coverage.every(
+		(source) => source.unread.length === 0 && source.likelyIncomplete.length === 0 && source.rejected === 0,
+	);
 
 /** Whether any of the range falls in the source's upload-lag band. */
 export const hasUploadLag = (coverage: SourceCoverage) =>

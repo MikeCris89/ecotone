@@ -221,6 +221,48 @@ describe("sourceFreshness", () => {
 		);
 	});
 
+	it("has no settling band for history read long after it happened", () => {
+		const historyWindow: [number, number] = [at("2020-08-01T07:00:00Z"), NOW];
+		const readIn2026 = { windowStart: at("2020-08-01T07:00:00Z"), windowEnd: at("2020-08-10T07:00:00Z"), mode: "backfill" as const };
+		const inat = sourceFreshness(
+			"inaturalist",
+			[run({ ...readIn2026, source: "inaturalist", coveredUntil: readIn2026.windowEnd })],
+			historyWindow,
+		);
+		const firms = sourceFreshness(
+			"firms",
+			["VIIRS_SNPP_NRT", "VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT"].map((product) =>
+				run({ ...readIn2026, source: "firms", product, coveredUntil: readIn2026.windowEnd }),
+			),
+			historyWindow,
+		);
+
+		for (const freshness of [inat, firms]) {
+			expect(freshness.complete).toEqual([{ start: iso(readIn2026.windowStart), end: iso(readIn2026.windowEnd) }]);
+			expect(freshness.likelyIncomplete).toEqual([]);
+		}
+		expect(inat.statement).not.toContain("likely incomplete");
+	});
+
+	it("settles recent hours once a later read comes 48 hours after them", () => {
+		const backfill = (startedAt: number) =>
+			run({
+				source: "inaturalist",
+				mode: "backfill",
+				windowStart: NOW - 72 * HOUR,
+				windowEnd: NOW - 48 * HOUR,
+				coveredUntil: NOW - 48 * HOUR,
+				startedAt,
+			});
+		// Read 36 hours after the window started: none of it had had 48 hours for uploads.
+		const early = sourceFreshness("inaturalist", [backfill(NOW - 36 * HOUR)], WINDOW);
+		expect(early.likelyIncomplete).toEqual([
+			{ start: iso(NOW - 72 * HOUR), end: iso(NOW - 48 * HOUR), reason: "upload-lag" },
+		]);
+		// Re-read now: settled.
+		expect(sourceFreshness("inaturalist", [backfill(NOW - 36 * HOUR), backfill(NOW)], WINDOW).likelyIncomplete).toEqual([]);
+	});
+
 	it("keeps saying how many records live polls rejected after a later poll succeeds", () => {
 		const poll = (overrides: Partial<FreshnessRun>) =>
 			run({ source: "inaturalist", timeField: "updated", windowStart: WINDOW[0], coveredUntil: NOW - 20 * MINUTE, ...overrides });
@@ -244,8 +286,9 @@ describe("sourceFreshness", () => {
 			VIIRS_NOAA20_NRT: NOW - 3 * HOUR,
 			VIIRS_NOAA21_NRT: NOW - 6 * HOUR,
 		};
+		// Like a real poll, each reads through 3 hours (the NRT latency) before it starts.
 		const runs = Object.entries(coveredUntil).map(([product, until]) =>
-			run({ source: "firms", product, windowStart: WINDOW[0], coveredUntil: until }),
+			run({ source: "firms", product, windowStart: WINDOW[0], coveredUntil: until, startedAt: until + 3 * HOUR }),
 		);
 		const freshness = sourceFreshness("firms", runs, WINDOW);
 		const settled = NOW - (6 + FIRMS_SETTLING_HOURS) * HOUR;

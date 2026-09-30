@@ -21,6 +21,7 @@ import {
 } from "@/lib/agent/contract";
 import { type Interval, intersect, subtract } from "@/lib/coverage";
 import type { Bbox } from "@/lib/datasets";
+import type { Span } from "@/lib/freshness";
 import { localDate, nextDate, startOfLocalDate } from "@/lib/dates";
 import { sql } from "@/lib/db";
 import { DEFAULT_QUALITY_GRADES, PRECISE_ACCURACY_M } from "@/lib/default-filters";
@@ -42,13 +43,16 @@ const filterSchema = {
 };
 
 type Filter = { animalGroup?: (typeof ANIMAL_GROUPS)[number]; taxon?: string };
-type Window = { start: Date; end: Date };
+// `read`, when set, keeps only records that may have happened in those spans: what a rate over
+// read hours may count. Records in unread hours can still be stored (a later live poll can bring
+// in an observation from a gap), and counting them over read hours alone would inflate the rate.
+type Window = { start: Date; end: Date; read?: Span[] };
 
 /**
  * The CTE `observations`: recorded observations in the area that may have happened in the window,
  * with each one's [observed_from, observed_to) as the map defines it (InatMapRow).
  */
-function observationsIn(area: Bbox, { start, end }: Window, { animalGroup, taxon }: Filter) {
+function observationsIn(area: Bbox, { start, end, read }: Window, { animalGroup, taxon }: Filter) {
 	return sql`
 		with candidates as (
 			select
@@ -67,6 +71,14 @@ function observationsIn(area: Bbox, { start, end }: Window, { animalGroup, taxon
 		observations as (
 			select * from candidates
 			where observed_from < ${end} and (observed_to > ${start} or observed_from >= ${start})
+				${read ? sql`and exists (
+					select 1
+					from unnest(
+						${sql.array(read.map((span) => span.start))}::timestamptz[],
+						${sql.array(read.map((span) => span.end))}::timestamptz[]
+					) as read_span (read_start, read_end)
+					where observed_from < read_end and (observed_to > read_start or observed_from >= read_start)
+				)` : sql``}
 		)
 	`;
 }
@@ -173,6 +185,10 @@ function coverageOf(area: Bbox, window: Window, filter: Filter, sources: SourceC
 }
 
 const perDay = (count: number, readHours: number) => (readHours > 0 ? round((count / readHours) * 24) : null);
+
+/** The window, limited to its read hours when some weren't read. */
+const readPart = (window: Window, coverage: SourceCoverage): Window =>
+	coverage.unread.length > 0 ? { ...window, read: coverage.read } : window;
 const round = (value: number, digits = 1) => Number(value.toFixed(digits));
 
 // ---------------------------------------------------------------------------------------------
@@ -186,7 +202,9 @@ export const summarizeObservationsInput = z.object({
 });
 
 export type ObservationSummary = Totals & {
-	// Per day of read time; null when nothing was read.
+	// Recorded observations in the range's read hours, and their rate per day of read time (null
+	// when nothing was read). Equal to `matched` when every hour was read.
+	matchedInReadHours: number;
 	perDay: number | null;
 	// Every California date in the range, with its count and how many of its hours were read, so a
 	// day that wasn't read isn't mistaken for a day with no recorded observations. Date-only records
@@ -211,8 +229,10 @@ export async function summarizeObservations(
 	const insufficient = insufficientCoverage(sources);
 	if (insufficient) return { result: null, evidence: [], coverage, limitations: [], insufficient };
 
-	const [totals, groups, taxa, days, evidence] = await Promise.all([
+	const [inat] = sources;
+	const [totals, inRead, groups, taxa, days, evidence] = await Promise.all([
 		totalsIn(area, window, filter),
+		inat.unread.length > 0 ? totalsIn(area, readPart(window, inat), filter) : null,
 		groupsIn(area, window, filter),
 		sql<ObservationSummary["topTaxa"]>`
 			${observationsIn(area, window, filter)}
@@ -237,11 +257,12 @@ export async function summarizeObservations(
 		evidenceIn(area, window, filter, EVIDENCE_LIMIT),
 	]);
 
-	const [inat] = sources;
+	const matchedInReadHours = (inRead ?? totals).matched;
 	return {
 		result: {
 			...totals,
-			perDay: perDay(totals.matched, inat.readHours),
+			matchedInReadHours,
+			perDay: perDay(matchedInReadHours, inat.readHours),
 			days: dailyCounts(window, inat, days),
 			animalGroups: [...groups],
 			topTaxa: [...taxa],
@@ -302,6 +323,7 @@ type PeriodResult = {
 	label: string;
 	start: string;
 	end: string;
+	// In the period's read hours.
 	matched: number;
 	readHours: number;
 	readFraction: number;
@@ -366,13 +388,16 @@ export async function comparePeriods(
 		};
 	}
 
+	// Every count in a comparison is over read hours only, since its rates are.
+	const beforeRead = readPart(beforeWindow, beforeCoverage[0]);
+	const afterRead = readPart(afterWindow, afterCoverage[0]);
 	const [beforeTotals, afterTotals, beforeGroups, afterGroups, beforeEvidence, afterEvidence] = await Promise.all([
-		totalsIn(area, beforeWindow, filter),
-		totalsIn(area, afterWindow, filter),
-		groupsIn(area, beforeWindow, filter),
-		groupsIn(area, afterWindow, filter),
-		evidenceIn(area, beforeWindow, filter, EVIDENCE_LIMIT / 2),
-		evidenceIn(area, afterWindow, filter, EVIDENCE_LIMIT / 2),
+		totalsIn(area, beforeRead, filter),
+		totalsIn(area, afterRead, filter),
+		groupsIn(area, beforeRead, filter),
+		groupsIn(area, afterRead, filter),
+		evidenceIn(area, beforeRead, filter, EVIDENCE_LIMIT / 2),
+		evidenceIn(area, afterRead, filter, EVIDENCE_LIMIT / 2),
 	]);
 
 	const period = (
@@ -392,6 +417,7 @@ export async function comparePeriods(
 	});
 	const beforeResult = period(before.label ?? "Before", beforeWindow, beforeTotals, beforeCoverage[0]);
 	const afterResult = period(after.label ?? "After", afterWindow, afterTotals, afterCoverage[0]);
+	// Both periods have read hours here (insufficientCoverage), so the rates are finite.
 	const change = (beforeCount: number, afterCount: number) =>
 		beforeCount < MIN_COMPARE_COUNT || afterCount < MIN_COMPARE_COUNT
 			? null
