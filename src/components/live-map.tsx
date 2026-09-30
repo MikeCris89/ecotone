@@ -41,6 +41,13 @@ const CALIFORNIA: [[number, number], [number, number]] = [
 // stacking order whichever response lands first.
 const EMPTY: PointCollection<never> = { type: "FeatureCollection", features: [] };
 
+// MapLibre rejects `filter: undefined` when adding a layer and skips it, so a layer gets no filter
+// prop until its data (and window) exists. Every layer is then added at style load, in the order
+// written, and later filters go through setFilter on a layer that exists.
+function windowFilter(filter: ReturnType<typeof instantWindowFilter> | undefined) {
+	return filter ? { filter } : {};
+}
+
 async function fetchLayer<T>(source: string): Promise<T> {
 	const response = await fetch(`/api/map/${source}`);
 	if (!response.ok) throw new Error(`${source} map layer: HTTP ${response.status}`);
@@ -120,7 +127,7 @@ export function LiveMap() {
 					<Layer
 						id="weather-points"
 						type="circle"
-						filter={weatherFilter}
+						{...windowFilter(weatherFilter)}
 						layout={{ visibility: visibility("weather") }}
 						paint={{
 							"circle-radius": 6,
@@ -141,7 +148,7 @@ export function LiveMap() {
 						id="inaturalist-heat"
 						type="heatmap"
 						maxzoom={9}
-						filter={inatFilter}
+						{...windowFilter(inatFilter)}
 						layout={{ visibility: visibility("inaturalist") }}
 						paint={{
 							"heatmap-radius": ["interpolate", ["linear"], ["zoom"], 4, 6, 9, 18],
@@ -170,7 +177,7 @@ export function LiveMap() {
 						id="inaturalist-points"
 						type="circle"
 						minzoom={7}
-						filter={inatFilter}
+						{...windowFilter(inatFilter)}
 						layout={{ visibility: visibility("inaturalist") }}
 						paint={{
 							"circle-radius": ["match", ["get", "precision"], "obscured", 8, 4],
@@ -200,7 +207,7 @@ export function LiveMap() {
 					<Layer
 						id="firms-points"
 						type="circle"
-						filter={firmsFilter}
+						{...windowFilter(firmsFilter)}
 						layout={{ visibility: visibility("firms") }}
 						paint={{
 							"circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 3, 10, 6],
