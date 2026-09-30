@@ -10,6 +10,9 @@ import { formatTime, spanToHour, TRAILING_HOURS } from "@/lib/timeline";
 // access.ts, which imports node:crypto and can't reach the browser.
 export const REVIEWER_HEADER = "x-reviewer-key";
 
+// The latest time a JavaScript Date can hold, in seconds.
+const MAX_DATE_S = 8.64e12;
+
 const WINDOWS = Object.keys(WINDOW_HOURS) as [MapWindow, ...MapWindow[]];
 
 // The map's `end` is the server clock when its layer was requested, then cached by the CDN for up
@@ -21,8 +24,9 @@ export const chatContextSchema = z.object({
 	// Any numbers: MapLibre's bounds can pass ±180 when zoomed out, and the view is clipped anyway.
 	view: z.object({ west: z.number(), south: z.number(), east: z.number(), north: z.number() }),
 	window: z.enum(WINDOWS),
-	// The handle's hour (epoch seconds, its start), or null when the whole window is shown.
-	hour: z.number().int().nullable(),
+	// The handle's hour (epoch seconds, its start), or null when the whole window is shown. Bounded to
+	// times a Date can hold, so formatting an earlier question's hour can't throw.
+	hour: z.number().int().min(0).max(MAX_DATE_S).nullable(),
 	// Where the client's timeline ends: the newest map layer response's `end`.
 	end: z.iso.datetime({ offset: true }).nullable(),
 });
