@@ -9,6 +9,21 @@ import { inatInWindow, instantInWindow, type TimeWindow } from "@/lib/map-layers
 // The live-california dataset's timezone (datasets.timezone), the one date-only spans are built in.
 export const CALIFORNIA_TIME_ZONE = "America/Los_Angeles";
 
+// Every time in the app is California time, whatever the browser's zone, so the timeline, legend,
+// popups and coverage statements agree. "PT" rather than PDT or PST, so the label doesn't flip at
+// the DST change.
+const timeFormat = new Intl.DateTimeFormat([], {
+	timeZone: CALIFORNIA_TIME_ZONE,
+	month: "short",
+	day: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+});
+
+export function formatTime(epochMs: number) {
+	return `${timeFormat.format(epochMs)} PT`;
+}
+
 export const HOUR = 60 * 60;
 
 // How far back the map shows while scrubbing, so thermal detections from sparse satellite passes

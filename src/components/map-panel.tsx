@@ -10,7 +10,7 @@ import {
 import type { SourceAttribution } from "@/lib/data-sources";
 import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
 import { FIRMS_CLUSTER, type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
-import { CALIFORNIA_TIME_ZONE, WEATHER_MAX_AGE_HOURS } from "@/lib/timeline";
+import { formatTime, WEATHER_MAX_AGE_HOURS } from "@/lib/timeline";
 
 export type LayerVisibility = { inaturalist: boolean; firms: boolean; weather: boolean };
 
@@ -43,20 +43,6 @@ type MapPanelProps = {
 	// points fall back to an earlier reading.
 	weather: LayerSummary & { hourShown: number | null; stale: number };
 };
-
-// Every time in the app is California time, whatever the browser's zone, so the timeline, legend
-// and popups agree. "PT" rather than PDT or PST, so the label doesn't flip at the DST change.
-const timeFormat = new Intl.DateTimeFormat([], {
-	timeZone: CALIFORNIA_TIME_ZONE,
-	month: "short",
-	day: "numeric",
-	hour: "numeric",
-	minute: "2-digit",
-});
-
-export function formatTime(epochMs: number) {
-	return `${timeFormat.format(epochMs)} PT`;
-}
 
 // Top-left, above the timeline (the parent stacks them), leaving the right side for the chat panel.
 export function MapPanel(props: MapPanelProps) {

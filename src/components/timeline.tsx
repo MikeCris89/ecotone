@@ -2,11 +2,11 @@
 
 import { type KeyboardEvent, memo, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { DETECTION_COLOR, OBSERVATION_COLOR } from "@/components/map-colors";
-import { formatTime } from "@/components/map-panel";
 import type { TimeWindow } from "@/lib/map-layers";
 import {
 	CALIFORNIA_TIME_ZONE,
 	type DayCount,
+	formatTime,
 	HOUR,
 	hourAxis,
 	lastHour,

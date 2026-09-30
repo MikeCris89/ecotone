@@ -3,12 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import Image from "next/image";
 import { type ReactNode, useEffect, useRef } from "react";
-import { formatTime } from "@/components/map-panel";
 import type { SourceAttribution } from "@/lib/data-sources";
 import type { FirmsMapDetails } from "@/lib/firms/map";
 import type { InatMapDetails } from "@/lib/inaturalist/map";
 import { inatPrecision, LAYER_REFRESH_MINUTES } from "@/lib/map-layers";
-import { HOUR } from "@/lib/timeline";
+import { formatTime, HOUR } from "@/lib/timeline";
 import type { WeatherMapPoint, WeatherMapRow } from "@/lib/open-meteo/map";
 
 /**
