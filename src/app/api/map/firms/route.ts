@@ -1,7 +1,7 @@
 import { getSourceAttribution } from "@/lib/data-sources";
 import { getDataset, LIVE_DATASET_SLUG } from "@/lib/datasets";
 import { getFirmsMapLayer } from "@/lib/firms/map";
-import { MAP_CACHE_HEADERS, MAP_QUERY_ERROR, parseMapQuery } from "@/lib/map-query";
+import { MAP_QUERY_ERROR, mapCacheHeaders, parseMapQuery } from "@/lib/map-query";
 
 /**
  * Satellite thermal detections for the Live California map: GET /api/map/firms?window=24h|3d|7d,
@@ -15,7 +15,7 @@ export async function GET(request: Request) {
 		if (!query) return Response.json({ ok: false, error: MAP_QUERY_ERROR }, { status: 400 });
 
 		const [layer, attribution] = await Promise.all([getFirmsMapLayer(query), getSourceAttribution("firms")]);
-		return Response.json({ ok: true, ...query, ...layer, attribution }, { headers: MAP_CACHE_HEADERS });
+		return Response.json({ ok: true, ...query, ...layer, attribution }, { headers: mapCacheHeaders("firms") });
 	} catch (error) {
 		console.error("FIRMS map query failed", error);
 		return Response.json({ ok: false, error: "FIRMS map query failed" }, { status: 500 });

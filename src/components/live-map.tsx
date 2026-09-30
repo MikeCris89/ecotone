@@ -20,6 +20,8 @@ import {
 	inatWindowFilter,
 	instantInWindow,
 	instantWindowFilter,
+	LAYER_REFRESH_MINUTES,
+	type MapLayerName,
 	type MapLayerResponse,
 	type MapWindow,
 	type PointCollection,
@@ -47,7 +49,7 @@ function windowFilter(filter: ReturnType<typeof instantWindowFilter> | undefined
 	return filter ? { filter } : {};
 }
 
-async function fetchLayer<T>(source: string): Promise<T> {
+async function fetchLayer<T>(source: MapLayerName): Promise<T> {
 	const response = await fetch(`/api/map/${source}`);
 	if (!response.ok) throw new Error(`${source} map layer: HTTP ${response.status}`);
 	return response.json();
@@ -56,7 +58,8 @@ async function fetchLayer<T>(source: string): Promise<T> {
 // Each layer refreshes on its source's poll cadence. The query key never changes (the window is
 // applied on the client), so a refetch, or a failed one, keeps showing the previous data without
 // needing placeholderData.
-function useMapLayer<T>(source: string, minutes: number) {
+function useMapLayer<T>(source: MapLayerName) {
+	const minutes = LAYER_REFRESH_MINUTES[source].poll;
 	return useQuery({
 		queryKey: ["map-layer", source],
 		queryFn: () => fetchLayer<T>(source),
@@ -89,9 +92,9 @@ export function LiveMap() {
 	const [mapWindow, setMapWindow] = useState<MapWindow>("7d");
 	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: false });
 
-	const inaturalist = useMapLayer<MapLayerResponse<InatMapRow>>("inaturalist", 5);
-	const firms = useMapLayer<MapLayerResponse<FirmsMapRow>>("firms", 15);
-	const weather = useMapLayer<WeatherLayerResponse>("weather", 60);
+	const inaturalist = useMapLayer<MapLayerResponse<InatMapRow>>("inaturalist");
+	const firms = useMapLayer<MapLayerResponse<FirmsMapRow>>("firms");
+	const weather = useMapLayer<WeatherLayerResponse>("weather");
 
 	// Built once per response; a new object here is what makes MapLibre re-read the data.
 	const inatData = useMemo(() => (inaturalist.data ? inatGeoJson(inaturalist.data.rows) : EMPTY), [inaturalist.data]);

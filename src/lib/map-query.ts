@@ -1,13 +1,16 @@
 import { z } from "zod";
 import type { Bbox, Dataset } from "@/lib/datasets";
 import { sql } from "@/lib/db";
-import { type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
+import { LAYER_REFRESH_MINUTES, type MapLayerName, type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
 
 export type MapQuery = { bbox: Bbox; start: Date; end: Date };
 
-// Layers change only when a poll lands (every 5 minutes at most), so Vercel's CDN can answer
-// repeat requests: fresh for a minute, then served stale for up to 5 more while it refetches.
-export const MAP_CACHE_HEADERS = { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" };
+// Layers change only when their source's poll lands, so Vercel's CDN can answer repeat requests
+// without touching the database. Durations per layer are in LAYER_REFRESH_MINUTES.
+export function mapCacheHeaders(layer: MapLayerName) {
+	const { poll, cdnFresh } = LAYER_REFRESH_MINUTES[layer];
+	return { "Cache-Control": `public, s-maxage=${cdnFresh * 60}, stale-while-revalidate=${poll * 60}` };
+}
 
 const WINDOWS = Object.keys(WINDOW_HOURS) as [MapWindow, ...MapWindow[]];
 

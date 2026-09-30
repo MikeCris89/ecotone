@@ -14,6 +14,18 @@ import type { WeatherMapPoint, WeatherMapRow } from "@/lib/open-meteo/map";
 export const WINDOW_HOURS = { "24h": 24, "3d": 72, "7d": 168 } as const;
 export type MapWindow = keyof typeof WINDOW_HOURS;
 
+// Each layer's source poll interval, and how long Vercel's CDN treats a response as fresh: about a
+// third of the interval. The CDN then serves it stale for up to one more interval while it
+// refetches, so a response is at most fresh + poll minutes old, small next to each source's own
+// latency (FIRMS ~3 hours after a pass, hourly model output, iNaturalist upload lag of hours to
+// days). The client refetches once per poll interval, never faster than the CDN refreshes.
+export const LAYER_REFRESH_MINUTES = {
+	inaturalist: { poll: 5, cdnFresh: 2 },
+	firms: { poll: 15, cdnFresh: 5 },
+	weather: { poll: 60, cdnFresh: 20 },
+} as const;
+export type MapLayerName = keyof typeof LAYER_REFRESH_MINUTES;
+
 /** A map layer route's JSON body. `start` and `end` are ISO timestamps. */
 export type MapLayerResponse<Row> = MapLayer<Row> & { start: string; end: string; attribution: SourceAttribution };
 export type WeatherLayerResponse = MapLayerResponse<WeatherMapRow> & { points: WeatherMapPoint[] };

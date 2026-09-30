@@ -12,6 +12,12 @@ const attributions = {
 	firms: { name: "NASA FIRMS", license: "CC0 1.0" },
 	weather: { name: "Open-Meteo", license: "CC BY 4.0", licenseUrl: "https://creativecommons.org/licenses/by/4.0/" },
 };
+// Fresh for about a third of the source's poll interval, then stale for up to one more interval.
+const cacheControl = {
+	inaturalist: "public, s-maxage=120, stale-while-revalidate=300",
+	firms: "public, s-maxage=300, stale-while-revalidate=900",
+	weather: "public, s-maxage=1200, stale-while-revalidate=3600",
+};
 // In the Pacific, where no source has data: the responses stay small.
 const OCEAN = "west=-130.5&south=29.5&east=-129.5&north=30.5";
 
@@ -20,11 +26,11 @@ afterAll(async () => {
 });
 
 describe.each(Object.entries(routes))("GET /api/map/%s", (source, GET) => {
-	it("lets the CDN cache a layer briefly", async () => {
+	it("lets the CDN cache a layer for part of its poll interval", async () => {
 		const response = await GET(new Request(`http://localhost/api/map/${source}?window=24h&${OCEAN}`));
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get("Cache-Control")).toBe("public, s-maxage=60, stale-while-revalidate=300");
+		expect(response.headers.get("Cache-Control")).toBe(cacheControl[source as keyof typeof cacheControl]);
 		expect(await response.json()).toMatchObject({ ok: true, total: 0, truncated: false, rows: [] });
 	});
 
