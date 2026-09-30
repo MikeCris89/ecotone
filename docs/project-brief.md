@@ -169,7 +169,7 @@ The exact schema is **open for discussion**, but these constraints are decided:
 - **Positional uncertainty** is stored when available and treated as unknown (not zero) when missing
 - **Quality grade** (iNaturalist) is stored on every record. The default display/analysis filter must be **the same in both modes** so Live and CZU are comparable. Note: fresh live observations are mostly "needs ID," while GBIF-derived CZU counts were research-grade only. All grades are ingested (see decisions.md, 13). The default is research + needs ID (see decisions.md, 18)
 - **Mode/dataset membership:** a way to associate records with the Live region or the CZU case study (e.g. a datasets/presets table with bbox, time window, period boundaries)
-- **Pre-aggregated time buckets** (e.g. hourly or daily counts per source, per animal group) to keep timeline scrubbing fast
+- **Pre-aggregated time buckets** (e.g. hourly or daily counts per source, per animal group) to keep timeline scrubbing fast. Live counts its buckets in the browser from the loaded rows instead; CZU may need them (decisions.md, 19)
 
 ### 5.3 Handling stale, missing, and conflicting data
 
@@ -297,7 +297,7 @@ This honesty is a deliberate strength of the submission, not a weakness to minim
 - CZU: before / during / after periods are visually marked
 - Live: the timeline covers the collected window, with the most recent upload-lag zone marked as likely incomplete
 - FIRMS playback reflects discrete satellite pass times
-- Timeline granularity, playback speed, and visual design: **Open for discussion**
+- Timeline granularity and visual design: decided in decisions.md, 19. Playback speed: Phase 7b
 
 ---
 
