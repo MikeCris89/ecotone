@@ -1,11 +1,15 @@
 import { APICallError, type UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import type { Evidence } from "@/lib/agent/contract";
+import { citeAnswer } from "@/lib/chat/citations";
 import {
 	answerMissing,
 	answerNotes,
 	chatError,
 	citationLabel,
+	evidenceGeoJson,
 	loadedData,
+	numberedEvidence,
 	parseAnswer,
 	remainingNote,
 	retryMessage,
@@ -173,6 +177,79 @@ describe("citationLabel", () => {
 		expect(citationLabel("inaturalist", 1)).toBe("obs 1");
 		expect(citationLabel("firms", 2)).toBe("detection 2");
 		expect(citationLabel("open-meteo", 3)).toBe("weather 3");
+	});
+});
+
+function evidence(source: Evidence["source"], id: string, longitude = -120, latitude = 37): Evidence {
+	return {
+		source,
+		id,
+		url: `https://example.com/${id}`,
+		label: id,
+		longitude,
+		latitude,
+		observedAt: "2026-09-30T21:00:00.000Z",
+		retrievedAt: "2026-09-30T21:20:00.000Z",
+		license: null,
+		attribution: "test",
+	};
+}
+
+const OBSERVATION = evidence("inaturalist", "102", -121.5, 38.2);
+const DETECTION = evidence("firms", "snpp:2026-09-29T10:00:00.000Z:37.1,-120.2", -120.2, 37.1);
+const WEATHER = evidence("open-meteo", "93:2026-09-30T21:00:00.000Z", -119.8, 36.9);
+
+describe("numberedEvidence", () => {
+	it("numbers the cited records first, in citation order, as their chips are numbered", () => {
+		const cited = citeAnswer(
+			[`Hot [firms:${DETECTION.id}] and dry [open-meteo:${WEATHER.id}].`],
+			[OBSERVATION, DETECTION, WEATHER],
+		).cited;
+		const numbered = numberedEvidence([OBSERVATION, DETECTION, WEATHER], cited);
+		expect(numbered.map(({ key, number, cited }) => ({ key, number, cited }))).toEqual([
+			{ key: `firms:${DETECTION.id}`, number: 1, cited: true },
+			{ key: `open-meteo:${WEATHER.id}`, number: 2, cited: true },
+			{ key: "inaturalist:102", number: 3, cited: false },
+		]);
+	});
+
+	it("keeps the evidence order when nothing is cited", () => {
+		const numbered = numberedEvidence([OBSERVATION, DETECTION], []);
+		expect(numbered.map(({ record, number, cited }) => [record, number, cited])).toEqual([
+			[OBSERVATION, 1, false],
+			[DETECTION, 2, false],
+		]);
+	});
+
+	it("matches cited records by source and ID, not by object", () => {
+		const numbered = numberedEvidence([OBSERVATION, DETECTION], [{ ...DETECTION }]);
+		expect(numbered.map(({ key }) => key)).toEqual([`firms:${DETECTION.id}`, "inaturalist:102"]);
+	});
+});
+
+describe("evidenceGeoJson", () => {
+	const numbered = numberedEvidence([OBSERVATION, DETECTION, WEATHER], []);
+
+	it("puts each marker at its record's own coordinates, with its source", () => {
+		const { features } = evidenceGeoJson(numbered, null);
+		expect(features.map(({ geometry, properties }) => [geometry.coordinates, properties])).toEqual([
+			[[-121.5, 38.2], { key: "inaturalist:102", source: "inaturalist", focused: false }],
+			[[-120.2, 37.1], { key: `firms:${DETECTION.id}`, source: "firms", focused: false }],
+			[[-119.8, 36.9], { key: `open-meteo:${WEATHER.id}`, source: "open-meteo", focused: false }],
+		]);
+	});
+
+	it("flags the focused record and draws it last, on top", () => {
+		const { features } = evidenceGeoJson(numbered, "inaturalist:102");
+		expect(features.map(({ properties }) => [properties.key, properties.focused])).toEqual([
+			[`firms:${DETECTION.id}`, false],
+			[`open-meteo:${WEATHER.id}`, false],
+			["inaturalist:102", true],
+		]);
+	});
+
+	it("has no features without evidence", () => {
+		expect(evidenceGeoJson([], null).features).toEqual([]);
 	});
 });
 

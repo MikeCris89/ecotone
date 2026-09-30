@@ -14,7 +14,12 @@ import Map, {
 } from "react-map-gl/maplibre";
 import { ChatPanel } from "@/components/chat-panel";
 import { type LayerSummary, type LayerVisibility, MapPanel } from "@/components/map-panel";
-import { MapPopupContent, type MapSelection, type WeatherPopupData } from "@/components/map-popup";
+import {
+	EvidencePopupContent,
+	MapPopupContent,
+	type MapSelection,
+	type WeatherPopupData,
+} from "@/components/map-popup";
 import { Timeline } from "@/components/timeline";
 import {
 	DETECTION_COLOR,
@@ -23,7 +28,7 @@ import {
 	TEMPERATURE_COLOR,
 } from "@/components/map-colors";
 import type { ChatContext } from "@/lib/chat/context";
-import { loadedData, suggestedQuestions } from "@/lib/chat/ui";
+import { evidenceGeoJson, loadedData, type NumberedEvidence, suggestedQuestions } from "@/lib/chat/ui";
 import { layerCoverage } from "@/lib/coverage";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { Freshness } from "@/lib/freshness";
@@ -75,9 +80,14 @@ const CALIFORNIA: [[number, number], [number, number]] = [
 // stacking order whichever response lands first.
 const EMPTY: PointCollection<never> = { type: "FeatureCollection", features: [] };
 
-// Clickable layers. Their source IDs match MapSelection's sources, except FIRMS clusters, which
-// aren't records: clicking one zooms in until it splits.
-const INTERACTIVE_LAYERS = ["firms-clusters", "firms-points", "inaturalist-points", "weather-points"];
+// Clickable layers. Their source IDs match MapSelection's sources, except FIRMS clusters (not
+// records: clicking one zooms in until it splits) and the answer's evidence markers.
+const INTERACTIVE_LAYERS = ["evidence-points", "firms-clusters", "firms-points", "inaturalist-points", "weather-points"];
+
+// The zoom a picked record is flown to, unless the map is already zoomed in further.
+const EVIDENCE_ZOOM = 10;
+// Neutral, since the temperature scale owns the weather layer's colours.
+const WEATHER_EVIDENCE_COLOR = "#71717a";
 
 // Zooms over which iNaturalist circles fade in. The heatmap fades out more slowly, until zoom 9.
 const INAT_POINTS_FADE = { from: 7, to: 8 };
@@ -110,6 +120,12 @@ function recordsAt(event: MapLayerMouseEvent): MapSelection[] {
 
 function isCluster(feature: NonNullable<MapLayerMouseEvent["features"]>[number]) {
 	return feature.layer.id === "firms-clusters";
+}
+
+// The topmost evidence marker under the pointer: markers are drawn above every layer.
+function evidenceAt(event: MapLayerMouseEvent): string | undefined {
+	const key = event.features?.find(({ source }) => source === "evidence")?.properties.key;
+	return typeof key === "string" ? key : undefined;
 }
 
 async function zoomIntoCluster(event: MapLayerMouseEvent) {
@@ -210,6 +226,10 @@ export function LiveMap() {
 	const [mapWindow, setMapWindow] = useState<MapWindow>("7d");
 	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: false });
 	const [selection, setSelection] = useState<MapSelection | null>(null);
+	// The newest answer's evidence, and the record whose popup is open. That popup is anchored at the
+	// record's own coordinates, so unlike the layers' it stays open whatever the timeline shows.
+	const [highlight, setHighlight] = useState<NumberedEvidence[]>([]);
+	const [focused, setFocused] = useState<NumberedEvidence | null>(null);
 	// The start of the timeline handle's hour (epoch seconds), or null for the whole window.
 	const [hour, setHour] = useState<number | null>(null);
 	const [cursor, setCursor] = useState<string>();
@@ -359,6 +379,24 @@ export function LiveMap() {
 			end: latestEnd === null ? null : new Date(latestEnd).toISOString(),
 		};
 	}, []);
+	// A new answer (or none) replaces the markers; an open evidence popup stays only if its record is
+	// still among them, renumbered as the new answer numbers it.
+	const showEvidence = useCallback((evidence: NumberedEvidence[]) => {
+		setHighlight(evidence);
+		setFocused((current) => (current && evidence.find(({ key }) => key === current.key)) ?? null);
+	}, []);
+	// One popup at a time: opening a record from the chat closes the layer's.
+	const focusEvidence = useCallback((entry: NumberedEvidence) => {
+		setFocused(entry);
+		setSelection(null);
+		const map = mapRef.current;
+		map?.flyTo({
+			center: [entry.record.longitude, entry.record.latitude],
+			zoom: Math.max(map.getZoom(), EVIDENCE_ZOOM),
+		});
+	}, []);
+	const evidenceData = useMemo(() => evidenceGeoJson(highlight, focused?.key ?? null), [highlight, focused]);
+
 	const suggestions = useMemo(
 		() => suggestedQuestions(loadedData(mapWindow, inaturalist.data, firms.data, weather.data)),
 		[mapWindow, inaturalist.data, firms.data, weather.data],
@@ -377,12 +415,21 @@ export function LiveMap() {
 				interactiveLayerIds={INTERACTIVE_LAYERS}
 				cursor={cursor}
 				onMouseMove={(event) =>
-					setCursor(recordsAt(event).length || event.features?.some(isCluster) ? "pointer" : undefined)
+					setCursor(
+						evidenceAt(event) || recordsAt(event).length || event.features?.some(isCluster) ? "pointer" : undefined,
+					)
 				}
 				onClick={(event) => {
+					const key = evidenceAt(event);
+					if (key) {
+						setFocused(highlight.find((entry) => entry.key === key) ?? null);
+						setSelection(null);
+						return;
+					}
 					if (event.features?.[0] && isCluster(event.features[0])) return void zoomIntoCluster(event);
 					const [top, ...rest] = recordsAt(event);
 					setSelection(top ? { ...top, more: rest.length } : null);
+					setFocused(null);
 				}}
 			>
 				<Source id="weather" type="geojson" data={weatherData}>
@@ -500,6 +547,39 @@ export function LiveMap() {
 						}}
 					/>
 				</Source>
+				{/* Last, so the answer's evidence is drawn above every layer, whatever the timeline or toggles. */}
+				<Source id="evidence" type="geojson" data={evidenceData}>
+					<Layer
+						id="evidence-points"
+						type="circle"
+						paint={{
+							"circle-radius": ["case", ["get", "focused"], 8, 5],
+							"circle-color": [
+								"match",
+								["get", "source"],
+								"inaturalist",
+								OBSERVATION_COLOR,
+								"firms",
+								DETECTION_COLOR,
+								WEATHER_EVIDENCE_COLOR,
+							],
+							"circle-stroke-color": "#18181b",
+							"circle-stroke-width": ["case", ["get", "focused"], 3, 2],
+						}}
+					/>
+				</Source>
+				{focused && (
+					<Popup
+						ref={popupRef}
+						longitude={focused.record.longitude}
+						latitude={focused.record.latitude}
+						closeOnClick={false}
+						maxWidth="none"
+						onClose={() => setFocused(null)}
+					>
+						<EvidencePopupContent entry={focused} onResize={reanchorPopup} />
+					</Popup>
+				)}
 				{selection && selectedFeature && (
 					// The map's click handler opens and closes popups, so MapLibre's own close-on-click stays off.
 					<Popup
@@ -546,7 +626,12 @@ export function LiveMap() {
 						/>
 					</div>
 					<div className="flex max-h-full min-h-0 flex-col pt-8">
-						<ChatPanel context={chatContext} suggestions={suggestions} />
+						<ChatPanel
+							context={chatContext}
+							suggestions={suggestions}
+							onHighlight={showEvidence}
+							onFocus={focusEvidence}
+						/>
 					</div>
 				</div>
 				{timeline && observationsPerHour && detectionsPerHour && (

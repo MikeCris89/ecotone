@@ -16,6 +16,8 @@ import {
 	chatError,
 	citationLabel,
 	type Inline,
+	type NumberedEvidence,
+	numberedEvidence,
 	parseAnswer,
 	remainingNote,
 	SOURCE_NAMES,
@@ -63,50 +65,65 @@ function evidenceTime(evidence: Evidence) {
 		: evidence.observedOn && formatDate(evidence.observedOn);
 }
 
-function Chip({ evidence, number }: { evidence: Evidence; number: number }) {
+// Chips and list labels are buttons only in the newest finished answer, whose evidence the map shows.
+type OnPick = ((entry: NumberedEvidence) => void) | undefined;
+
+function Chip({ entry, onPick }: { entry: NumberedEvidence; onPick: OnPick }) {
+	const { record, number } = entry;
+	const title = `${record.label}, ${evidenceTime(record)}`;
+	const className = "mx-0.5 rounded bg-zinc-100 px-1 py-px text-[11px] whitespace-nowrap text-zinc-600";
+	if (!onPick) {
+		return (
+			<span title={title} className={className}>
+				{citationLabel(record.source, number)}
+			</span>
+		);
+	}
 	return (
-		<span
-			title={`${evidence.label}, ${evidenceTime(evidence)}`}
-			className="mx-0.5 rounded bg-zinc-100 px-1 py-px text-[11px] whitespace-nowrap text-zinc-600"
+		<button
+			type="button"
+			title={title}
+			onClick={() => onPick(entry)}
+			className={`${className} cursor-pointer hover:bg-zinc-200`}
 		>
-			{citationLabel(evidence.source, number)}
-		</span>
+			{citationLabel(record.source, number)}
+		</button>
 	);
 }
 
-function InlineText({ inlines, cited }: { inlines: Inline[]; cited: Evidence[] }) {
+function InlineText({ inlines, numbered, onPick }: { inlines: Inline[]; numbered: NumberedEvidence[]; onPick: OnPick }) {
 	return inlines.map((inline, index) => {
 		if (inline.type === "bold") {
 			return (
 				<strong key={index}>
-					<InlineText inlines={inline.inlines} cited={cited} />
+					<InlineText inlines={inline.inlines} numbered={numbered} onPick={onPick} />
 				</strong>
 			);
 		}
 		if (inline.type === "italic") return <em key={index}>{inline.text}</em>;
 		if (inline.type === "citation") {
 			// citeAnswer has removed every citation no tool returned, so each one left has a number.
-			const number = cited.findIndex((record) => record.source === inline.source && record.id === inline.id) + 1;
-			return number > 0 && <Chip key={index} evidence={cited[number - 1]} number={number} />;
+			const entry = numbered.find(({ record }) => record.source === inline.source && record.id === inline.id);
+			return entry && <Chip key={index} entry={entry} onPick={onPick} />;
 		}
 		return <Fragment key={index}>{inline.text}</Fragment>;
 	});
 }
 
 // React elements only, never HTML: the text is the model's, so it's untrusted.
-function Answer({ text, cited }: { text: string; cited: Evidence[] }) {
+function Answer({ text, numbered, onPick }: { text: string; numbered: NumberedEvidence[]; onPick: OnPick }) {
 	return parseAnswer(text).map((block, index) => {
 		if (block.type === "paragraph") {
 			return (
 				<p key={index}>
-					<InlineText inlines={block.inlines} cited={cited} />
+					<InlineText inlines={block.inlines} numbered={numbered} onPick={onPick} />
 				</p>
 			);
 		}
 		if (block.type === "heading") {
 			return (
 				<p key={index} className="font-semibold">
-					<InlineText inlines={block.inlines} cited={cited} />
+					<InlineText inlines={block.inlines} numbered={numbered} onPick={onPick} />
 				</p>
 			);
 		}
@@ -115,7 +132,7 @@ function Answer({ text, cited }: { text: string; cited: Evidence[] }) {
 			<List key={index} className={`space-y-0.5 pl-5 ${block.ordered ? "list-decimal" : "list-disc"}`}>
 				{block.items.map((item, itemIndex) => (
 					<li key={itemIndex}>
-						<InlineText inlines={item} cited={cited} />
+						<InlineText inlines={item} numbered={numbered} onPick={onPick} />
 					</li>
 				))}
 			</List>
@@ -124,36 +141,53 @@ function Answer({ text, cited }: { text: string; cited: Evidence[] }) {
 }
 
 /** The answer's evidence: the cited records numbered as their chips, the rest of the samples behind "Show all". */
-function EvidenceList({ evidence, cited }: { evidence: Evidence[]; cited: Evidence[] }) {
-	const uncited = evidence.filter((record) => !cited.includes(record));
-	const item = (record: Evidence, number: number) => (
-		<li key={`${record.source}:${record.id}`}>
-			<span className="text-zinc-400">{citationLabel(record.source, number)}</span> {record.label},{" "}
-			{evidenceTime(record)}{" "}
-			<a
-				href={record.url}
-				target="_blank"
-				rel="noopener noreferrer"
-				title={record.license ? `${record.attribution}, ${record.license}` : record.attribution}
-				className="underline hover:text-zinc-900"
-			>
-				source
-			</a>
-		</li>
-	);
+function EvidenceList({ numbered, onPick }: { numbered: NumberedEvidence[]; onPick: OnPick }) {
+	const cited = numbered.filter((entry) => entry.cited);
+	const uncited = numbered.filter((entry) => !entry.cited);
+	const item = (entry: NumberedEvidence) => {
+		const { record, number } = entry;
+		const label = (
+			<>
+				<span className="text-zinc-400">{citationLabel(record.source, number)}</span> {record.label}
+			</>
+		);
+		return (
+			<li key={entry.key}>
+				{onPick ? (
+					<button
+						type="button"
+						onClick={() => onPick(entry)}
+						className="cursor-pointer text-left hover:text-zinc-900 hover:underline"
+					>
+						{label}
+					</button>
+				) : (
+					label
+				)}
+				, {evidenceTime(record)}{" "}
+				<a
+					href={record.url}
+					target="_blank"
+					rel="noopener noreferrer"
+					title={record.license ? `${record.attribution}, ${record.license}` : record.attribution}
+					className="underline hover:text-zinc-900"
+				>
+					source
+				</a>
+			</li>
+		);
+	};
 	return (
 		<div className="space-y-1 text-xs text-zinc-600">
 			<p className="font-medium text-zinc-500">Evidence</p>
-			{cited.length > 0 && <ul className="space-y-0.5">{cited.map((record, index) => item(record, index + 1))}</ul>}
+			{cited.length > 0 && <ul className="space-y-0.5">{cited.map(item)}</ul>}
 			{uncited.length > 0 && (
 				<details className="group">
 					<summary className="cursor-pointer text-zinc-500 hover:text-zinc-900">
-						<span className="group-open:hidden">Show all {evidence.length}</span>
+						<span className="group-open:hidden">Show all {numbered.length}</span>
 						<span className="hidden group-open:inline">Show fewer</span>
 					</summary>
-					<ul className="mt-0.5 space-y-0.5">
-						{uncited.map((record, index) => item(record, cited.length + index + 1))}
-					</ul>
+					<ul className="mt-0.5 space-y-0.5">{uncited.map(item)}</ul>
 				</details>
 			)}
 		</div>
@@ -199,18 +233,26 @@ function Step({ name, state, finished }: { name: string; state: string; finished
 	);
 }
 
-function Reply({ message, finished, failed }: { message: ChatMessage; finished: boolean; failed: boolean }) {
-	// Checked over all of the reply's text at once, so a record keeps one number across its steps.
-	const { texts, cited, unmatched, evidence, notes } = useMemo(() => {
-		const evidence = turnEvidence(message);
-		const textParts = message.parts.flatMap((part, index) =>
-			part.type === "text" && part.text.trim() ? [{ index, text: part.text }] : [],
-		);
-		const answer = citeAnswer(textParts.map(({ text }) => text), evidence);
+// Checked over all of the reply's text at once, so a record keeps one number across its steps.
+function readReply(message: ChatMessage) {
+	const evidence = turnEvidence(message);
+	const textParts = message.parts.flatMap((part, index) =>
+		part.type === "text" && part.text.trim() ? [{ index, text: part.text }] : [],
+	);
+	const answer = citeAnswer(textParts.map(({ text }) => text), evidence);
+	return {
 		// By part index, as the parts are rendered.
-		const texts = new Map(textParts.map(({ index }, i) => [index, answer.texts[i]]));
-		return { ...answer, texts, evidence, notes: answerNotes(message) };
-	}, [message]);
+		texts: new Map(textParts.map(({ index }, i) => [index, answer.texts[i]])),
+		unmatched: answer.unmatched,
+		numbered: numberedEvidence(evidence, answer.cited),
+		notes: answerNotes(message),
+	};
+}
+
+type ReplyProps = { message: ChatMessage; finished: boolean; failed: boolean; onPick: OnPick };
+
+function Reply({ message, finished, failed, onPick }: ReplyProps) {
+	const { texts, unmatched, numbered, notes } = useMemo(() => readReply(message), [message]);
 
 	return (
 		<div className="space-y-2">
@@ -227,7 +269,7 @@ function Reply({ message, finished, failed }: { message: ChatMessage; finished: 
 				}
 				// Reasoning parts (empty text plus a signature) and step markers aren't shown.
 				const text = texts.get(index);
-				if (text !== undefined) return <Answer key={index} text={text} cited={cited} />;
+				if (text !== undefined) return <Answer key={index} text={text} numbered={numbered} onPick={onPick} />;
 				return null;
 			})}
 			{/* A failed request shows its error instead. */}
@@ -240,7 +282,7 @@ function Reply({ message, finished, failed }: { message: ChatMessage; finished: 
 							{unmatched} {unmatched === 1 ? "citation" : "citations"} couldn&apos;t be matched to a tool result
 						</p>
 					)}
-					{evidence.length > 0 && <EvidenceList evidence={evidence} cited={cited} />}
+					{numbered.length > 0 && <EvidenceList numbered={numbered} onPick={onPick} />}
 					<AnswerNotes notes={notes} />
 				</>
 			)}
@@ -262,10 +304,16 @@ type ChatPanelProps = {
 	context: () => ChatContext;
 	// Only the questions the loaded data can answer, offered while the chat is empty.
 	suggestions: string[];
+	// The evidence the map marks: the newest finished answer's, or none.
+	onHighlight: (evidence: NumberedEvidence[]) => void;
+	// A chip or evidence list item was picked: the map flies to the record and opens it.
+	onFocus: (entry: NumberedEvidence) => void;
 };
 
+const NO_EVIDENCE: NumberedEvidence[] = [];
+
 // Memoized: the map re-renders on every pointer move over it.
-export const ChatPanel = memo(function ChatPanel({ context, suggestions }: ChatPanelProps) {
+export const ChatPanel = memo(function ChatPanel({ context, suggestions, onHighlight, onFocus }: ChatPanelProps) {
 	const queryClient = useQueryClient();
 	const access = useQuery({ queryKey: ACCESS_KEY, queryFn: fetchAccess, staleTime: Infinity });
 	// Each request uses up a question, so the count is fetched again once it's done.
@@ -282,6 +330,19 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions }: ChatP
 	const bucket =
 		access.data?.bucket ?? failure?.bucket ?? messages.findLast((message) => message.metadata?.bucket)?.metadata?.bucket;
 	const remaining = remainingNote(access.data?.remaining ?? null);
+
+	// Only the newest reply's evidence is marked, once it's finished, until it's cleared.
+	const last = messages.at(-1);
+	const newest = !busy && last?.role === "assistant" ? last : null;
+	const [clearedId, setClearedId] = useState<string | null>(null);
+	const newestEvidence = useMemo(() => (newest ? readReply(newest).numbered : NO_EVIDENCE), [newest]);
+	const highlighted = newest && newest.id !== clearedId ? newestEvidence : NO_EVIDENCE;
+	// The markers live in the map; handing them over here keeps the messages out of its state.
+	useEffect(() => onHighlight(highlighted), [highlighted, onHighlight]);
+	const pick = (entry: NumberedEvidence) => {
+		setClearedId(null);
+		onFocus(entry);
+	};
 
 	// Keeps the newest step or line in view as the reply streams.
 	useEffect(() => {
@@ -326,6 +387,14 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions }: ChatP
 					>
 						New chat
 					</button>
+					<button
+						type="button"
+						onClick={() => setClearedId(newest?.id ?? null)}
+						disabled={highlighted.length === 0}
+						className="rounded border border-zinc-200 px-1.5 py-0.5 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 disabled:hover:bg-transparent"
+					>
+						Clear highlights
+					</button>
 				</div>
 				<div className="flex items-center gap-2 text-xs">
 					{remaining && <span className="text-zinc-500">{remaining}</span>}
@@ -365,6 +434,7 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions }: ChatP
 							message={message}
 							finished={!(isLast && busy)}
 							failed={isLast && failure !== null}
+							onPick={message === newest ? pick : undefined}
 						/>
 					);
 				})}
