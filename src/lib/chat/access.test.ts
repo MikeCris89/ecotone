@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ipHash, REVIEWER_HEADER, reviewerAccess } from "@/lib/chat/access";
+import { ipHash, reviewerAccess } from "@/lib/chat/access";
+import { REVIEWER_HEADER } from "@/lib/chat/context";
 
 const KEY = "reviewer-key-1";
 const KEY_HASH = createHash("sha256").update(KEY).digest("hex");

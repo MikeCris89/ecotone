@@ -6,6 +6,10 @@ import type { Bbox } from "@/lib/datasets";
 import { type MapWindow, type TimeWindow, WINDOW_HOURS, windowBounds } from "@/lib/map-layers";
 import { formatTime, spanToHour, TRAILING_HOURS } from "@/lib/timeline";
 
+// The chat client sends the reviewer key from the page URL in this header. Here rather than in
+// access.ts, which imports node:crypto and can't reach the browser.
+export const REVIEWER_HEADER = "x-reviewer-key";
+
 const WINDOWS = Object.keys(WINDOW_HOURS) as [MapWindow, ...MapWindow[]];
 
 // The map's `end` is the server clock when its layer was requested, then cached by the CDN for up
