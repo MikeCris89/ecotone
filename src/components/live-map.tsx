@@ -66,14 +66,22 @@ function useMapLayer<T>(source: string, minutes: number) {
 	});
 }
 
-function summarize(query: UseQueryResult<MapLayerResponse<unknown>>, inWindow: number): LayerSummary {
+// `time` reads a row's time (the start of its span, for iNaturalist). The routes return rows newest
+// first and a capped layer drops the oldest, so the last row marks where the loaded data stops.
+function summarize<Row>(
+	query: UseQueryResult<MapLayerResponse<Row>>,
+	inWindow: number,
+	time: (row: Row) => number,
+): LayerSummary {
 	const { data } = query;
+	const lastRow = data?.truncated ? data.rows.at(-1) : undefined;
 	return {
 		loading: query.isPending,
 		failed: query.isError,
 		loadedAt: data ? query.dataUpdatedAt : null,
 		inWindow,
 		omitted: data ? data.total - data.rows.length : 0,
+		oldestLoaded: lastRow ? time(lastRow) : null,
 		attribution: data?.attribution ?? null,
 	};
 }
@@ -223,9 +231,9 @@ export function LiveMap() {
 				onWindowChange={setMapWindow}
 				visible={visible}
 				onVisibleChange={setVisible}
-				inaturalist={summarize(inaturalist, inatShown.length)}
-				firms={summarize(firms, firmsShown.length)}
-				weather={{ ...summarize(weather, weatherShown.length), latestHour }}
+				inaturalist={summarize(inaturalist, inatShown.length, (row) => row[3])}
+				firms={summarize(firms, firmsShown.length, (row) => row[3])}
+				weather={{ ...summarize(weather, weatherShown.length, (row) => row[1]), latestHour }}
 			/>
 		</div>
 	);

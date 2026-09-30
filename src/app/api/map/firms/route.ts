@@ -6,7 +6,7 @@ import { MAP_CACHE_HEADERS, MAP_QUERY_ERROR, parseMapQuery } from "@/lib/map-que
 /**
  * Satellite thermal detections for the Live California map: GET /api/map/firms?window=24h|3d|7d,
  * optionally bounded by west, south, east, north. Rows are FirmsMapRow tuples; `attribution`
- * is the source's from data_sources.
+ * is the source's license and attribution from data_sources.
  */
 export async function GET(request: Request) {
 	try {

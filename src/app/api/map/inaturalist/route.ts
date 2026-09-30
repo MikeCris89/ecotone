@@ -6,7 +6,7 @@ import { MAP_CACHE_HEADERS, MAP_QUERY_ERROR, parseMapQuery } from "@/lib/map-que
 /**
  * Recorded observations for the Live California map: GET /api/map/inaturalist?window=24h|3d|7d,
  * optionally bounded by west, south, east, north. Rows are InatMapRow tuples; `attribution`
- * is the source's from data_sources.
+ * is the source's license and attribution from data_sources.
  */
 export async function GET(request: Request) {
 	try {

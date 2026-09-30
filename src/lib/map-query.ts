@@ -3,9 +3,6 @@ import type { Bbox, Dataset } from "@/lib/datasets";
 import { sql } from "@/lib/db";
 import { WINDOW_HOURS } from "@/lib/map-layers";
 
-// Every window ends now. The map loads the widest once and narrows it on the client, so switching
-// windows (and, later, scrubbing) never waits on the network.
-
 export type MapQuery = { bbox: Bbox; start: Date; end: Date };
 
 // Layers change only when a poll lands (every 5 minutes at most), so Vercel's CDN can answer

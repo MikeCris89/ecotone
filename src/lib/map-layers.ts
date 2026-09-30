@@ -9,6 +9,8 @@ import type { InatMapRow } from "@/lib/inaturalist/map";
 import type { MapLayer } from "@/lib/map-query";
 import type { WeatherMapPoint, WeatherMapRow } from "@/lib/open-meteo/map";
 
+// Every window ends at the request time. The map loads the widest once and narrows it on the client,
+// so switching windows (and, later, scrubbing) never waits on the network.
 export const WINDOW_HOURS = { "24h": 24, "3d": 72, "7d": 168 } as const;
 export type MapWindow = keyof typeof WINDOW_HOURS;
 

@@ -6,7 +6,8 @@ import { getWeatherMapLayer } from "@/lib/open-meteo/map";
 /**
  * Modeled conditions for the Live California map: GET /api/map/weather?window=24h|3d|7d,
  * optionally bounded by west, south, east, north. Points are WeatherMapPoint tuples, rows
- * WeatherMapRow tuples; `attribution` is the source's from data_sources.
+ * WeatherMapRow tuples; `attribution` is the source's license and
+ * attribution from data_sources.
  */
 export async function GET(request: Request) {
 	try {

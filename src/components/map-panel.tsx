@@ -21,8 +21,10 @@ export type LayerSummary = {
 	// When the data on the map was fetched, epoch ms. Null until a fetch succeeds.
 	loadedAt: number | null;
 	inWindow: number;
-	// Older records past the layer's cap, which the route left out.
+	// Older records past the layer's cap, which the route left out, all from `oldestLoaded` (epoch
+	// seconds) or earlier. Null when nothing was left out.
 	omitted: number;
+	oldestLoaded: number | null;
 	attribution: SourceAttribution | null;
 };
 
@@ -159,10 +161,10 @@ function LayerEntry({ label, swatch, checked, onChange, summary, count, emptyTex
 					</p>
 				)}
 				{loaded && summary.inWindow === 0 && <p>{emptyText}</p>}
-				{summary.omitted > 0 && (
+				{summary.oldestLoaded !== null && (
 					<p>
-						{summary.omitted.toLocaleString()} older records are past this layer&apos;s cap and aren&apos;t
-						shown.
+						The oldest {summary.omitted.toLocaleString()} records, from {formatTime(summary.oldestLoaded * 1000)}{" "}
+						and earlier, are past this layer&apos;s cap and aren&apos;t loaded.
 					</p>
 				)}
 				{children}
