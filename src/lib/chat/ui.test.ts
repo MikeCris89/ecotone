@@ -26,22 +26,22 @@ describe("stepLabel", () => {
 
 describe("suggestedQuestions", () => {
 	it("offers the thermal activity question only when there are detections and observations", () => {
-		const loaded = { window: "7d" as const, observations: 120, detections: 0, weatherReadings: 500 };
+		const loaded = { window: "7d" as const, observations: true, detections: false, weather: true };
 		expect(suggestedQuestions(loaded).some((q) => q.includes("thermal"))).toBe(false);
-		expect(suggestedQuestions({ ...loaded, detections: 30 })).toContain(
+		expect(suggestedQuestions({ ...loaded, detections: true })).toContain(
 			"What wildlife was recorded near thermal activity in the last 7 days?",
 		);
-		expect(suggestedQuestions({ ...loaded, detections: 30, observations: 0 }).some((q) => q.includes("thermal"))).toBe(
-			false,
-		);
+		expect(
+			suggestedQuestions({ ...loaded, detections: true, observations: false }).some((q) => q.includes("thermal")),
+		).toBe(false);
 	});
 
 	it("names the selected window and always offers the freshness question", () => {
-		expect(suggestedQuestions({ window: "24h", observations: 5, detections: 0, weatherReadings: 0 })).toEqual([
+		expect(suggestedQuestions({ window: "24h", observations: true, detections: false, weather: false })).toEqual([
 			"What species have been recorded in this area in the last 24 hours?",
 			"How fresh is the data right now?",
 		]);
-		expect(suggestedQuestions({ window: "3d", observations: 0, detections: 0, weatherReadings: 0 })).toEqual([
+		expect(suggestedQuestions({ window: "3d", observations: false, detections: false, weather: false })).toEqual([
 			"How fresh is the data right now?",
 		]);
 	});
