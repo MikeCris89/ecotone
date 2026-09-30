@@ -10,7 +10,9 @@ import { CALIFORNIA_TIME_ZONE } from "@/lib/timeline";
 
 const HOUR_MS = 60 * 60_000;
 
-const count = (fallback: number) => z.coerce.number().int().positive().default(fallback);
+// An empty value (a cleared Vercel variable) means unset, not 0.
+const count = (fallback: number) =>
+	z.preprocess((value) => (value === "" ? undefined : value), z.coerce.number().int().positive().default(fallback));
 const envSchema = z.object({
 	CHAT_PUBLIC_HOURLY_PER_IP: count(5),
 	CHAT_PUBLIC_DAILY: count(30),
