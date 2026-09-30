@@ -78,7 +78,7 @@ export function resolveContext(context: ChatContext, california: Bbox, now: Date
 	};
 }
 
-const WINDOW_NAMES: Record<MapWindow, string> = { "24h": "last 24 hours", "3d": "last 3 days", "7d": "last 7 days" };
+export const WINDOW_NAMES: Record<MapWindow, string> = { "24h": "last 24 hours", "3d": "last 3 days", "7d": "last 7 days" };
 
 const json = (value: unknown) => JSON.stringify(value);
 const describe = ({ start, end }: Range) =>

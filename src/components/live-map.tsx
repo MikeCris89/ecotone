@@ -4,7 +4,15 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import type { GeoJSONSource, Popup as MapLibrePopup } from "maplibre-gl";
 import { useCallback, useMemo, useRef, useState } from "react";
-import Map, { AttributionControl, Layer, type MapLayerMouseEvent, Popup, Source } from "react-map-gl/maplibre";
+import Map, {
+	AttributionControl,
+	Layer,
+	type MapLayerMouseEvent,
+	type MapRef,
+	Popup,
+	Source,
+} from "react-map-gl/maplibre";
+import { ChatPanel } from "@/components/chat-panel";
 import { type LayerSummary, type LayerVisibility, MapPanel } from "@/components/map-panel";
 import { MapPopupContent, type MapSelection, type WeatherPopupData } from "@/components/map-popup";
 import { Timeline } from "@/components/timeline";
@@ -14,6 +22,8 @@ import {
 	OBSERVATION_DENSE_COLOR,
 	TEMPERATURE_COLOR,
 } from "@/components/map-colors";
+import type { ChatContext } from "@/lib/chat/context";
+import { suggestedQuestions } from "@/lib/chat/ui";
 import { layerCoverage } from "@/lib/coverage";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { Freshness } from "@/lib/freshness";
@@ -203,6 +213,7 @@ export function LiveMap() {
 	// The start of the timeline handle's hour (epoch seconds), or null for the whole window.
 	const [hour, setHour] = useState<number | null>(null);
 	const [cursor, setCursor] = useState<string>();
+	const mapRef = useRef<MapRef>(null);
 	const popupRef = useRef<MapLibrePopup>(null);
 	// MapLibre picks the popup's side (above, below, ...) from its size only when placed or when the
 	// map moves, so content growing from "Loading…" into details could run off the map's edge.
@@ -328,11 +339,37 @@ export function LiveMap() {
 	const observationsLoaded = useMemo(() => loadedSpan(inaturalist.data, (row) => row[3]), [inaturalist.data]);
 	const detectionsLoaded = useMemo(() => loadedSpan(firms.data, (row) => row[3]), [firms.data]);
 
+	// Read when a question is sent, so panning doesn't re-render the chat.
+	const chatContext = useCallback((): ChatContext => {
+		const bounds = mapRef.current?.getBounds();
+		const [[west, south], [east, north]] = CALIFORNIA;
+		return {
+			view: bounds
+				? { west: bounds.getWest(), south: bounds.getSouth(), east: bounds.getEast(), north: bounds.getNorth() }
+				: { west, south, east, north },
+			window: mapWindow,
+			hour,
+			end: latestEnd === null ? null : new Date(latestEnd).toISOString(),
+		};
+	}, [mapWindow, hour, latestEnd]);
+	// From the counts the legend shows.
+	const suggestions = useMemo(
+		() =>
+			suggestedQuestions({
+				window: mapWindow,
+				observations: inatShown.length,
+				detections: firmsShown.length,
+				weatherReadings: weatherShown.length,
+			}),
+		[mapWindow, inatShown.length, firmsShown.length, weatherShown.length],
+	);
+
 	const visibility = (layer: keyof LayerVisibility) => (visible[layer] ? "visible" : "none");
 
 	return (
 		<div className="relative h-dvh w-full">
 			<Map
+				ref={mapRef}
 				initialViewState={{ bounds: CALIFORNIA, fitBoundsOptions: { padding: 40 } }}
 				mapStyle={MAP_STYLE_URL}
 				style={{ width: "100%", height: "100%" }}
@@ -479,29 +516,39 @@ export function LiveMap() {
 				{/* Top-right: the timeline covers the bottom edge. */}
 				<AttributionControl position="top-right" />
 			</Map>
-			{/* The panel sits above the timeline and scrolls when they'd meet, whatever the timeline's height. */}
-			<div className="pointer-events-none absolute inset-3 flex flex-col items-start justify-between gap-3">
-				<MapPanel
-					mapWindow={mapWindow}
-					onWindowChange={setMapWindow}
-					visible={visible}
-					onVisibleChange={setVisible}
-					inaturalist={{
-						...summarize(inaturalist, inatShown.length, (row) => row[3]),
-						coverage: freshness ? layerCoverage(freshness, "inaturalist", inatSpan) : null,
-					}}
-					firms={{
-						...summarize(firms, firmsShown.length, (row) => row[3]),
-						coverage: freshness ? layerCoverage(freshness, "firms", firmsSpan) : null,
-					}}
-					weather={{
-						...summarize(weather, weatherShown.length, (row) => row[1]),
-						// The weather layer falls back to earlier readings itself, so it gets no unread note.
-						coverage: freshness ? layerCoverage(freshness, "open-meteo", undefined) : null,
-						hourShown: weatherShown.length ? weatherHour : null,
-						stale: staleWeather,
-					}}
-				/>
+			{/*
+			 * The legend on the left and the chat on the right (below the attribution), above the timeline.
+			 * Each scrolls when it would reach the timeline, whatever the timeline's height.
+			 */}
+			<div className="pointer-events-none absolute inset-3 flex flex-col gap-3">
+				<div className="flex min-h-0 flex-1 items-start justify-between gap-3">
+					<div className="flex max-h-full min-h-0 flex-col">
+						<MapPanel
+							mapWindow={mapWindow}
+							onWindowChange={setMapWindow}
+							visible={visible}
+							onVisibleChange={setVisible}
+							inaturalist={{
+								...summarize(inaturalist, inatShown.length, (row) => row[3]),
+								coverage: freshness ? layerCoverage(freshness, "inaturalist", inatSpan) : null,
+							}}
+							firms={{
+								...summarize(firms, firmsShown.length, (row) => row[3]),
+								coverage: freshness ? layerCoverage(freshness, "firms", firmsSpan) : null,
+							}}
+							weather={{
+								...summarize(weather, weatherShown.length, (row) => row[1]),
+								// The weather layer falls back to earlier readings itself, so it gets no unread note.
+								coverage: freshness ? layerCoverage(freshness, "open-meteo", undefined) : null,
+								hourShown: weatherShown.length ? weatherHour : null,
+								stale: staleWeather,
+							}}
+						/>
+					</div>
+					<div className="flex max-h-full min-h-0 flex-col pt-8">
+						<ChatPanel context={chatContext} suggestions={suggestions} />
+					</div>
+				</div>
 				{timeline && observationsPerHour && detectionsPerHour && (
 					<Timeline
 						window={timeline}

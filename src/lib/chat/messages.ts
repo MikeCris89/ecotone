@@ -30,7 +30,7 @@ const textOf = (parts: Part[]) =>
 		.trim();
 
 /** An answer's final step: its text after the last tool call (UI messages mark steps with step-start). */
-function answerText(parts: Part[]) {
+export function answerText(parts: Part[]) {
 	const lastStep = parts.findLastIndex((part) => part.type === "step-start");
 	return textOf(parts.slice(lastStep + 1)).slice(0, MAX_ANSWER_CHARS);
 }
