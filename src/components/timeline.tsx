@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, memo, type PointerEvent, useEffect, useMemo, useRef } from "react";
+import { type KeyboardEvent, memo, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { DETECTION_COLOR, OBSERVATION_COLOR } from "@/components/map-colors";
 import { formatTime } from "@/components/map-panel";
 import type { TimeWindow } from "@/lib/map-layers";
@@ -11,6 +11,10 @@ import {
 	hourAxis,
 	lastHour,
 	localMidnights,
+	nextPlaybackHour,
+	PLAYBACK_HOURS_PER_SECOND,
+	PLAYBACK_SPEEDS,
+	playbackStart,
 	TRAILING_HOURS,
 	WEATHER_MAX_AGE_HOURS,
 } from "@/lib/timeline";
@@ -68,17 +72,51 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 	};
 	useEffect(() => () => cancelAnimationFrame(frame.current), []);
 
+	// Playback moves the handle through the same onHourChange as a drag, one step per timer tick.
+	// Each step waits for its render before scheduling the next, so a slow frame delays playback
+	// rather than queueing steps, and the step itself waits for an animation frame, which a hidden
+	// tab doesn't get: playback halts there instead of running unseen.
+	const [playing, setPlaying] = useState(false);
+	const [speed, setSpeed] = useState<(typeof PLAYBACK_SPEEDS)[number]>(1);
+	useEffect(() => {
+		if (!playing || hour === null) return;
+		let stepFrame = 0;
+		const timer = setTimeout(() => {
+			stepFrame = requestAnimationFrame(() => {
+				const next = nextPlaybackHour(hour, window);
+				if (next === null) setPlaying(false);
+				else onHourChange(next);
+			});
+		}, 1000 / (PLAYBACK_HOURS_PER_SECOND * speed));
+		return () => {
+			clearTimeout(timer);
+			cancelAnimationFrame(stepFrame);
+		};
+	}, [playing, hour, window, speed, onHourChange]);
+	const play = () => {
+		setPlaying(true);
+		setHourNow(playbackStart(hour, window));
+	};
+	// Any other handle movement pauses first, so playback never fights the viewer for the handle.
+	const pause = () => setPlaying(false);
+
 	const hourAt = (clientX: number) => {
 		const rect = plotRef.current!.getBoundingClientRect();
 		const index = Math.floor(((clientX - rect.left) / rect.width) * count);
 		return first + Math.min(Math.max(index, 0), count - 1) * HOUR;
 	};
 	const onPointer = (event: PointerEvent<HTMLDivElement>) => {
-		if (event.type === "pointerdown") event.currentTarget.setPointerCapture(event.pointerId);
-		else if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+		if (event.type === "pointerdown") {
+			event.currentTarget.setPointerCapture(event.pointerId);
+			pause();
+		} else if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
 		scheduleHour(hourAt(event.clientX));
 	};
 	const onKeyDown = (event: KeyboardEvent) => {
+		if (event.key === " ") {
+			event.preventDefault();
+			return playing ? pause() : play();
+		}
 		const current = hour ?? last;
 		const next = {
 			ArrowLeft: Math.max(current - HOUR, first),
@@ -88,8 +126,12 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 		}[event.key];
 		if (next !== undefined) {
 			event.preventDefault();
+			pause();
 			setHourNow(next);
-		} else if (event.key === "Escape") setHourNow(null);
+		} else if (event.key === "Escape") {
+			pause();
+			setHourNow(null);
+		}
 	};
 
 	// Positions on the axis, as percentages of its width, clamped to it: a span can start before it.
@@ -100,8 +142,33 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 			<div className="flex items-center gap-3">
 				<button
 					type="button"
+					onClick={playing ? pause : play}
+					className="w-20 shrink-0 rounded border border-zinc-200 px-2 py-1 text-zinc-600 hover:bg-zinc-100"
+				>
+					{playing ? "❚❚ Pause" : "▶ Play"}
+				</button>
+				<div className="flex shrink-0 rounded-md border border-zinc-200 p-0.5" role="group" aria-label="Playback speed">
+					{PLAYBACK_SPEEDS.map((option) => (
+						<button
+							key={option}
+							type="button"
+							aria-pressed={option === speed}
+							onClick={() => setSpeed(option)}
+							className={`rounded px-1.5 ${
+								option === speed ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+							}`}
+						>
+							{option}×
+						</button>
+					))}
+				</div>
+				<button
+					type="button"
 					aria-pressed={hour === null}
-					onClick={() => setHourNow(null)}
+					onClick={() => {
+						pause();
+						setHourNow(null);
+					}}
 					className={`shrink-0 rounded border border-zinc-200 px-2 py-1 ${
 						hour === null ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
 					}`}
@@ -116,8 +183,8 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 					</p>
 				) : (
 					<p>
-						Showing the whole window, with modeled conditions for its newest hour. Drag along the timeline, or use
-						the arrow keys, to step through it by the hour.
+						Showing the whole window, with modeled conditions for its newest hour. Drag along the timeline, use the
+						arrow keys, or press play to step through it by the hour.
 					</p>
 				)}
 			</div>

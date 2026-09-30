@@ -297,7 +297,7 @@ This honesty is a deliberate strength of the submission, not a weakness to minim
 - CZU: before / during / after periods are visually marked
 - Live: the timeline covers the collected window, with the most recent upload-lag zone marked as likely incomplete
 - FIRMS playback reflects discrete satellite pass times
-- Timeline granularity and visual design: decided in decisions.md, 19. Playback speed: Phase 7b
+- Timeline granularity, visual design and playback speed: decided in decisions.md, 19
 
 ---
 
