@@ -286,6 +286,8 @@ describe("observationsNearDetections", () => {
 		// Left: a2 (20 MW) and b1 (50 MW), one detection each, so the stronger ranks first.
 		expect(summary.result).toMatchObject({ matched: 2, clusterCount: 2 });
 		expect(summary.result!.clusters.map((cluster) => cluster.maxFrpMw)).toEqual([50, 20]);
+		// The per-satellite counts are filtered too, so they add up to the total.
+		expect(summary.result!.bySatellite.reduce((sum, { count }) => sum + count, 0)).toBe(2);
 		expect(summary.limitations).toContain("Only detections of at least 10 MW fire radiative power are included.");
 		expect(near.result).toMatchObject({
 			detections: 2,

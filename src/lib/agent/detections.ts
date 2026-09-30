@@ -126,7 +126,7 @@ export async function summarizeDetections(
 		`,
 		sql<{ satellite: string; count: number }[]>`
 			select satellite, count(*)::int as count
-			from (${detectionsIn(area, window)}) d
+			from (${detectionsIn(area, window, minFrpMw)}) d
 			group by satellite
 			order by satellite
 		`,
