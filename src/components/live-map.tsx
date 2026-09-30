@@ -14,7 +14,9 @@ import {
 	OBSERVATION_DENSE_COLOR,
 	TEMPERATURE_COLOR,
 } from "@/components/map-colors";
+import { layerCoverage } from "@/lib/coverage";
 import type { FirmsMapRow } from "@/lib/firms/map";
+import type { Freshness } from "@/lib/freshness";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 import {
 	FIRMS_CLUSTER,
@@ -125,6 +127,20 @@ async function fetchLayer<T>(source: MapLayerName): Promise<T> {
 	return response.json();
 }
 
+// Feed health and coverage change as polls land, every few minutes; the route is cached for one.
+function useFreshness() {
+	return useQuery({
+		queryKey: ["freshness"],
+		queryFn: async (): Promise<Freshness> => {
+			const response = await fetch("/api/freshness");
+			if (!response.ok) throw new Error(`Freshness: HTTP ${response.status}`);
+			return response.json();
+		},
+		refetchInterval: 60_000,
+		staleTime: 60_000,
+	});
+}
+
 // Each layer refreshes on its source's poll cadence. The query key never changes (the window is
 // applied on the client), so a refetch, or a failed one, keeps showing the previous data without
 // needing placeholderData.
@@ -166,7 +182,7 @@ function summarize<Row>(
 	query: UseQueryResult<MapLayerResponse<Row>>,
 	inWindow: number,
 	time: (row: Row) => number,
-): LayerSummary {
+): Omit<LayerSummary, "coverage"> {
 	const { data } = query;
 	const lastRow = data?.truncated ? data.rows.at(-1) : undefined;
 	return {
@@ -199,6 +215,7 @@ export function LiveMap() {
 	const inaturalist = useMapLayer<MapLayerResponse<InatMapRow>>("inaturalist");
 	const firms = useMapLayer<MapLayerResponse<FirmsMapRow>>("firms");
 	const weather = useMapLayer<WeatherLayerResponse>("weather");
+	const freshness = useFreshness().data;
 
 	// The timeline ends at the newest response's end, since the layers refresh on different cadences.
 	// A layer whose data ends earlier has its last hours shaded as not loaded on the timeline.
@@ -469,10 +486,18 @@ export function LiveMap() {
 					onWindowChange={setMapWindow}
 					visible={visible}
 					onVisibleChange={setVisible}
-					inaturalist={summarize(inaturalist, inatShown.length, (row) => row[3])}
-					firms={summarize(firms, firmsShown.length, (row) => row[3])}
+					inaturalist={{
+						...summarize(inaturalist, inatShown.length, (row) => row[3]),
+						coverage: freshness ? layerCoverage(freshness, "inaturalist", inatSpan) : null,
+					}}
+					firms={{
+						...summarize(firms, firmsShown.length, (row) => row[3]),
+						coverage: freshness ? layerCoverage(freshness, "firms", firmsSpan) : null,
+					}}
 					weather={{
 						...summarize(weather, weatherShown.length, (row) => row[1]),
+						// The weather layer falls back to earlier readings itself, so it gets no unread note.
+						coverage: freshness ? layerCoverage(freshness, "open-meteo", undefined) : null,
 						hourShown: weatherShown.length ? weatherHour : null,
 						stale: staleWeather,
 					}}
@@ -488,6 +513,8 @@ export function LiveMap() {
 						dateOnly={dateOnlyPerDay}
 						observationsLoaded={observationsLoaded}
 						detectionsLoaded={detectionsLoaded}
+						observationsCoverage={freshness?.sources.inaturalist ?? null}
+						detectionsCoverage={freshness?.sources.firms ?? null}
 					/>
 				)}
 			</div>

@@ -7,6 +7,7 @@ import {
 	OBSERVATION_COLOR,
 	TEMPERATURE_STOPS,
 } from "@/components/map-colors";
+import { formatDuration, type LayerCoverage } from "@/lib/coverage";
 import type { SourceAttribution } from "@/lib/data-sources";
 import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
 import { FIRMS_CLUSTER, type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
@@ -28,6 +29,8 @@ export type LayerSummary = {
 	omitted: number;
 	oldestLoaded: number | null;
 	attribution: SourceAttribution | null;
+	// From /api/freshness; null until it loads.
+	coverage: LayerCoverage | null;
 };
 
 const WINDOW_LABELS: Record<MapWindow, string> = { "24h": "24h", "3d": "3 days", "7d": "7 days" };
@@ -78,6 +81,7 @@ export function MapPanel(props: MapPanelProps) {
 				summary={inaturalist}
 				count={inaturalist.inWindow.toLocaleString()}
 				emptyText="No recorded observations in this window."
+				unreadText={(time) => `Recorded observations after ${time} haven't been read yet.`}
 			>
 				<p>Shown as recorded observation density when zoomed out.</p>
 				<ul className="flex flex-wrap gap-x-3 gap-y-1">
@@ -104,6 +108,7 @@ export function MapPanel(props: MapPanelProps) {
 				summary={firms}
 				count={firms.inWindow.toLocaleString()}
 				emptyText="No qualifying satellite thermal detections in this window."
+				unreadText={(time) => `Satellite thermal detections after ${time} aren't published yet.`}
 			>
 				<p className="flex items-center gap-1">
 					<span
@@ -145,12 +150,16 @@ type LayerEntryProps = {
 	summary: LayerSummary;
 	count: string;
 	emptyText: string;
+	// For hours shown past what the source has read, given the time reading stopped. Used while
+	// polling is on schedule; otherwise the note says polling is behind.
+	unreadText?: (time: string) => string;
 	children?: ReactNode;
 };
 
-function LayerEntry({ label, swatch, checked, onChange, summary, count, emptyText, children }: LayerEntryProps) {
+function LayerEntry(props: LayerEntryProps) {
+	const { label, swatch, checked, onChange, summary, count, emptyText, unreadText, children } = props;
 	const loaded = summary.dataAsOf !== null;
-	const { attribution } = summary;
+	const { attribution, coverage } = summary;
 
 	return (
 		<section className="space-y-1 border-t border-zinc-200 pt-2">
@@ -169,7 +178,26 @@ function LayerEntry({ label, swatch, checked, onChange, summary, count, emptyTex
 						Couldn&apos;t refresh; showing data as of {formatTime(summary.dataAsOf!)}.
 					</p>
 				)}
-				{loaded && summary.inWindow === 0 && <p>{emptyText}</p>}
+				{/* Nothing in hours the source hasn't read isn't "no activity": that case gets the unread note. */}
+				{loaded && summary.inWindow === 0 && coverage?.unread !== "all" && <p>{emptyText}</p>}
+				{coverage && coverage.unread !== "none" && unreadText && (
+					<p className="text-amber-800">
+						{coverage.readThrough === null
+							? "Nothing in this window has been read from the source."
+							: coverage.behind
+								? `Nothing read after ${formatTime(coverage.readThrough)}: live polling is behind.`
+								: unreadText(formatTime(coverage.readThrough))}
+					</p>
+				)}
+				{coverage && (
+					<p className="text-[11px] text-zinc-500">
+						{coverage.statement}
+						{/* When behind, the statement already says how long it's been. */}
+						{coverage.lastPollMinutes !== null &&
+							!coverage.behind &&
+							` Last poll ${formatDuration(coverage.lastPollMinutes)} ago.`}
+					</p>
+				)}
 				{summary.oldestLoaded !== null && (
 					<p>
 						The oldest {summary.omitted.toLocaleString()} records, from {formatTime(summary.oldestLoaded * 1000)}{" "}

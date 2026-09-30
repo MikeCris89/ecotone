@@ -2,6 +2,8 @@
 
 import { type KeyboardEvent, memo, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { DETECTION_COLOR, OBSERVATION_COLOR } from "@/components/map-colors";
+import { type IncompleteWindow, type RowShading, rowShading } from "@/lib/coverage";
+import type { SourceFreshness } from "@/lib/freshness";
 import type { TimeWindow } from "@/lib/map-layers";
 import {
 	CALIFORNIA_TIME_ZONE,
@@ -22,8 +24,16 @@ import {
 const dayFormat = new Intl.DateTimeFormat([], { timeZone: CALIFORNIA_TIME_ZONE, month: "short", day: "numeric" });
 const formatSeconds = (epochSeconds: number) => formatTime(epochSeconds * 1000);
 
-// Drawn over the parts of a row with no loaded data, so they don't read as zero activity.
+// Drawn behind the parts of a row with no data (not loaded, or not read from the source yet), so
+// they don't read as zero activity.
 const NOT_LOADED_COLOR = "#e4e4e7";
+// Behind hours that were read but are likely incomplete.
+const INCOMPLETE_HATCH = "repeating-linear-gradient(135deg, rgb(217 119 6 / 0.35) 0 2px, transparent 2px 6px)";
+const INCOMPLETE_TITLES: Record<IncompleteWindow["reason"], string> = {
+	partial: "Likely incomplete: read only partly",
+	"publishing-lag": "Likely incomplete: may still fill in as satellite passes are published",
+	"upload-lag": "Likely incomplete: uploads still arriving",
+};
 
 type TimelineProps = {
 	window: TimeWindow;
@@ -39,6 +49,9 @@ type TimelineProps = {
 	// The time range each layer's loaded rows cover, null before a layer loads.
 	observationsLoaded: TimeWindow | null;
 	detectionsLoaded: TimeWindow | null;
+	// What each source has read (/api/freshness), null until it loads.
+	observationsCoverage: SourceFreshness | null;
+	detectionsCoverage: SourceFreshness | null;
 };
 
 // Along the bottom edge, under the panel; the right side stays free for the chat. Memoized, since
@@ -48,6 +61,15 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 	const { first, count } = hourAxis(window);
 	const last = lastHour(window);
 	const midnights = useMemo(() => localMidnights(window), [window]);
+	const { observationsLoaded, detectionsLoaded, observationsCoverage, detectionsCoverage } = props;
+	const observationsShading = useMemo(
+		() => rowShading({ start: first, end: first + count * HOUR }, observationsLoaded, observationsCoverage),
+		[first, count, observationsLoaded, observationsCoverage],
+	);
+	const detectionsShading = useMemo(
+		() => rowShading({ start: first, end: first + count * HOUR }, detectionsLoaded, detectionsCoverage),
+		[first, count, detectionsLoaded, detectionsCoverage],
+	);
 	const plotRef = useRef<HTMLDivElement>(null);
 
 	// Pointer events can fire several times per frame. Only the latest position per frame reaches
@@ -194,9 +216,12 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 					<p className="flex h-8 items-center">Recorded observations / hour</p>
 					<p className="flex h-3 items-center text-[11px]">Date only, no time recorded / day</p>
 					<p className="flex h-8 items-center">Satellite thermal detections / hour</p>
-					<p className="flex h-4 items-center gap-1 text-[11px] text-zinc-500">
-						Scaled per row;
-						<span className="inline-block size-2.5" style={{ backgroundColor: NOT_LOADED_COLOR }} /> not loaded
+					<p className="text-[11px] leading-4 text-zinc-500">
+						Scaled per row.{" "}
+						<span className="inline-block size-2.5 align-middle" style={{ backgroundColor: NOT_LOADED_COLOR }} /> not
+						loaded or not read yet,{" "}
+						<span className="inline-block size-2.5 align-middle" style={{ backgroundImage: INCOMPLETE_HATCH }} /> likely
+						incomplete
 					</p>
 				</div>
 
@@ -218,15 +243,15 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 						<HourBars
 							counts={observations}
 							first={first}
-							loaded={props.observationsLoaded}
+							shading={observationsShading}
 							color={OBSERVATION_COLOR}
 							noun="recorded observations"
 						/>
-						<DayBands days={dateOnly} first={first} count={count} loaded={props.observationsLoaded} />
+						<DayBands days={dateOnly} first={first} count={count} shading={observationsShading} />
 						<HourBars
 							counts={detections}
 							first={first}
-							loaded={props.detectionsLoaded}
+							shading={detectionsShading}
 							color={DETECTION_COLOR}
 							noun="satellite thermal detections"
 						/>
@@ -267,73 +292,111 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 	);
 });
 
-// Shades the axis outside `loaded`: before a capped layer's oldest loaded record, after a layer's
-// data ends (layers refresh on different cadences), or the whole row before the layer loads.
-function NotLoaded({ loaded, first, count }: { loaded: TimeWindow | null; first: number; count: number }) {
-	const ranges: [number, number][] = loaded
-		? [
-				[0, (loaded.start - first) / HOUR],
-				[(loaded.end - first) / HOUR, count],
-			]
-		: [[0, count]];
-	return ranges.map(
-		([from, to]) =>
-			to > from && (
-				<rect key={from} x={from} width={to - from} y={0} height={1} fill={NOT_LOADED_COLOR}>
-					<title>Not loaded</title>
-				</rect>
-			),
+// Shades a row behind its bars: grey where it has no data (outside the loaded rows, e.g. before a
+// capped layer's oldest record or before it loads, or not read from the source yet), hatched where
+// the source's data is likely incomplete. HTML rather than SVG, since a hatch pattern would stretch
+// with the bars' viewBox. The bars' SVG only takes the pointer on its bars, so these titles show
+// on hover elsewhere.
+function Shading({ shading, first, count }: { shading: RowShading; first: number; count: number }) {
+	const place = ({ start, end }: TimeWindow) => ({
+		left: `${((start - first) / (count * HOUR)) * 100}%`,
+		width: `${((end - start) / (count * HOUR)) * 100}%`,
+	});
+	return (
+		<>
+			{shading.notLoaded.map((range) => (
+				<div
+					key={`not-loaded-${range.start}`}
+					title="Not loaded"
+					className="absolute inset-y-0"
+					style={{ ...place(range), backgroundColor: NOT_LOADED_COLOR }}
+				/>
+			))}
+			{shading.unread.map((range) => (
+				<div
+					key={`unread-${range.start}`}
+					title="Not read from the source yet"
+					className="absolute inset-y-0"
+					style={{ ...place(range), backgroundColor: NOT_LOADED_COLOR }}
+				/>
+			))}
+			{shading.likelyIncomplete.map((range) => (
+				<div
+					key={`incomplete-${range.start}`}
+					title={INCOMPLETE_TITLES[range.reason]}
+					className="absolute inset-y-0"
+					style={{ ...place(range), backgroundImage: INCOMPLETE_HATCH }}
+				/>
+			))}
+		</>
 	);
 }
 
-type HourBarsProps = { counts: number[]; first: number; loaded: TimeWindow | null; color: string; noun: string };
+type HourBarsProps = { counts: number[]; first: number; shading: RowShading; color: string; noun: string };
 
 // Each row scales to its own busiest hour: the sources' counts differ by orders of magnitude.
 // Memoized: the bars only change with the data, not with the handle.
-const HourBars = memo(function HourBars({ counts, first, loaded, color, noun }: HourBarsProps) {
+const HourBars = memo(function HourBars({ counts, first, shading, color, noun }: HourBarsProps) {
 	const max = Math.max(1, ...counts);
 	return (
-		<svg className="block h-8 w-full" viewBox={`0 0 ${counts.length} 1`} preserveAspectRatio="none">
-			<NotLoaded loaded={loaded} first={first} count={counts.length} />
-			{counts.map(
-				(value, index) =>
-					value > 0 && (
-						<rect key={index} x={index + 0.1} width={0.8} y={1 - value / max} height={value / max} fill={color}>
-							<title>{`${formatSeconds(first + index * HOUR)}: ${value.toLocaleString()} ${noun}`}</title>
-						</rect>
-					),
-			)}
-		</svg>
+		<div className="relative h-8">
+			<Shading shading={shading} first={first} count={counts.length} />
+			<svg
+				className="pointer-events-none relative block h-full w-full"
+				viewBox={`0 0 ${counts.length} 1`}
+				preserveAspectRatio="none"
+			>
+				{counts.map(
+					(value, index) =>
+						value > 0 && (
+							<rect
+								key={index}
+								className="pointer-events-auto"
+								x={index + 0.1}
+								width={0.8}
+								y={1 - value / max}
+								height={value / max}
+								fill={color}
+							>
+								<title>{`${formatSeconds(first + index * HOUR)}: ${value.toLocaleString()} ${noun}`}</title>
+							</rect>
+						),
+				)}
+			</svg>
+		</div>
 	);
 });
 
-type DayBandsProps = { days: DayCount[]; first: number; count: number; loaded: TimeWindow | null };
+type DayBandsProps = { days: DayCount[]; first: number; count: number; shading: RowShading };
 
 // One band per date, spanning the date, since these records have no hour to sit in.
-const DayBands = memo(function DayBands({ days, first, count, loaded }: DayBandsProps) {
+const DayBands = memo(function DayBands({ days, first, count, shading }: DayBandsProps) {
 	const max = Math.max(1, ...days.map((day) => day.count));
 	return (
-		<svg className="block h-3 w-full" viewBox={`0 0 ${count} 1`} preserveAspectRatio="none">
-			<NotLoaded loaded={loaded} first={first} count={count} />
-			{days.map((day) => {
-				const x = Math.max((day.start - first) / HOUR, 0);
-				const width = Math.min((day.end - first) / HOUR, count) - x;
-				return (
-					<rect
-						key={day.start}
-						x={x + 0.25}
-						width={Math.max(width - 0.5, 0)}
-						y={1 - day.count / max}
-						height={day.count / max}
-						fill={OBSERVATION_COLOR}
-						opacity={0.45}
-					>
-						<title>
-							{`${dayFormat.format(day.start * 1000)}: ${day.count.toLocaleString()} recorded observations with a date but no time`}
-						</title>
-					</rect>
-				);
-			})}
-		</svg>
+		<div className="relative h-3">
+			<Shading shading={shading} first={first} count={count} />
+			<svg className="pointer-events-none relative block h-full w-full" viewBox={`0 0 ${count} 1`} preserveAspectRatio="none">
+				{days.map((day) => {
+					const x = Math.max((day.start - first) / HOUR, 0);
+					const width = Math.min((day.end - first) / HOUR, count) - x;
+					return (
+						<rect
+							key={day.start}
+							className="pointer-events-auto"
+							x={x + 0.25}
+							width={Math.max(width - 0.5, 0)}
+							y={1 - day.count / max}
+							height={day.count / max}
+							fill={OBSERVATION_COLOR}
+							opacity={0.45}
+						>
+							<title>
+								{`${dayFormat.format(day.start * 1000)}: ${day.count.toLocaleString()} recorded observations with a date but no time`}
+							</title>
+						</rect>
+					);
+				})}
+			</svg>
+		</div>
 	);
 });

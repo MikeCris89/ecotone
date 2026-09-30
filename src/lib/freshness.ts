@@ -2,6 +2,7 @@
 // coverage (which stretches of the window were read completely, on the time records happened).
 // The map and the agent describe coverage only through these statements, never through a bare
 // covered_until: it says how far a run read, and only its status says whether that was everything.
+import { formatDuration, type Interval, intersect, subtract, union } from "@/lib/coverage";
 import { type Dataset, liveWindowStart } from "@/lib/datasets";
 import { sql } from "@/lib/db";
 import { LIVE_PRODUCTS, type Product } from "@/lib/firms/client";
@@ -79,6 +80,9 @@ export type SourceFreshness = {
 	behind: boolean;
 	// The latest live poll that has finished (or died), prefixed with its satellite for FIRMS.
 	latestPoll: (RunStatement & { satellite: string | null }) | null;
+	// Where the newest read stretch ends (ISO): the end of complete coverage and any band after it.
+	// Null if nothing in the window was read completely.
+	readThrough: string | null;
 	// Within the window, on observation or acquisition time. Anything in neither list wasn't read.
 	// iNaturalist is never fully complete: late uploads can still arrive for any date, so its
 	// complete spans are "mostly complete".
@@ -89,38 +93,6 @@ export type SourceFreshness = {
 };
 
 export type Freshness = { start: string; end: string; sources: Record<Source, SourceFreshness> };
-
-type Interval = [start: number, end: number];
-
-function union(intervals: Interval[]): Interval[] {
-	const sorted = intervals.filter(([start, end]) => end > start).sort((a, b) => a[0] - b[0]);
-	const merged: Interval[] = [];
-	for (const [start, end] of sorted) {
-		const last = merged.at(-1);
-		if (last && start <= last[1]) last[1] = Math.max(last[1], end);
-		else merged.push([start, end]);
-	}
-	return merged;
-}
-
-function intersect(a: Interval[], b: Interval[]): Interval[] {
-	return union(
-		a.flatMap(([aStart, aEnd]) => b.map(([bStart, bEnd]): Interval => [Math.max(aStart, bStart), Math.min(aEnd, bEnd)])),
-	);
-}
-
-function subtract(a: Interval[], b: Interval[]): Interval[] {
-	let result = union(a);
-	for (const [bStart, bEnd] of union(b)) {
-		result = result.flatMap(([start, end]): Interval[] =>
-			[
-				[start, Math.min(end, bStart)] as Interval,
-				[Math.max(start, bEnd), end] as Interval,
-			].filter(([from, to]) => to > from),
-		);
-	}
-	return result;
-}
 
 /** Null while the run may still be going. */
 export function runOutcome(run: FreshnessRun, now: number): RunOutcome | null {
@@ -354,6 +326,7 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 		lastPollAt: lastPoll === null ? null : new Date(lastPoll).toISOString(),
 		behind,
 		latestPoll,
+		readThrough: through === null ? null : new Date(through).toISOString(),
 		complete: complete.map(toSpan),
 		likelyIncomplete: [
 			...partial.map((interval) => ({ ...toSpan(interval), reason: "partial" as const })),
@@ -361,12 +334,6 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 		].sort((a, b) => a.start.localeCompare(b.start)),
 		statement: `${sentences.join(". ")}.`,
 	};
-}
-
-function formatDuration(minutes: number): string {
-	if (minutes < 120) return `${minutes} min`;
-	if (minutes < 48 * 60) return `${Math.round(minutes / 60)} h`;
-	return `${Math.round(minutes / (24 * 60))} days`;
 }
 
 /** Every source's freshness over the dataset's live window, ending at `now`. */

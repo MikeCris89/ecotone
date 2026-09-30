@@ -76,10 +76,12 @@
   - `formatTime` moved to `src/lib/timeline.ts` so server code formats times the same way (PT)
   - The route is CDN-cached for a minute, stale for one more
   - Verified locally (2026-09-30): tests (201 passing), typecheck, lint, and the local data's output read through by hand: every source is behind (nothing polls locally), FIRMS is complete to its backfill less 3 hours, iNaturalist's latest live poll was paused on a page where every record failed validation (nothing lost: the cursor stays put)
-- [ ] 8b: Show coverage (trimmed, 2026-09-30)
-  - Timeline: shade hours a source hasn't read in grey like "not loaded", and likely-incomplete hours hatched
-  - Empty state: when the handle's span reaches past coverage, say the source hasn't published those hours yet, instead of implying no activity
-  - Panel: one coverage line per layer (the `statement`) and "last poll N min ago". No newest-upload time or detailed feed-health states
+- [x] 8b: Show coverage (trimmed, 2026-09-30)
+  - Timeline: the observation and detection rows shade hours their source hasn't read in the same grey as "not loaded" (tooltips say which), and likely-incomplete hours hatched amber, with the reason on hover. The shading is HTML behind the bars (an SVG hatch would stretch with the bars' viewBox), so bar tooltips still work (`rowShading` in `src/lib/coverage.ts`)
+  - The panel fetches `/api/freshness` every minute. Each layer shows its `statement` and "Last poll N min ago" (left out when behind, since the statement already says how long). When the span shown reaches past what's been read, by more than two poll intervals: "Satellite thermal detections after 9:40 AM PT aren't published yet", or "Nothing read after …: live polling is behind" when it is. If the whole span is unread, that note replaces "No … in this window" (`layerCoverage`). Weather gets the statement only: its layer already falls back to earlier readings
+  - The interval math moved to `src/lib/coverage.ts` (no database code), shared by the server's coverage and the timeline
+  - Verified locally (2026-09-30): tests (207 passing), typecheck, lint. Not yet checked in the browser
+  - To confirm after merge: `curl -s <production URL>/api/freshness | jq '.sources[].statement'`. Locally every feed is behind, so production is the first real test of the healthy path: expect no "No live poll" sentences, "Last poll" within each source's interval, FIRMS read through about 3 hours ago, and on the timeline, a grey stretch plus a hatched band at the FIRMS row's right edge and a 48-hour hatch on recorded observations
 - Background for both:
   - Mark on the timeline where each source's coverage ends. Today the timeline shades only past each response's `end`, so hours a source hasn't published yet draw as zero bars and old, faded records: FIRMS runs ~3 hours or more behind its passes, and locally nothing polls, so every source stops at the last backfill. FIRMS needs its ingestion coverage, not its newest detection (a quiet night is real), combined with run status as below
   - Coverage alone still overstates completeness, so add a likely-incomplete band: the last few hours of FIRMS coverage, and the last ~1–2 days for iNaturalist (upload lag). FIRMS's `covered_until` already stops 3 hours before each poll (`NRT_LATENCY_MS`), but that margin is its typical latency, not a guarantee: a slow pass can still add detections before `covered_until` on the next poll (Phase 3 limitations). iNaturalist's `covered_until` is its updated-time cursor, which says nothing about observed time, so its band comes from upload lag instead (Phase 5 limitations)
@@ -133,7 +135,7 @@
 
 ### Known limitations from Phase 2 (check later)
 
-- **Stuck `running` runs:** a poll killed mid-flight (e.g. the database hangs while saving) leaves its run `running` forever. It doesn't block the next poll, which resumes from `max(covered_until)` with no lock, but Phase 8's feed-health view must show old `running` rows as interrupted (see the Phase 8 statements), not as still running
+- **Stuck `running` runs:** a poll killed mid-flight (e.g. the database hangs while saving) leaves its run `running` forever. It doesn't block the next poll, which resumes from `max(covered_until)` with no lock, but Phase 8's feed health shows a run still `running` after 15 minutes as interrupted (`INTERRUPTED_AFTER_MINUTES`)
 - **Deleted or re-scoped upstream records:** observations deleted on iNaturalist, or re-identified out of Animalia, never reach an updated-since poll, so their rows stay. The Phase 5 backfill doesn't reconcile them either: it upserts what it finds and never deletes. Reconciling would mean deleting stored rows for a date that a complete backfill run didn't return
 - **Invalid records are skipped, not retried:** when only some records on a page fail validation, the cursor moves past them and the run is marked `partial`. Recovering them needs a fix plus a re-run of the iNaturalist backfill for the affected dates (live window only; older dates are outside it). (A page where *every* record fails pauses the feed instead)
 - **Tie-scan gap:** when more than a full page of records shares one `updated_at` second, the poll steps through it by page number. If a tied record is updated again mid-scan, another tied record can be missed until it next changes
@@ -165,7 +167,7 @@
 
 - **iNaturalist backfill isn't resumable:** a date that hits the 4-minute budget is `partial`, and a re-run starts it over from the lowest ID. That only helps when the slowdown was transient. A California date needs ~30 pages against a budget of ~100, so it shouldn't happen at current volume
 - **iNaturalist backfill windows are approximate:** each run's window is a Los Angeles date's span, but iNaturalist filters on `observed_on`, the date the observer recorded
-- **Coverage can span several runs:** a FIRMS backfill splits each satellite's window into two runs. `max(covered_until)` across runs would report full coverage even when one of them failed; Phase 8's coverage view must check each run's `status`, not just the latest `covered_until`
+- **Coverage can span several runs:** a FIRMS backfill splits each satellite's window into two runs. `max(covered_until)` across runs would report full coverage even when one of them failed, so Phase 8's coverage merges each successful run's range instead
 - **Weather backfill depends on Open-Meteo's HRRR retention:** it asks for up to 191 past hours (all 192 were served with no gaps on 2026-09-29). If Open-Meteo keeps fewer, the oldest hours come back missing and the run is `partial`
 - **Seeding is manual:** the backfill routes aren't scheduled; iNaturalist takes one call per date
 - **Counts reflect observer effort, not wildlife abundance:** Saturday 2026-09-26 had 6,226 recorded observations and Sunday 4,863, against ~4,000–4,500 on each weekday. Day-to-day differences track when people go out. Flagged for Phase 10
@@ -173,7 +175,7 @@
 
 ### Known limitations from Phase 7 (check later)
 
-- **Unpublished hours look like no activity:** the timeline shades only past each layer response's `end`, so hours a source hasn't published yet show zero bars and older, faded records (FIRMS ~3 hours or more; locally, everything after the last backfill). Marking coverage is Phase 8
+- **Unpublished hours look like no activity:** fixed in Phase 8b. Hours a source hasn't read are shaded grey on the timeline, and the panel says they aren't published yet
 - **Weather grid cell assumed constant per point:** popups for earlier readings use the point's newest reading's grid cell, distance and elevation. True for every stored reading locally (checked 2026-09-29: none of 169 points changed cell), not enforced
 - **The 7 days window steps through 6 days:** its first day has no full trailing day loaded, so the handle starts a day in. Loading 8 days would fix it, at ~14% more payload and a longer retention window
 
