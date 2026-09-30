@@ -176,7 +176,8 @@ describe("getConditions", () => {
 	it("is insufficient where no weather was read and nothing was stored before", async () => {
 		const { insufficient } = await getConditions({
 			location: PLACE,
-			range: { start: "2003-05-20T00:00:00Z", end: "2003-05-21T00:00:00Z" },
+			// Before every test's fixtures (the weather store and poll tests use 2000 and 2001).
+			range: { start: "1999-01-01T00:00:00Z", end: "1999-01-02T00:00:00Z" },
 		});
 
 		expect(insufficient?.reason).toBe("No stored open-meteo data covers this area and range.");
