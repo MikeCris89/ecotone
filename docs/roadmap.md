@@ -183,7 +183,8 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
     - The renderer reads `*italic*`, `_italic_` and `#` headings; animal groups carry English labels ("Animalia" is "other animals": mostly crabs, woodlice, anemones and sea stars, not records identified only as animals, as the 10a prompt said); the prompt never answers yes or no to "is this a fire?"; questions are capped at 500 characters
     - Found on the way: real local chat rows broke the 2001-dated limit tests, since the limits' count has no upper time bound. Bounding it at `now` opened a race (a request reads its clock before waiting for the lock, so a row admitted meanwhile can be dated later and was missed: two admitted under a cap of one), so the bound was reverted and the limit tests moved to 2101
   - Pre-merge review fixes: the weather fallback only applies to ranges reaching the present (ending within the 3 h lookback of now), since a past range with no readings got another period's hour labelled "feed is behind"; the context's `hour` is bounded to times a Date can hold (a forged one in an earlier question's metadata made the note throw a 500 after admission); an empty limit variable means the default, not 0 (which made every request a 500); a test covers a non-zero count of observations near only the smaller clusters
-  - Verified (2026-09-30): tests (325 passing on the last full run), typecheck, lint. Across three full runs, the known flaky weather poll test (issue #9) failed once, and `observations.test` failed once without reproducing alone or in two later runs (cause unknown; see "Known issues")
+  - Verified (2026-09-30): tests (325 passing on the last full run), typecheck, lint. Across three full runs, the known flaky weather poll test (issue #9) failed once, and `observations.test` failed once without reproducing alone or in two later runs
+  - Flaky tests, cause confirmed (Mike, 2026-09-30): test files running in parallel against the shared local database. Serial runs passed 6 of 6, parallel ones failed about 1 in 3. Test files now run one at a time (`fileParallelism: false`); see "Known limitations from Phase 10"
   - Browser re-test (Mike, locally, 2026-09-30), all passed: moving the map between questions (no retraction), a follow-up (cluster 1 carried over), the stale weather fallback, New chat, the questions-left counter, the reviewer label on load, and a 429 with the local time
   - Post-deploy checks (Mike, after merge):
     - Weather "right now" asked between :00 and :19 past the hour, before that hour's poll lands (the within-3 h branch: current, with its age)
@@ -226,7 +227,7 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 ## Phase 13: README and submission
 
 - [ ] README (including how the system would evolve: on-demand history fetching), decisions review, final deploy check
-  - Include: one big fire becomes one detection cluster, since DBSCAN chains nearby detections (650 in one near Yosemite, Sep 2026); known issues, including the flaky tests (issue #9)
+  - Include: one big fire becomes one detection cluster, since DBSCAN chains nearby detections (650 in one near Yosemite, Sep 2026); known issues, including serial test runs until tests get their own database (issue #9)
 - [ ] Before submitting: check the Supabase database's size growth per day and its egress, and confirm whether rows outside the live window are ever pruned (the "Later" list says they aren't; check the code and the table sizes). Note the answer in the README's scaling section
 
 ## Phase 14 (stretch): CZU for the agent
@@ -247,7 +248,6 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - Derive the map's 7-day window from the dataset's `retention_days` instead of hardcoding 168 hours (the routes' default, and the loaded window in `src/components/live-map.tsx`)
 - A weather details lookup (like iNaturalist's and FIRMS's) so a popup for an earlier reading shows that reading's own retrieval times, not "not loaded"
 - Incremental map refreshes (e.g. a `since` parameter) instead of re-downloading each whole layer on every refetch (~2 MB of iNaturalist every 5 minutes per open tab)
-- Fix the flaky tests (issue #9): the weather poll test, and a one-off `observations.test` failure (6 tests, 2026-09-30). Hypothesis: tests and local dev share one database (the limit-count bug was dev chat rows leaking into tests), with parallel test files and connection exhaustion still suspects. Fix to try: a separate test database through `TEST_DATABASE_URL`. New lead (2026-09-30, pre-merge review): a weather poll test failure came with `update or delete on table "ingestion_runs" violates foreign key constraint "weather_readings_ingestion_run_id_fkey"`, so its cleanup (readings from Dec 25 to Jan 2, then its runs) can miss readings that still point at its runs. Across six full runs that day: four passed, one failed that test, one failed 13 `detections`/`observations` tests (no error captured)
 - Data timestamps in the viewer's local time (today PT everywhere except the chat's rate-limit reset)
 - Record why records failed validation (the first failing record's ID and Zod issue paths) on the ingestion run, so a paused iNaturalist feed can be diagnosed from the run alone
 - Filter persistent static heat sources out of the detection tools: the same pixel lighting up on most nights (industrial sites, flares). Today they're only stated in limitations and pushed down by ranking clusters by size
@@ -312,6 +312,8 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - **Test runs left in the local database:** the flaky weather poll test (issue #9) can leave a `running` run with a 2001 window. Freshness ignores it (its window is outside the Live window), but it stays in `ingestion_runs`
 
 ### Known limitations from Phase 10 (check later)
+
+- **Test files run one at a time:** in parallel they interfered through the shared local database, e.g. a cleanup that deletes by date range (a weather poll test failure came with a foreign key error from its cleanup). `fileParallelism: false` makes full runs slower. The proper fix is a separate test database through `TEST_DATABASE_URL`, which `vitest.config.mts` already reads; it also keeps local dev data out of tests (the limit-count bug was dev chat rows leaking in). Issue #9
 
 - **An answer can end without text:** the last of 8 steps is only told to answer. Logged as `chat_requests.no_answer`; Phase 11 measures it
 - **Refused chat requests still take the bucket's lock and add a row:** a client spamming requests after its limit serializes the bucket's other requests behind its refusals, and grows `chat_requests`. Fine at demo traffic; the fix is rate limiting at the edge (e.g. Vercel's firewall) before the route runs
