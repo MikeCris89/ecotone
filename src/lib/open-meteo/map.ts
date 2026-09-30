@@ -9,7 +9,9 @@ export const WEATHER_MAP_CAP = 50_000;
 /**
  * A sample point with modeled conditions in the window. Values describe the model grid cell
  * Open-Meteo used, whose centre can be kilometres from the requested point: both are included,
- * with the cell's elevation (metres), from the point's latest reading in the window.
+ * with the distance between them (metres, on the spheroid), the cell's elevation (metres), and
+ * when that reading was last retrieved (epoch seconds), all from the point's latest reading in
+ * the window.
  */
 export type WeatherMapPoint = [
 	id: number,
@@ -18,6 +20,8 @@ export type WeatherMapPoint = [
 	gridLongitude: number,
 	gridLatitude: number,
 	elevationM: number,
+	gridDistanceM: number,
+	retrievedAt: number,
 ];
 
 /**
@@ -79,7 +83,16 @@ export async function getWeatherMapLayer(
 		limit ${cap}
 	`;
 	const pointsQuery = sql<
-		{ id: number; lon: number; lat: number; gridLon: number; gridLat: number; elevation: number }[]
+		{
+			id: number;
+			lon: number;
+			lat: number;
+			gridLon: number;
+			gridLat: number;
+			elevation: number;
+			distance: number;
+			retrieved: number;
+		}[]
 	>`
 		select distinct on (p.id)
 			p.id::float8 as id,
@@ -87,7 +100,10 @@ export async function getWeatherMapLayer(
 			round(extensions.st_y(p.location::extensions.geometry)::numeric, 5)::float8 as lat,
 			round(extensions.st_x(r.grid_location::extensions.geometry)::numeric, 5)::float8 as "gridLon",
 			round(extensions.st_y(r.grid_location::extensions.geometry)::numeric, 5)::float8 as "gridLat",
-			r.elevation_m as elevation
+			r.elevation_m as elevation,
+			-- On geography, st_distance is metres on the spheroid: the same rule the agent tools will use.
+			round(extensions.st_distance(p.location, r.grid_location))::float8 as distance,
+			extract(epoch from r.retrieved_at)::float8 as retrieved
 		${inWindow}
 		order by p.id, r.valid_at desc
 	`;
@@ -99,7 +115,16 @@ export async function getWeatherMapLayer(
 		filters: { model: [LIVE_MODEL] },
 		total,
 		truncated: total > readings.length,
-		points: points.map((p) => [p.id, p.lon, p.lat, p.gridLon, p.gridLat, p.elevation]),
+		points: points.map((p) => [
+			p.id,
+			p.lon,
+			p.lat,
+			p.gridLon,
+			p.gridLat,
+			p.elevation,
+			p.distance,
+			p.retrieved,
+		]),
 		rows: readings.map((r) => [
 			r.point,
 			r.valid,

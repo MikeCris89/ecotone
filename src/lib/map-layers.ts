@@ -88,29 +88,30 @@ export function inatPrecision(row: InatMapRow): InatPrecision {
 	return accuracy <= PRECISE_ACCURACY_M ? "precise" : "imprecise";
 }
 
+// Each feature carries its record's ID, which a click uses to look up the record's details.
 export function inatGeoJson(
 	rows: InatMapRow[],
-): PointCollection<{ from: number; to: number; precision: InatPrecision }> {
+): PointCollection<{ id: number; from: number; to: number; precision: InatPrecision }> {
 	return {
 		type: "FeatureCollection",
 		features: rows.map((row) => {
-			const [, lon, lat, from, to] = row;
+			const [id, lon, lat, from, to] = row;
 			return {
 				type: "Feature",
 				geometry: { type: "Point", coordinates: [lon, lat] },
-				properties: { from, to, precision: inatPrecision(row) },
+				properties: { id, from, to, precision: inatPrecision(row) },
 			};
 		}),
 	};
 }
 
-export function firmsGeoJson(rows: FirmsMapRow[]): PointCollection<{ time: number }> {
+export function firmsGeoJson(rows: FirmsMapRow[]): PointCollection<{ id: string; time: number }> {
 	return {
 		type: "FeatureCollection",
-		features: rows.map(([, lon, lat, time]) => ({
+		features: rows.map(([id, lon, lat, time]) => ({
 			type: "Feature",
 			geometry: { type: "Point", coordinates: [lon, lat] },
-			properties: { time },
+			properties: { id, time },
 		})),
 	};
 }
@@ -123,12 +124,8 @@ export function firmsGeoJson(rows: FirmsMapRow[]): PointCollection<{ time: numbe
 export function weatherGeoJson(
 	points: WeatherMapPoint[],
 	rows: WeatherMapRow[],
-): PointCollection<{ time: number; temperatureC: number | null }> {
-	const latest = new Map<number, WeatherMapRow>();
-	for (const row of rows) {
-		const current = latest.get(row[0]);
-		if (!current || row[1] > current[1]) latest.set(row[0], row);
-	}
+): PointCollection<{ id: number; time: number; temperatureC: number | null }> {
+	const latest = latestWeatherRows(rows);
 
 	return {
 		type: "FeatureCollection",
@@ -137,12 +134,22 @@ export function weatherGeoJson(
 			if (!row) return [];
 			// Null temperatures stay null (no model value), never zero.
 			const [, time, temperatureC] = row;
-			const feature: PointFeature<{ time: number; temperatureC: number | null }> = {
+			const feature: PointFeature<{ id: number; time: number; temperatureC: number | null }> = {
 				type: "Feature",
 				geometry: { type: "Point", coordinates: [gridLon, gridLat] },
-				properties: { time, temperatureC },
+				properties: { id, time, temperatureC },
 			};
 			return [feature];
 		}),
 	};
+}
+
+/** Each point's latest reading, by point ID: what the weather layer draws and its popup shows. */
+export function latestWeatherRows(rows: WeatherMapRow[]): Map<number, WeatherMapRow> {
+	const latest = new Map<number, WeatherMapRow>();
+	for (const row of rows) {
+		const current = latest.get(row[0]);
+		if (!current || row[1] > current[1]) latest.set(row[0], row);
+	}
+	return latest;
 }

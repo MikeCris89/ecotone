@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getDataset } from "@/lib/datasets";
 import { sql } from "@/lib/db";
-import { getFirmsMapLayer } from "@/lib/firms/map";
+import { getFirmsMapDetails, getFirmsMapLayer } from "@/lib/firms/map";
 import type { FirmsDetectionRow } from "@/lib/firms/normalize";
 import { upsertDetections } from "@/lib/firms/store";
 import { startRun } from "@/lib/ingestion-runs";
@@ -91,5 +91,33 @@ describe("getFirmsMapLayer", () => {
 
 		expect(result.rows.map(([id]) => id)).toEqual(["test:map:late"]);
 		expect(result).toMatchObject({ total: 2, truncated: true });
+	});
+});
+
+describe("getFirmsMapDetails", () => {
+	it("returns a detection's details, outside the default filters too", async () => {
+		expect(await getFirmsMapDetails("test:map:low")).toEqual({
+			id: "test:map:low",
+			satellite: "noaa20",
+			product: "VIIRS_NOAA20_NRT",
+			version: "2.0NRT",
+			acquiredAt: "2002-06-10T10:00:00.000Z",
+			daynight: "night",
+			firstRetrievedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+			retrievedAt: "2002-06-10T15:00:00.000Z",
+			scanKm: 0.41,
+			trackKm: 0.37,
+			confidence: "low",
+			frpMw: 0.67,
+			brightTi4K: 302.48,
+			brightTi5K: 284.93,
+			// Unclassified, not "vegetation fire".
+			fireType: null,
+			sourceUrl: "https://firms.modaps.eosdis.nasa.gov/map/#d:2002-06-10;@-130.1,30.1,14z",
+		});
+	});
+
+	it("returns null for an unknown ID", async () => {
+		expect(await getFirmsMapDetails("test:map:missing")).toBeNull();
 	});
 });

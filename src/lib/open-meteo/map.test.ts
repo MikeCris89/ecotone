@@ -73,7 +73,13 @@ beforeAll(async () => {
 			// Before the window.
 			reading("2002-06-09T23:00:00.000Z"),
 			reading("2002-06-10T00:00:00.000Z", { temperature_c: null }),
-			reading("2002-06-10T02:00:00.000Z", { grid_longitude: -122.25, elevation_m: 490 }),
+			// The latest reading's grid cell: 0.01 degrees north of the point.
+			reading("2002-06-10T02:00:00.000Z", {
+				grid_longitude: point.longitude,
+				grid_latitude: point.latitude + 0.01,
+				elevation_m: 490,
+				retrieved_at: "2002-06-10T04:21:00.000Z",
+			}),
 			// At the window's end, which is exclusive.
 			reading("2002-06-10T03:00:00.000Z"),
 			// Another model.
@@ -99,18 +105,39 @@ function layer(cap?: number) {
 describe("getWeatherMapLayer", () => {
 	it("returns the live model's readings in the window, newest first, with each point's latest grid cell", async () => {
 		const id = Number(point.id);
+		const round5 = (degrees: number) => Math.round(degrees * 1e5) / 1e5;
 
 		expect(await layer()).toEqual({
 			filters: { model: [LIVE_MODEL] },
 			total: 2,
 			truncated: false,
-			points: [[id, expect.any(Number), expect.any(Number), -122.25, 37.10614, 490]],
+			points: [
+				[
+					id,
+					round5(point.longitude),
+					round5(point.latitude),
+					round5(point.longitude),
+					round5(point.latitude + 0.01),
+					490,
+					expect.any(Number),
+					Date.parse("2002-06-10T04:21:00Z") / 1000,
+				],
+			],
 			rows: [
 				[id, Date.parse("2002-06-10T02:00:00Z") / 1000, 20.2, 21, 0, 17.1, 42, 22.7],
 				// Null stays null: the model had no value, which isn't zero.
 				[id, Date.parse("2002-06-10T00:00:00Z") / 1000, null, 21, 0, 17.1, 42, 22.7],
 			],
 		});
+	});
+
+	it("measures the distance from the point to its grid cell in metres on the spheroid", async () => {
+		const { points } = await layer();
+
+		// A hundredth of a degree of latitude is ~1,109 m at California's latitudes (the spheroid
+		// is flatter toward the poles, so a degree grows from ~110.6 km at the equator).
+		expect(points[0][6]).toBeGreaterThan(1_100);
+		expect(points[0][6]).toBeLessThan(1_115);
 	});
 
 	it("reports the full count when capped", async () => {

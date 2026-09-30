@@ -1,6 +1,8 @@
 // Runs against the local Supabase stack (see vitest.config.mts).
 import { afterAll, describe, expect, it } from "vitest";
+import { GET as firmsDetails } from "@/app/api/map/firms/[id]/route";
 import { GET as firmsLayer } from "@/app/api/map/firms/route";
+import { GET as inaturalistDetails } from "@/app/api/map/inaturalist/[id]/route";
 import { GET as inaturalistLayer } from "@/app/api/map/inaturalist/route";
 import { GET as weatherLayer } from "@/app/api/map/weather/route";
 import { sql } from "@/lib/db";
@@ -49,5 +51,34 @@ describe.each(Object.entries(routes))("GET /api/map/%s", (source, GET) => {
 
 		expect(response.status).toBe(400);
 		expect(response.headers.get("Cache-Control")).toBeNull();
+	});
+});
+
+// The record lookups themselves are tested in each source's map.test.ts.
+const detailRoutes = {
+	inaturalist: { GET: inaturalistDetails, badId: "12abc", unknownId: "9000000000999" },
+	firms: { GET: firmsDetails, badId: "", unknownId: "test:routes:missing" },
+};
+
+describe.each(Object.entries(detailRoutes))("GET /api/map/%s/[id]", (source, { GET, badId, unknownId }) => {
+	function get(id: string) {
+		return GET(new Request(`http://localhost/api/map/${source}/${encodeURIComponent(id)}`), {
+			params: Promise.resolve({ id }),
+		});
+	}
+
+	it("rejects an invalid ID, uncached", async () => {
+		const response = await get(badId);
+
+		expect(response.status).toBe(400);
+		expect(response.headers.get("Cache-Control")).toBeNull();
+	});
+
+	it("returns 404 for an unknown ID, uncached", async () => {
+		const response = await get(unknownId);
+
+		expect(response.status).toBe(404);
+		expect(response.headers.get("Cache-Control")).toBeNull();
+		expect(await response.json()).toMatchObject({ ok: false });
 	});
 });

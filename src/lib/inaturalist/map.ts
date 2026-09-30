@@ -104,3 +104,71 @@ export async function getInatMapLayer(
 		]),
 	};
 }
+
+/**
+ * One recorded observation's details for its map popup, with times as ISO strings. `observedOn` is
+ * the observer's local date; `observedAt` is null when no time was recorded. Positional accuracy
+ * is null when unknown, never zero. A null license means all rights reserved. Establishment means
+ * is left out until it's verified (see the Phase 2 limitations in the roadmap).
+ */
+export type InatMapDetails = {
+	id: number;
+	commonName: string | null;
+	scientificName: string;
+	taxonRank: string;
+	iconicTaxon: string | null;
+	observedOn: string;
+	observedAt: string | null;
+	uploadedAt: string;
+	retrievedAt: string;
+	qualityGrade: InatObservationRow["quality_grade"];
+	positionalAccuracyM: number | null;
+	obscured: boolean;
+	observer: string;
+	license: string | null;
+	photoUrl: string | null;
+	photoLicense: string | null;
+	sourceUrl: string;
+};
+
+/**
+ * Looked up by ID without the default filters: the filters decide what the map shows, and a record
+ * that changed since the layer loaded (e.g. downgraded to casual) comes back as it's stored.
+ */
+export async function getInatMapDetails(id: number): Promise<InatMapDetails | null> {
+	const [row] = await sql<
+		(Omit<InatMapDetails, "observedAt" | "uploadedAt" | "retrievedAt"> & {
+			observedAt: Date | null;
+			uploadedAt: Date;
+			retrievedAt: Date;
+		})[]
+	>`
+		select
+			inat_id::float8 as id,
+			common_name as "commonName",
+			scientific_name as "scientificName",
+			taxon_rank as "taxonRank",
+			iconic_taxon as "iconicTaxon",
+			observed_on::text as "observedOn",
+			observed_at as "observedAt",
+			uploaded_at as "uploadedAt",
+			retrieved_at as "retrievedAt",
+			quality_grade as "qualityGrade",
+			positional_accuracy_m as "positionalAccuracyM",
+			obscured,
+			observer_login as observer,
+			license_code as license,
+			photo_url as "photoUrl",
+			photo_license as "photoLicense",
+			source_url as "sourceUrl"
+		from inat_observations
+		where inat_id = ${id}
+	`;
+	if (!row) return null;
+	return {
+		...row,
+		observedAt: row.observedAt?.toISOString() ?? null,
+		uploadedAt: row.uploadedAt.toISOString(),
+		retrievedAt: row.retrievedAt.toISOString(),
+	};
+}
