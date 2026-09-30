@@ -23,6 +23,8 @@ Ecotone Explorer: a California wildfire + wildlife explorer (Inversa take-home, 
 - Don't reopen decided items unless they're technically invalid or risky. If you disagree, say so and say why.
 - Mike is learning. Briefly explain non-obvious choices and the principle behind them.
 - Prefer explicit code over clever abstractions. No generic frameworks for three implementations.
+- Write to Mike in plain, easy-to-understand English. Be concise by default; go into detail only when he asks.
+- Mike uses `docs/decisions.md` for interview prep, so watch for decisions worth logging. Every phase plan and handoff ends with a short "Decision log candidates" list (choice, alternatives, why) for him to approve.
 
 ## Scope
 
@@ -80,4 +82,4 @@ Report briefly: **Changed / Why / Verified / Open / Next**. Never claim somethin
 ## Docs to maintain
 
 - `docs/roadmap.md`: the phase plan. Read it at the start of a session to know the current phase. When a phase is done, tick its checkboxes in the same phase's final commit. New ideas go under "Later," never into the current phase.
-- `docs/decisions.md`: only for important decisions, mainly when Mike picks one real alternative over another (or resolves an "Open for discussion" item). Keep it short enough to read through: implementation details and small modeling choices belong in code comments and commit messages, not here. For a qualifying decision, propose a short entry (decision, alternatives, why, tradeoff) and add it once he approves. Update the brief too if it changes scope.
+- `docs/decisions.md`: only for important decisions, mainly when Mike picks one real alternative over another (or resolves an "Open for discussion" item). Keep it short enough to read through: implementation details and small modeling choices belong in code comments and commit messages, not here. For a qualifying decision, propose a short entry (decision, alternatives, why, tradeoff) and add it once he approves. Lean toward proposing: the interviewers will ask about alternatives and tradeoffs, and an entry is cheap to reject. Update the brief too if it changes scope.
