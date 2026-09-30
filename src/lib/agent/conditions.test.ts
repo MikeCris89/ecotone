@@ -145,10 +145,10 @@ describe("getConditions", () => {
 
 	it("falls back to the latest reading, as current, when the range has none and it's up to 3 hours old", async () => {
 		// Read, but no reading yet: the newest is 12:00, 2 hours before the range's hour.
-		const { result, evidence, limitations, insufficient } = await getConditions({
-			location: PLACE,
-			range: { start: "2003-06-02T14:00:00Z", end: "2003-06-02T15:00:00Z" },
-		});
+		const { result, evidence, limitations, insufficient } = await getConditions(
+			{ location: PLACE, range: { start: "2003-06-02T14:00:00Z", end: "2003-06-02T15:00:00Z" } },
+			new Date("2003-06-02T15:00:00Z"),
+		);
 
 		expect(insufficient).toBeUndefined();
 		expect(result).toMatchObject({
@@ -163,14 +163,23 @@ describe("getConditions", () => {
 
 	it("falls back to the last available reading, not current, when the feed is behind", async () => {
 		// Never read: the newest reading is from 8 days before.
-		const { result, limitations, insufficient } = await getConditions({
-			location: PLACE,
-			range: { start: "2003-06-10T00:00:00Z", end: "2003-06-11T00:00:00Z" },
-		});
+		const { result, limitations, insufficient } = await getConditions(
+			{ location: PLACE, range: { start: "2003-06-10T00:00:00Z", end: "2003-06-11T00:00:00Z" } },
+			new Date("2003-06-11T00:00:00Z"),
+		);
 
 		expect(insufficient).toBeUndefined();
 		expect(result!.fallback).toEqual({ validAt: "2003-06-02T12:00:00.000Z", ageHours: 203, current: false });
 		expect(limitations[0]).toMatch(/^The weather feed is behind: .* not current ones/);
+	});
+
+	it("refuses a past range with no readings rather than answering from another period", async () => {
+		const { insufficient } = await getConditions({
+			location: PLACE,
+			range: { start: "2003-06-10T00:00:00Z", end: "2003-06-11T00:00:00Z" },
+		});
+
+		expect(insufficient?.reason).toBe("No stored open-meteo data covers this area and range.");
 	});
 
 	it("is insufficient where no weather was read and nothing was stored before", async () => {
