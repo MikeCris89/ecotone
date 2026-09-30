@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Bbox, Dataset } from "@/lib/datasets";
 import { sql } from "@/lib/db";
-import { WINDOW_HOURS } from "@/lib/map-layers";
+import { type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
 
 export type MapQuery = { bbox: Bbox; start: Date; end: Date };
 
@@ -9,8 +9,10 @@ export type MapQuery = { bbox: Bbox; start: Date; end: Date };
 // repeat requests: fresh for a minute, then served stale for up to 5 more while it refetches.
 export const MAP_CACHE_HEADERS = { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" };
 
+const WINDOWS = Object.keys(WINDOW_HOURS) as [MapWindow, ...MapWindow[]];
+
 export const MAP_QUERY_ERROR =
-	"Expected window=24h|3d|7d (default 7d), and optionally all four of west, south, east, north in degrees";
+	`Expected window=${WINDOWS.join("|")} (default 7d), and optionally all four of west, south, east, north in degrees`;
 
 // A non-empty numeric string: Number("") would be 0. Number("abc") is NaN, which z.number() rejects.
 function degrees(min: number, max: number) {
@@ -19,7 +21,7 @@ function degrees(min: number, max: number) {
 
 const querySchema = z
 	.object({
-		window: z.enum(["24h", "3d", "7d"]).default("7d"),
+		window: z.enum(WINDOWS).default("7d"),
 		west: degrees(-180, 180),
 		south: degrees(-90, 90),
 		east: degrees(-180, 180),
