@@ -80,9 +80,6 @@ export type SourceFreshness = {
 	behind: boolean;
 	// The latest live poll that has finished (or died), prefixed with its satellite for FIRMS.
 	latestPoll: (RunStatement & { satellite: string | null }) | null;
-	// Where the newest read stretch ends (ISO): the end of complete coverage and any band after it.
-	// Null if nothing in the window was read completely.
-	readThrough: string | null;
 	// Within the window, on observation or acquisition time. Anything in neither list wasn't read.
 	// iNaturalist is never fully complete: late uploads can still arrive for any date, so its
 	// complete spans are "mostly complete".
@@ -126,8 +123,10 @@ function partialReason(error: string | null): string {
 	return reasons.length > 0 ? reasons.join("; ") : "stopped by an error";
 }
 
-// Records a live iNaturalist poll rejected. Its cursor moves past them, so no later poll retries
-// them: only a fix and a backfill of their dates recovers them.
+// Rejections by live iNaturalist polls. The cursor moves past rejected records, so no later poll
+// retries them: only a fix and a backfill of their dates recovers them. Rejections, not records:
+// each poll re-reads the last 2 minutes before the previous cursor (and a page re-reads the second
+// it stopped on), so one bad record can be counted more than once, and runs don't record which.
 function rejectedRecords(runs: FreshnessRun[]): number {
 	return runs.reduce((sum, run) => sum + Number(/(\d+) records failed validation/.exec(run.error ?? "")?.[1] ?? 0), 0);
 }
@@ -308,7 +307,8 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 	const rejected = source === "inaturalist" ? rejectedRecords(live) : 0;
 	if (rejected > 0) {
 		sentences.push(
-			`${count(String(rejected), "records")} failed validation during live polls in this window and weren't stored`,
+			`Live polls in this window rejected records that failed validation, which weren't stored: ` +
+				`${count(String(rejected), "rejections")}, counting a record again each time a later poll re-read it`,
 		);
 	}
 	if (latestPoll && latestPoll.outcome !== "succeeded") {
@@ -326,7 +326,6 @@ export function sourceFreshness(source: Source, runs: FreshnessRun[], window: In
 		lastPollAt: lastPoll === null ? null : new Date(lastPoll).toISOString(),
 		behind,
 		latestPoll,
-		readThrough: through === null ? null : new Date(through).toISOString(),
 		complete: complete.map(toSpan),
 		likelyIncomplete: [
 			...partial.map((interval) => ({ ...toSpan(interval), reason: "partial" as const })),

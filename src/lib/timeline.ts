@@ -11,8 +11,8 @@ export const CALIFORNIA_TIME_ZONE = "America/Los_Angeles";
 
 // Every time in the app is California time, whatever the browser's zone, so the timeline, legend,
 // popups and coverage statements agree. "PT" rather than PDT or PST, so the label doesn't flip at
-// the DST change.
-const timeFormat = new Intl.DateTimeFormat([], {
+// the DST change. en-US, so server-written statements read the same as times the browser formats.
+const timeFormat = new Intl.DateTimeFormat("en-US", {
 	timeZone: CALIFORNIA_TIME_ZONE,
 	month: "short",
 	day: "numeric",

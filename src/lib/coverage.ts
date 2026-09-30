@@ -75,11 +75,14 @@ export function rowShading(axis: TimeWindow, loaded: TimeWindow | null, coverage
 /** What the legend says about a layer's coverage. Times are epoch ms. */
 export type LayerCoverage = {
 	statement: string;
-	// Minutes from the latest live poll's start to when the server answered; null if none ran.
-	lastPollMinutes: number | null;
+	// When the latest live poll started; null if none did in the window. A time rather than "N min
+	// ago", which the cached response (up to ~3 minutes old) would understate.
+	lastPollAt: number | null;
+	// Judged when the server answered, so up to ~3 minutes late: small next to the thresholds.
 	behind: boolean;
 	// How much of the span shown lies past what's been read (by more than a poll's usual delay), and
-	// where reading stopped (null if nothing in the window was read).
+	// where reading stopped: the end of anything read, complete or not, as the timeline shades it.
+	// Null if nothing in the window was read.
 	unread: "none" | "partway" | "all";
 	readThrough: number | null;
 };
@@ -87,8 +90,8 @@ export type LayerCoverage = {
 /** A layer's coverage for the span it shows (epoch seconds). */
 export function layerCoverage(freshness: Freshness, source: Source, span: TimeWindow | undefined): LayerCoverage {
 	const coverage = freshness.sources[source];
-	const lastPoll = coverage.lastPollAt === null ? null : Date.parse(coverage.lastPollAt);
-	const readThrough = coverage.readThrough === null ? null : Date.parse(coverage.readThrough);
+	const readEnds = [...coverage.complete, ...coverage.likelyIncomplete].map(({ end }) => Date.parse(end));
+	const readThrough = readEnds.length > 0 ? Math.max(...readEnds) : null;
 	// The newest data always trails the clock a little (the poll interval, plus caching), which
 	// isn't worth a note; "behind" uses the same allowance.
 	const allowance = 2 * coverage.pollEveryMinutes * 60_000;
@@ -98,7 +101,7 @@ export function layerCoverage(freshness: Freshness, source: Source, span: TimeWi
 	}
 	return {
 		statement: coverage.statement,
-		lastPollMinutes: lastPoll === null ? null : Math.round((Date.parse(freshness.end) - lastPoll) / 60_000),
+		lastPollAt: coverage.lastPollAt === null ? null : Date.parse(coverage.lastPollAt),
 		behind: coverage.behind,
 		unread,
 		readThrough,

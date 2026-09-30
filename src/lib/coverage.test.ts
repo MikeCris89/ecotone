@@ -14,7 +14,6 @@ function source(overrides: Partial<SourceFreshness> = {}): SourceFreshness {
 		lastPollAt: iso(at(99.9)),
 		behind: false,
 		latestPoll: null,
-		readThrough: iso(at(60)),
 		complete: [{ start: iso(at(0)), end: iso(at(57)) }],
 		likelyIncomplete: [{ start: iso(at(57)), end: iso(at(60)), reason: "publishing-lag" }],
 		statement: "Read through …",
@@ -64,11 +63,23 @@ describe("layerCoverage", () => {
 
 	it("says whether the span shown reaches past what's been read, allowing for the usual poll delay", () => {
 		const past = layerCoverage(freshness(), "firms", { start: at(50), end: at(100) });
-		expect(past).toMatchObject({ unread: "partway", readThrough: at(60) * 1000, lastPollMinutes: 6 });
+		expect(past).toMatchObject({ unread: "partway", readThrough: at(60) * 1000, lastPollAt: at(99.9) * 1000 });
 		expect(layerCoverage(freshness(), "firms", { start: at(80), end: at(100) }).unread).toBe("all");
 		// Within two poll intervals of what's been read.
 		expect(layerCoverage(freshness(), "firms", { start: at(36), end: at(60.4) }).unread).toBe("none");
-		expect(layerCoverage(freshness({ readThrough: null }), "firms", { start: at(36), end: at(60) }).unread).toBe("all");
+		const nothingRead = freshness({ complete: [], likelyIncomplete: [] });
+		expect(layerCoverage(nothingRead, "firms", { start: at(36), end: at(60) })).toMatchObject({
+			unread: "all",
+			readThrough: null,
+		});
 		expect(layerCoverage(freshness(), "firms", undefined).unread).toBe("none");
+	});
+
+	it("counts hours read only partly as read, as the timeline does", () => {
+		const partlyRead = freshness({ complete: [], likelyIncomplete: [{ start: iso(at(0)), end: iso(at(50)), reason: "partial" }] });
+		expect(layerCoverage(partlyRead, "firms", { start: at(36), end: at(100) })).toMatchObject({
+			unread: "partway",
+			readThrough: at(50) * 1000,
+		});
 	});
 });

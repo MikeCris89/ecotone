@@ -304,18 +304,13 @@ function Shading({ shading, first, count }: { shading: RowShading; first: number
 	});
 	return (
 		<>
-			{shading.notLoaded.map((range) => (
+			{[
+				...shading.notLoaded.map((range) => ({ range, title: "Not loaded" })),
+				...shading.unread.map((range) => ({ range, title: "Not read from the source yet" })),
+			].map(({ range, title }) => (
 				<div
-					key={`not-loaded-${range.start}`}
-					title="Not loaded"
-					className="absolute inset-y-0"
-					style={{ ...place(range), backgroundColor: NOT_LOADED_COLOR }}
-				/>
-			))}
-			{shading.unread.map((range) => (
-				<div
-					key={`unread-${range.start}`}
-					title="Not read from the source yet"
+					key={`${title}-${range.start}`}
+					title={title}
 					className="absolute inset-y-0"
 					style={{ ...place(range), backgroundColor: NOT_LOADED_COLOR }}
 				/>

@@ -232,7 +232,10 @@ describe("sourceFreshness", () => {
 		const freshness = sourceFreshness("inaturalist", runs, WINDOW);
 
 		expect(freshness.latestPoll?.outcome).toBe("succeeded");
-		expect(freshness.statement).toContain("4 records failed validation during live polls in this window and weren't stored.");
+		expect(freshness.statement).toContain(
+			"Live polls in this window rejected records that failed validation, which weren't stored: " +
+				"4 rejections, counting a record again each time a later poll re-read it.",
+		);
 	});
 
 	it("counts FIRMS hours as complete only once every satellite's are, and names each when they differ", () => {

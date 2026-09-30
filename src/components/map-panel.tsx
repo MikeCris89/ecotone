@@ -7,7 +7,7 @@ import {
 	OBSERVATION_COLOR,
 	TEMPERATURE_STOPS,
 } from "@/components/map-colors";
-import { formatDuration, type LayerCoverage } from "@/lib/coverage";
+import type { LayerCoverage } from "@/lib/coverage";
 import type { SourceAttribution } from "@/lib/data-sources";
 import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
 import { FIRMS_CLUSTER, type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
@@ -193,9 +193,7 @@ function LayerEntry(props: LayerEntryProps) {
 					<p className="text-[11px] text-zinc-500">
 						{coverage.statement}
 						{/* When behind, the statement already says how long it's been. */}
-						{coverage.lastPollMinutes !== null &&
-							!coverage.behind &&
-							` Last poll ${formatDuration(coverage.lastPollMinutes)} ago.`}
+						{coverage.lastPollAt !== null && !coverage.behind && ` Last poll ${formatTime(coverage.lastPollAt)}.`}
 					</p>
 				)}
 				{summary.oldestLoaded !== null && (
