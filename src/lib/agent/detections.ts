@@ -31,14 +31,24 @@ export const DETECTION_LIMITATIONS = {
 	passes:
 		"Each satellite passes over California about twice a day, so detections are snapshots at pass times; clouds and smoke can hide heat.",
 	defaultFilter: "Detections use the map's default filter: nominal and high confidence.",
+	staticSources:
+		"Weak detections (a few MW) near towns, especially at night and in small clusters, are often static heat sources " +
+		"such as industrial sites, not vegetation fires. Large clusters of many detections are likelier to be vegetation fires.",
+	minFrp: (minFrpMw: number) => `Only detections of at least ${minFrpMw} MW fire radiative power are included.`,
 };
+
+// Shared by both detection tools, so their cluster ranks agree. Detections closer than this to
+// another one join its cluster.
+export const clusterDistanceKmSchema = z.number().min(0.5).max(10).default(2);
+// Optional in both detection tools: leaves out weak detections, often static heat sources.
+export const minFrpMwSchema = z.number().min(0).max(1000).optional();
 
 export const summarizeDetectionsInput = z.object({
 	area: areaSchema,
 	range: rangeSchema,
-	// Detections closer than this to another one join its cluster.
-	clusterDistanceKm: z.number().min(0.5).max(10).default(2),
+	clusterDistanceKm: clusterDistanceKmSchema,
 	maxClusters: z.number().int().min(1).max(25).default(10),
+	minFrpMw: minFrpMwSchema,
 });
 
 type Cluster = {
@@ -70,8 +80,8 @@ export async function summarizeDetections(
 	input: z.input<typeof summarizeDetectionsInput>,
 	now = new Date(),
 ): Promise<ToolResult<DetectionSummary>> {
-	const { area, range, clusterDistanceKm, maxClusters } = summarizeDetectionsInput.parse(input);
-	const filters = { confidence: DEFAULT_FIRMS_CONFIDENCE, clusterDistanceKm };
+	const { area, range, clusterDistanceKm, maxClusters, minFrpMw } = summarizeDetectionsInput.parse(input);
+	const filters = { confidence: DEFAULT_FIRMS_CONFIDENCE, clusterDistanceKm, minFrpMw };
 	const window = resolveRange(range, now);
 	if (!window) {
 		return {
@@ -94,31 +104,15 @@ export async function summarizeDetections(
 	const insufficient = insufficientCoverage(sources);
 	if (insufficient) return { result: null, evidence: [], coverage, limitations: [], insufficient };
 
-	// minpoints 1: every detection belongs to a cluster, a lone one to its own. DBSCAN's cluster
-	// numbers depend on scan order, so ties are broken by each cluster's first source ID instead.
 	const [clusters, satellites] = await Promise.all([
 		sql<(Omit<Cluster, "rank" | "firstAt" | "lastAt"> & { firstAt: Date; lastAt: Date; strongest: string })[]>`
-			with detections as (
-				select
-					d.*,
-					extensions.st_clusterdbscan(
-						extensions.st_transform(d.location::extensions.geometry, ${CALIFORNIA_ALBERS}::int),
-						${clusterDistanceKm * 1000}::float8,
-						1
-					) over () as cluster
-				from (${detectionsIn(area, window)}) d
-			),
-			centres as (
-				select cluster, extensions.st_centroid(extensions.st_collect(location::extensions.geometry)) as centre
-				from detections
-				group by cluster
-			)
+			with ${clusteredDetections(area, window, clusterDistanceKm, minFrpMw)}
 			select
 				extensions.st_x(c.centre) as longitude,
 				extensions.st_y(c.centre) as latitude,
-				count(*)::int as detections,
+				c.detections,
 				round((max(extensions.st_distance(d.location, c.centre::extensions.geography)) / 1000)::numeric, 1)::float8 as "radiusKm",
-				max(d.frp_mw) as "maxFrpMw",
+				c.max_frp_mw as "maxFrpMw",
 				round(sum(d.frp_mw)::numeric, 1)::float8 as "totalFrpMw",
 				min(d.acquired_at) as "firstAt",
 				max(d.acquired_at) as "lastAt",
@@ -126,9 +120,9 @@ export async function summarizeDetections(
 				-- The cluster's strongest detection, its evidence.
 				(array_agg(d.source_id order by d.frp_mw desc, d.source_id))[1] as strongest
 			from detections d
-			join centres c using (cluster)
-			group by d.cluster, c.centre
-			order by detections desc, "maxFrpMw" desc, min(d.source_id)
+			join clusters c using (cluster)
+			group by c.rank, c.cluster, c.centre, c.detections, c.max_frp_mw
+			order by c.rank
 		`,
 		sql<{ satellite: string; count: number }[]>`
 			select satellite, count(*)::int as count
@@ -164,8 +158,10 @@ export async function summarizeDetections(
 		coverage,
 		limitations: [
 			DETECTION_LIMITATIONS.notFires,
+			DETECTION_LIMITATIONS.staticSources,
 			DETECTION_LIMITATIONS.passes,
 			DETECTION_LIMITATIONS.defaultFilter,
+			...(minFrpMw === undefined ? [] : [DETECTION_LIMITATIONS.minFrp(minFrpMw)]),
 			`Clusters join detections within ${clusterDistanceKm} km of each other. They're spatial only: detections at one ` +
 				"place on different days share a cluster, so check its dates, first and last times.",
 		],
@@ -202,13 +198,51 @@ export async function firmsEvidence(ids: string[]): Promise<Evidence[]> {
 	}));
 }
 
-/** Detections in the area acquired in [start, end), by the map's default filter. */
-export function detectionsIn(area: Bbox, { start, end }: { start: Date; end: Date }) {
+/** Detections in the area acquired in [start, end), by the map's default filter and an optional minimum power. */
+export function detectionsIn(area: Bbox, { start, end }: { start: Date; end: Date }, minFrpMw?: number) {
 	return sql`
 		select source_id, location, acquired_at, frp_mw, satellite, source_url, retrieved_at, ingestion_run_id
 		from firms_detections
 		where confidence in ${sql(DEFAULT_FIRMS_CONFIDENCE)}
 			and ${inBbox("location", area)}
 			and acquired_at >= ${start} and acquired_at < ${end}
+			${minFrpMw === undefined ? sql`` : sql`and frp_mw >= ${minFrpMw}`}
+	`;
+}
+
+/**
+ * CTEs `detections` (detectionsIn, each with its DBSCAN cluster) and `clusters` (each cluster's
+ * size, strongest detection's power and centre, and rank). Both detection tools rank clusters this
+ * way, so "the largest cluster" is the same cluster in either's answer.
+ */
+export function clusteredDetections(
+	area: Bbox,
+	window: { start: Date; end: Date },
+	clusterDistanceKm: number,
+	minFrpMw?: number,
+) {
+	// minpoints 1: every detection belongs to a cluster, a lone one to its own. DBSCAN's cluster
+	// numbers depend on scan order, so ties are broken by each cluster's first source ID instead.
+	return sql`
+		detections as (
+			select
+				d.*,
+				extensions.st_clusterdbscan(
+					extensions.st_transform(d.location::extensions.geometry, ${CALIFORNIA_ALBERS}::int),
+					${clusterDistanceKm * 1000}::float8,
+					1
+				) over () as cluster
+			from (${detectionsIn(area, window, minFrpMw)}) d
+		),
+		clusters as (
+			select
+				cluster,
+				count(*)::int as detections,
+				max(frp_mw) as max_frp_mw,
+				extensions.st_centroid(extensions.st_collect(location::extensions.geometry)) as centre,
+				(row_number() over (order by count(*) desc, max(frp_mw) desc, min(source_id)))::int as rank
+			from detections
+			group by cluster
+		)
 	`;
 }
