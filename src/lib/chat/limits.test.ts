@@ -30,6 +30,13 @@ describe("chatLimits", () => {
 });
 
 describe("admitRequest", () => {
+	it("only counts requests made up to now", async () => {
+		const ONE_A_DAY = { hourlyPerIp: 5, daily: 1 };
+		// A row dated later (in the tests, any real chat use) isn't "since midnight" for an earlier now.
+		expect(await admitRequest("public", ip("later"), ONE_A_DAY, at(30))).toMatchObject({ ok: true });
+		expect(await admitRequest("public", ip("now"), ONE_A_DAY, at(0))).toMatchObject({ ok: true });
+	});
+
 	it("limits each IP per rolling hour, until its oldest request in the hour is an hour old", async () => {
 		const HOURLY = { hourlyPerIp: 2, daily: 10 };
 		expect(await admitRequest("public", ip("a"), HOURLY, at(0))).toMatchObject({ ok: true });

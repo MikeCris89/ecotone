@@ -1,6 +1,7 @@
 // Chat rate limits and the usage log, in one table (chat_requests). Every message costs money and
 // the URL is public, so each bucket has a per-IP hourly limit and a daily cap: per-IP alone doesn't
 // bound spend when IPs rotate. Counters live in Postgres because serverless instances share no memory.
+import type postgres from "postgres";
 import { z } from "zod";
 import type { Bucket } from "@/lib/chat/access";
 import { localDate, nextDate, startOfLocalDate } from "@/lib/dates";
@@ -33,6 +34,27 @@ export type Admission =
 	// retryAt: when the limit next lets a request through.
 	| { ok: false; limit: "hourly" | "daily"; retryAt: Date };
 
+type Served = { daily: number; hourly: number; oldestInHour: Date | null };
+
+/**
+ * A bucket's served requests since midnight PT, and one IP's in the last hour (with its oldest, for
+ * when the hourly limit lifts). Up to `now` only: rows dated later aren't "since midnight".
+ */
+async function servedCounts(db: postgres.ISql, bucket: Bucket, ipHash: string, now: Date): Promise<Served> {
+	const dayStart = startOfLocalDate(localDate(now, CALIFORNIA_TIME_ZONE), CALIFORNIA_TIME_ZONE);
+	const hourAgo = new Date(now.getTime() - HOUR_MS);
+	const [served] = await db<Served[]>`
+		select
+			(count(*) filter (where created_at >= ${dayStart}))::int as daily,
+			(count(*) filter (where ip_hash = ${ipHash} and created_at > ${hourAgo}))::int as hourly,
+			min(created_at) filter (where ip_hash = ${ipHash} and created_at > ${hourAgo}) as "oldestInHour"
+		from chat_requests
+		where bucket = ${bucket} and limited is null
+			and created_at >= ${new Date(Math.min(dayStart.getTime(), hourAgo.getTime()))} and created_at <= ${now}
+	`;
+	return served;
+}
+
 /**
  * Records the request, turned away if a limit is reached. Checking and recording run under one
  * lock per bucket, so two simultaneous requests can't both take the last slot. Turned-away
@@ -45,21 +67,11 @@ export async function admitRequest(
 	now = new Date(),
 ): Promise<Admission> {
 	const today = localDate(now, CALIFORNIA_TIME_ZONE);
-	const dayStart = startOfLocalDate(today, CALIFORNIA_TIME_ZONE);
-	const hourAgo = new Date(now.getTime() - HOUR_MS);
 
 	return sql.begin(async (tx) => {
 		// Transaction-scoped, so it works through Supabase's transaction pooler.
 		await tx`select pg_advisory_xact_lock(hashtext(${`chat_requests:${bucket}`}))`;
-		const [served] = await tx<{ daily: number; hourly: number; oldestInHour: Date | null }[]>`
-			select
-				(count(*) filter (where created_at >= ${dayStart}))::int as daily,
-				(count(*) filter (where ip_hash = ${ipHash} and created_at > ${hourAgo}))::int as hourly,
-				min(created_at) filter (where ip_hash = ${ipHash} and created_at > ${hourAgo}) as "oldestInHour"
-			from chat_requests
-			where bucket = ${bucket} and limited is null
-				and created_at >= ${new Date(Math.min(dayStart.getTime(), hourAgo.getTime()))}
-		`;
+		const served = await servedCounts(tx, bucket, ipHash, now);
 		// The daily cap first: when both are reached, it's the one that lifts later.
 		const refusal =
 			served.daily >= limits.daily
