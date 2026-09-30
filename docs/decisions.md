@@ -237,6 +237,70 @@ Interpolation would invent values the model never produced, while the nearest po
 
 Serverless instances don't share memory, so in-memory counters reset between calls and can't cap a day's spend. Redis would be new infrastructure for a few hundred rows a day. The table doubles as the usage log (tokens, steps, duration), which shows what a message really costs before I tune the limits. A per-IP limit alone doesn't cap spend when IPs rotate, so each bucket also has a daily cap. **Tradeoff:** a database round trip before every message, and a table that grows by one row per message.
 
-## 29. Open decisions
+## 29. The chat sees the map's context
+
+**Decision:** Each question carries the map's context: the view clipped to California's box, the selected window, the timeline handle, and the `end` the map's data runs to. The server turns it into explicit areas and ranges with the map's own window functions, checks the client's `end` (not in the future, at most 2 hours old), and hands them to the model as ISO times. Earlier questions keep the context they were asked with, written into the history by the server from the numbers the client stored.
+
+**Considered:** the server clock for ranges; the view as is; only the newest question's context.
+
+The map's data comes through a CDN cache up to 40 minutes old, so the server clock disagrees with what's on screen; anchoring on the map's `end` makes "this week" in chat exactly the map's 7 days, and the model never does date arithmetic. The statewide view reaches past California, where no ingestion run covers, so the tools would refuse the default zoom. Without each question's own context, the model read earlier answers against the new view and called correct ones wrong after the map moved (seen twice in browser testing). **Tradeoff:** a longer prompt per turn, and a client-sent `end` that has to be checked.
+
+## 30. Reviewer access through a link
+
+**Decision:** Reviewers open the demo with `?key=…`. The server checks the key and sets a cookie holding its hash, which puts them in a separate rate-limit bucket from the public. Suggested by Claude; I agreed.
+
+**Considered:** a code typed into a form; real auth (a brief non-goal); one shared bucket.
+
+Public traffic could use up a shared bucket before reviewers arrive. A link is the least friction for a reviewer, and a cookie keeps them in their bucket without the key in later URLs. The panel only shows "Reviewer access" once the server has confirmed it. **Tradeoff:** the key sits in the address bar (history, screenshots, logs); it only raises a limit, and rotating it invalidates every cookie.
+
+## 31. Evidence comes from tool results
+
+**Decision:** The records an answer rests on are taken from the tool results of that turn, never from the model's text. The model cites records as `[source:id]`, and a citation is only kept if a tool returned that ID. Suggested by Claude; I agreed.
+
+**Considered:** trusting the IDs the model writes.
+
+A model can invent or garble an ID, and a highlighted record that no query returned would be a fabricated source. **Tradeoff:** a record the model mentions in words but doesn't cite isn't highlighted.
+
+## 32. Chat history without tool results
+
+**Decision:** Earlier turns are sent as the question and the final answer text only, for the last two turns. The panel sends only its last 10 messages.
+
+**Considered:** the full history, tool calls and results included; no history.
+
+Tool results are most of a turn's tokens, so a full history's cost grows with every question, and useChat's whole history eventually passed the route's message cap. Without history, follow-ups ("what about there?") break. **Tradeoff:** a follow-up can't reuse an earlier turn's numbers; the model calls the tool again.
+
+## 33. Proximity reported per detection cluster
+
+**Decision:** The proximity tool reports the largest detection clusters first, each with its recorded observations and closest pair, and counts the observations near only the smaller clusters separately. When the largest clusters have none nearby, the answer explains the zero and offers a 10 km / 48 h search.
+
+**Considered:** the closest pairs statewide; dropping weak detections by default; reporting a zero bare; offering the 25 km / 72 h maximum.
+
+The closest pairs statewide were mostly weak night-time detections near towns (likely static heat sources), while the largest cluster never appeared. Dropping weak detections also drops small real fires. A bare zero reads as "no wildlife near fires", when large fires burn where few people record. The maximum search takes in almost every detection. **Tradeoff:** the headline zero depends on the default radius and window, so the answer has to say which it used.
+
+## 34. Our own answer renderer
+
+**Decision:** The panel parses answers itself (paragraphs, lists, headings, bold, italic, `[source:id]` citations) into React elements, never HTML.
+
+**Considered:** `react-markdown`; showing raw text.
+
+Model output is untrusted, so it never becomes HTML. Owning the parser makes citations easy to turn into evidence links: `react-markdown` would need a plugin or a text-node override. Raw text showed asterisks. **Tradeoff:** it only reads what the model writes today; a new syntax shows as plain text until it's added.
+
+## 35. Chat usage logged once per question
+
+**Decision:** Each finished step's token usage is collected in memory and written once, when the reply ends, is cut off, or fails.
+
+**Considered:** writing only when a reply finishes; writing after every step.
+
+Writing only on finish missed requests the client left or the model failed, so the log undercounted spend. Writing after every step survives a hard stop at the 120 s limit, but costs up to 8 writes per question. The Anthropic console stays the source of truth for spend; the log is for per-question analysis. **Tradeoff:** a request killed at the time limit logs nothing.
+
+## 36. Weather "right now" from the latest reading
+
+**Decision:** When a range has no weather readings yet (a question before the hour's poll lands), the conditions tool falls back to the nearest point's latest reading and states its age. Within the map's own 3-hour lookback it counts as current; older, it's the last available reading and the feed is said to be behind.
+
+**Considered:** refusing, as before; always treating the latest reading as current.
+
+Refusing made "what are conditions right now?" fail for part of every hour. Calling any latest reading current would present a stale feed as live. Sharing the map's lookback keeps the map and the agent from disagreeing about what "current" means. **Tradeoff:** an answer can describe conditions up to 3 hours old as current, with the age stated.
+
+## 37. Open decisions
 
 - Charting library for the agent's metrics (the timeline uses plain SVG, 19)
