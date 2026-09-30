@@ -87,6 +87,8 @@ describe("earlierContextNote", () => {
 		expect(earlierContextNote(undefined, CALIFORNIA)).toBeNull();
 		expect(earlierContextNote({ bucket: "public" }, CALIFORNIA)).toBeNull();
 		expect(earlierContextNote({ context: { ...context(), window: "2w" } }, CALIFORNIA)).toBeNull();
+		// A forged hour past what a Date can hold would make formatting it throw.
+		expect(earlierContextNote({ context: context({ hour: 1e13 }) }, CALIFORNIA)).toBeNull();
 	});
 });
 
