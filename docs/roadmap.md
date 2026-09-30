@@ -60,6 +60,7 @@
   - The panel and timeline stack in one column, so the panel scrolls rather than hiding under a taller timeline; the basemap attribution moved to the top right
   - A popup closes when its record leaves the trailing span (the 6c rule). A weather popup for an earlier reading says its retrieval time isn't loaded: the layer only carries each point's newest reading's
   - Verified locally (2026-09-29): tests (181 passing), typecheck, lint. The first and last six steps' loaded rows, shown rows and fade ranges were replayed against the local database for the 7 days and 24h windows: every step shows a full 24 hours, and weather has all 169 points from the first step. Browser checks by Mike during review; not re-checked after the last fix (full trailing day). To confirm after merge: in production, scrubbing is smooth, the newest steps show faded weather rather than none, and times match between the timeline and popups
+  - Side change (asked for during 7a review): zoomed out (to zoom 8), 5 or more satellite thermal detections within ~30 px draw as one circle sized by their count, and clicking one zooms in until it splits (`FIRMS_CLUSTER` in `src/lib/map-layers.ts`). MapLibre clusters in the source, before layer filters, so the FIRMS source holds only the detections in the shown span instead of using a filter
 - [ ] 7b: Playback: play/pause and a 1× / 4× speed toggle (about 4 hours per second at 1×), stopping at the end
 
 ## Phase 8: Freshness and data quality UI

@@ -2,6 +2,8 @@ import { Color, expression, featureFilter, latest } from "@maplibre/maplibre-gl-
 import { describe, expect, it } from "vitest";
 import { NO_VALUE_COLOR, TEMPERATURE_COLOR } from "@/components/map-colors";
 import {
+	FIRMS_CLUSTER,
+	FIRMS_CLUSTER_RADIUS,
 	firmsGeoJson,
 	inatGeoJson,
 	inatInWindow,
@@ -149,6 +151,20 @@ describe("record IDs on features", () => {
 
 		expect(inat.features[0].properties.id).toBe(42);
 		expect(firms.features[0].properties.id).toBe("noaa20:2026-09-29T09:41:00.000Z:37.1,-122.1");
+	});
+});
+
+describe("FIRMS_CLUSTER_RADIUS", () => {
+	it("draws bigger clusters as bigger circles", () => {
+		const radius = (count: number) => {
+			const parsed = expression.createExpression(FIRMS_CLUSTER_RADIUS, latest.paint_circle["circle-radius"]);
+			if (parsed.result !== "success") throw new Error(JSON.stringify(parsed.value));
+			return parsed.value.evaluateWithoutErrorHandling({ zoom: 6 }, { type: "Point", properties: { point_count: count } });
+		};
+
+		expect(radius(FIRMS_CLUSTER.clusterMinPoints)).toBe(9);
+		expect(radius(50)).toBeGreaterThan(radius(10));
+		expect(radius(5_000)).toBe(24);
 	});
 });
 

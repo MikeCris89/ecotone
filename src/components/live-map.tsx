@@ -2,7 +2,7 @@
 
 import "maplibre-gl/dist/maplibre-gl.css";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
-import type { Popup as MapLibrePopup } from "maplibre-gl";
+import type { GeoJSONSource, Popup as MapLibrePopup } from "maplibre-gl";
 import { useCallback, useMemo, useRef, useState } from "react";
 import Map, { AttributionControl, Layer, type MapLayerMouseEvent, Popup, Source } from "react-map-gl/maplibre";
 import { type LayerSummary, type LayerVisibility, MapPanel } from "@/components/map-panel";
@@ -17,12 +17,13 @@ import {
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { InatMapRow } from "@/lib/inaturalist/map";
 import {
+	FIRMS_CLUSTER,
+	FIRMS_CLUSTER_RADIUS,
 	firmsGeoJson,
 	inatGeoJson,
 	inatInWindow,
 	inatWindowFilter,
 	instantInWindow,
-	instantWindowFilter,
 	LAYER_REFRESH_MINUTES,
 	latestWeatherRows,
 	type MapLayerName,
@@ -62,8 +63,9 @@ const CALIFORNIA: [[number, number], [number, number]] = [
 // stacking order whichever response lands first.
 const EMPTY: PointCollection<never> = { type: "FeatureCollection", features: [] };
 
-// Clickable layers. Their source IDs match MapSelection's sources.
-const INTERACTIVE_LAYERS = ["firms-points", "inaturalist-points", "weather-points"];
+// Clickable layers. Their source IDs match MapSelection's sources, except FIRMS clusters, which
+// aren't records: clicking one zooms in until it splits.
+const INTERACTIVE_LAYERS = ["firms-clusters", "firms-points", "inaturalist-points", "weather-points"];
 
 // Zooms over which iNaturalist circles fade in. The heatmap fades out more slowly, until zoom 9.
 const INAT_POINTS_FADE = { from: 7, to: 8 };
@@ -94,6 +96,18 @@ function recordsAt(event: MapLayerMouseEvent): MapSelection[] {
 	return records;
 }
 
+function isCluster(feature: NonNullable<MapLayerMouseEvent["features"]>[number]) {
+	return feature.layer.id === "firms-clusters";
+}
+
+async function zoomIntoCluster(event: MapLayerMouseEvent) {
+	const cluster = event.features?.[0];
+	if (!cluster || cluster.geometry.type !== "Point") return;
+	const source = event.target.getSource<GeoJSONSource>("firms");
+	const zoom = await source?.getClusterExpansionZoom(cluster.properties.cluster_id);
+	event.target.easeTo({ center: cluster.geometry.coordinates as [number, number], zoom });
+}
+
 function findFeature(features: PointFeature<{ id: number | string }>[], id: number | string) {
 	return features.find(({ properties }) => properties.id === id);
 }
@@ -101,7 +115,7 @@ function findFeature(features: PointFeature<{ id: number | string }>[], id: numb
 // MapLibre rejects `filter: undefined` when adding a layer and skips it, so a layer gets no filter
 // prop until its data (and window) exists. Every layer is then added at style load, in the order
 // written, and later filters go through setFilter on a layer that exists.
-function windowFilter(filter: ReturnType<typeof instantWindowFilter> | undefined) {
+function windowFilter(filter: ReturnType<typeof inatWindowFilter> | undefined) {
 	return filter ? { filter } : {};
 }
 
@@ -235,7 +249,6 @@ export function LiveMap() {
 
 	// Changing the span only swaps these filters and recounts; the data stays as loaded.
 	const inatFilter = inatSpan && inatWindowFilter(inatSpan);
-	const firmsFilter = firmsSpan && instantWindowFilter(firmsSpan);
 
 	// Counted with the same rules as the filters (a few ms at most for a full layer), once per span:
 	// hovering re-renders on every mouse move.
@@ -250,6 +263,9 @@ export function LiveMap() {
 		() => (firmsSpan ? firmsData.features.filter(({ properties }) => instantInWindow(properties.time, firmsSpan)) : []),
 		[firmsData, firmsSpan],
 	);
+	// FIRMS is clustered, which happens in the source before any layer filter, so its source holds
+	// only the shown detections instead of filtering them.
+	const firmsShownData = useMemo(() => ({ ...firmsData, features: firmsShown }), [firmsData, firmsShown]);
 	const weatherShown = weatherData.features;
 	const staleWeather =
 		weatherHour === null ? 0 : weatherShown.filter(({ properties }) => properties.time < weatherHour).length;
@@ -306,8 +322,11 @@ export function LiveMap() {
 				attributionControl={false}
 				interactiveLayerIds={INTERACTIVE_LAYERS}
 				cursor={cursor}
-				onMouseMove={(event) => setCursor(recordsAt(event).length ? "pointer" : undefined)}
+				onMouseMove={(event) =>
+					setCursor(recordsAt(event).length || event.features?.some(isCluster) ? "pointer" : undefined)
+				}
 				onClick={(event) => {
+					if (event.features?.[0] && isCluster(event.features[0])) return void zoomIntoCluster(event);
 					const [top, ...rest] = recordsAt(event);
 					setSelection(top ? { ...top, more: rest.length } : null);
 				}}
@@ -396,11 +415,25 @@ export function LiveMap() {
 						}}
 					/>
 				</Source>
-				<Source id="firms" type="geojson" data={firmsData}>
+				<Source id="firms" type="geojson" data={firmsShownData} {...FIRMS_CLUSTER}>
+					<Layer
+						id="firms-clusters"
+						type="circle"
+						filter={["has", "point_count"]}
+						layout={{ visibility: visibility("firms") }}
+						paint={{
+							"circle-radius": FIRMS_CLUSTER_RADIUS,
+							"circle-color": DETECTION_COLOR,
+							"circle-opacity": recencyFade(fadeEnd, "time"),
+							"circle-stroke-color": "#ffffff",
+							"circle-stroke-width": 1.5,
+							"circle-stroke-opacity": recencyFade(fadeEnd, "time"),
+						}}
+					/>
 					<Layer
 						id="firms-points"
 						type="circle"
-						{...windowFilter(firmsFilter)}
+						filter={["!", ["has", "point_count"]]}
 						layout={{ visibility: visibility("firms") }}
 						paint={{
 							"circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 3, 10, 6],

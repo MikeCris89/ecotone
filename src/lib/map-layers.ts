@@ -1,7 +1,7 @@
 // Client-side shaping of the map layer responses: GeoJSON built once per response, and the
 // 24h / 3 days / 7 days windows applied as MapLibre filters, so switching windows never refetches.
 // Type-only imports from the map modules: their runtime code needs the database.
-import type { CircleLayerSpecification } from "maplibre-gl";
+import type { CircleLayerSpecification, ExpressionSpecification } from "maplibre-gl";
 import type { SourceAttribution } from "@/lib/data-sources";
 import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
 import type { FirmsMapRow } from "@/lib/firms/map";
@@ -111,6 +111,34 @@ export function firmsGeoJson(rows: FirmsMapRow[]): PointCollection<{ id: string;
 		})),
 	};
 }
+
+/**
+ * Zoomed out, satellite thermal detections close together draw as one larger circle sized by their
+ * count, so a dense group doesn't read as a single dot. Up to zoom 8; from 9 every detection is its
+ * own circle again. MapLibre clusters in the source, before layer filters, so the source must hold
+ * only the detections in the shown span. A cluster's `time` is its newest detection's, which the
+ * timeline's fade reads like a detection's.
+ */
+export const FIRMS_CLUSTER = {
+	cluster: true,
+	clusterMaxZoom: 8,
+	clusterRadius: 30,
+	clusterMinPoints: 5,
+	clusterProperties: { time: ["max", ["get", "time"]] },
+};
+
+// Pixels, by the number of detections in the cluster (MapLibre's `point_count`).
+export const FIRMS_CLUSTER_RADIUS: ExpressionSpecification = [
+	"interpolate",
+	["linear"],
+	["get", "point_count"],
+	FIRMS_CLUSTER.clusterMinPoints,
+	9,
+	50,
+	15,
+	500,
+	24,
+];
 
 /**
  * Each point's latest reading among `rows`, placed at the model grid cell its values describe.

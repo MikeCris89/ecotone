@@ -9,7 +9,7 @@ import {
 } from "@/components/map-colors";
 import type { SourceAttribution } from "@/lib/data-sources";
 import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
-import { type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
+import { FIRMS_CLUSTER, type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
 import { CALIFORNIA_TIME_ZONE, WEATHER_MAX_AGE_HOURS } from "@/lib/timeline";
 
 export type LayerVisibility = { inaturalist: boolean; firms: boolean; weather: boolean };
@@ -118,7 +118,16 @@ export function MapPanel(props: MapPanelProps) {
 				summary={firms}
 				count={firms.inWindow.toLocaleString()}
 				emptyText="No qualifying satellite thermal detections in this window."
-			/>
+			>
+				<p className="flex items-center gap-1">
+					<span
+						className="size-4 shrink-0 rounded-full border-2 border-white"
+						style={{ backgroundColor: DETECTION_COLOR }}
+					/>
+					Zoomed out, {FIRMS_CLUSTER.clusterMinPoints} or more detections close together draw as one larger circle,
+					bigger for more; click it to zoom in.
+				</p>
+			</LayerEntry>
 
 			<LayerEntry
 				label="Modeled conditions"
