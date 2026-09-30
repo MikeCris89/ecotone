@@ -11,6 +11,7 @@ import {
 	type Evidence,
 	getCoverage,
 	hasUploadLag,
+	inOrder,
 	insufficientCoverage,
 	isComplete,
 	LIMITATIONS,
@@ -85,6 +86,19 @@ function observationsIn(area: Bbox, { start, end, read }: Window, { animalGroup,
 
 // The newest first, so samples are deterministic and the map can highlight them by ID.
 async function evidenceIn(area: Bbox, window: Window, filter: Filter, limit: number): Promise<Evidence[]> {
+	const rows = await sql<{ id: string }[]>`
+		${observationsIn(area, window, filter)}
+		select inat_id::text as id
+		from observations
+		order by observed_from desc, inat_id desc
+		limit ${limit}
+	`;
+	return inatEvidence(rows.map(({ id }) => id));
+}
+
+/** Recorded observations as evidence, in the order of `ids`, each under its observer's license. */
+export async function inatEvidence(ids: string[]): Promise<Evidence[]> {
+	if (ids.length === 0) return [];
 	const rows = await sql<
 		{
 			id: string;
@@ -100,7 +114,6 @@ async function evidenceIn(area: Bbox, window: Window, filter: Filter, limit: num
 			observer: string;
 		}[]
 	>`
-		${observationsIn(area, window, filter)}
 		select
 			inat_id::text as id,
 			source_url as url,
@@ -113,11 +126,10 @@ async function evidenceIn(area: Bbox, window: Window, filter: Filter, limit: num
 			retrieved_at as "retrievedAt",
 			license_code as license,
 			observer_login as observer
-		from observations
-		order by observed_from desc, inat_id desc
-		limit ${limit}
+		from inat_observations
+		where inat_id = any(${sql.array(ids)}::bigint[])
 	`;
-	return rows.map((row) => ({
+	return inOrder(rows, ids).map((row) => ({
 		source: "inaturalist",
 		id: row.id,
 		url: row.url,

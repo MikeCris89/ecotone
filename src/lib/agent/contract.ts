@@ -60,6 +60,7 @@ export type AnimalGroup = (typeof ANIMAL_GROUPS)[number];
 /** One record behind a result, with what's needed to follow it to its source and show it on the map. */
 export type Evidence = {
 	source: Source;
+	// The map's ID for the record. For weather, the sample point's: a reading is its point and observedAt.
 	id: string;
 	url: string;
 	label: string;
@@ -230,3 +231,9 @@ export const isComplete = (coverage: SourceCoverage[]) =>
 /** Whether any of the range falls in the source's upload-lag band. */
 export const hasUploadLag = (coverage: SourceCoverage) =>
 	coverage.likelyIncomplete.some((span) => span.reason === "upload-lag");
+
+/** Rows looked up by ID, in the order of `ids`. */
+export function inOrder<Row extends { id: string }>(rows: readonly Row[], ids: string[]): Row[] {
+	const position = new Map(ids.map((id, index) => [id, index]));
+	return [...rows].sort((a, b) => position.get(a.id)! - position.get(b.id)!);
+}
