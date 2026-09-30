@@ -3,13 +3,13 @@
 // counted separately, since they answer different questions.
 import { z } from "zod";
 import {
-	animalGroupLabel,
 	areaSchema,
 	type Coverage,
 	getCoverage,
 	hasUploadLag,
 	insufficientCoverage,
 	isComplete,
+	labelGroups,
 	LIMITATIONS,
 	rangeSchema,
 	resolveRange,
@@ -269,7 +269,7 @@ export async function observationsNearDetections(
 			detectionsWithObservations,
 			observations: { total, beforeDetection, afterDetection },
 			excluded: { imprecise: counts.imprecise, unknownAccuracy: counts.unknownAccuracy, dateOnly: counts.dateOnly },
-			animalGroups: groups.map(({ group, count }) => ({ group, label: animalGroupLabel(group), count })),
+			animalGroups: labelGroups(groups),
 			clusters: clusterRows.map((row) => ({
 				rank: row.rank,
 				longitude: row.longitude,
