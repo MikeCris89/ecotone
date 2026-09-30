@@ -201,12 +201,32 @@ describe("parseAnswer", () => {
 			{
 				type: "paragraph",
 				inlines: [
-					{ type: "bold", text: "7 recorded observations" },
+					{ type: "bold", inlines: [{ type: "text", text: "7 recorded observations" }] },
 					{ type: "text", text: " near the largest cluster " },
 					{ type: "citation", source: "inaturalist", id: "123456" },
 					{ type: "text", text: ", " },
 					{ type: "citation", source: "firms", id: "N20:2026-09-29T21:30Z,38.1,-120.2" },
 					{ type: "text", text: "." },
+				],
+			},
+		]);
+	});
+
+	it("finds citations and italics inside bold text", () => {
+		expect(parseAnswer("**1,601 detections [firms:N20:2026-09-29T21:30Z,38.1,-120.2] near *Pinus*.**")).toEqual([
+			{
+				type: "paragraph",
+				inlines: [
+					{
+						type: "bold",
+						inlines: [
+							{ type: "text", text: "1,601 detections " },
+							{ type: "citation", source: "firms", id: "N20:2026-09-29T21:30Z,38.1,-120.2" },
+							{ type: "text", text: " near " },
+							{ type: "italic", text: "Pinus" },
+							{ type: "text", text: "." },
+						],
+					},
 				],
 			},
 		]);

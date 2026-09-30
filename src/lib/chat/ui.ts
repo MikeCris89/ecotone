@@ -132,7 +132,7 @@ export function chatError(
 
 export type Inline =
 	| { type: "text"; text: string }
-	| { type: "bold"; text: string }
+	| { type: "bold"; inlines: Inline[] }
 	| { type: "italic"; text: string }
 	| { type: "citation"; source: string; id: string };
 export type Block =
@@ -161,7 +161,8 @@ function inlines(text: string): Inline[] {
 	for (const match of text.matchAll(INLINE)) {
 		if (match.index > last) result.push({ type: "text", text: text.slice(last, match.index) });
 		const [, bold, source, id, starItalic, underscoreItalic] = match;
-		if (bold !== undefined) result.push({ type: "bold", text: bold });
+		// Parsed again for the citations and italics inside it. It can't hold "**", so this stops there.
+		if (bold !== undefined) result.push({ type: "bold", inlines: inlines(bold) });
 		else if (source !== undefined) result.push({ type: "citation", source, id });
 		else result.push({ type: "italic", text: starItalic ?? underscoreItalic });
 		last = match.index + match[0].length;

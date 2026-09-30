@@ -45,7 +45,9 @@ async function fetchAccess(): Promise<Access> {
 function InlineText({ inlines }: { inlines: Inline[] }) {
 	return inlines.map((inline, index) =>
 		inline.type === "bold" ? (
-			<strong key={index}>{inline.text}</strong>
+			<strong key={index}>
+				<InlineText inlines={inline.inlines} />
+			</strong>
 		) : inline.type === "italic" ? (
 			<em key={index}>{inline.text}</em>
 		) : inline.type === "citation" ? (
