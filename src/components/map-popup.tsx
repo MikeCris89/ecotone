@@ -2,12 +2,12 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Image from "next/image";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { formatTime } from "@/components/map-panel";
 import type { SourceAttribution } from "@/lib/data-sources";
 import type { FirmsMapDetails } from "@/lib/firms/map";
 import type { InatMapDetails } from "@/lib/inaturalist/map";
-import { inatPrecision } from "@/lib/map-layers";
+import { inatPrecision, LAYER_REFRESH_MINUTES } from "@/lib/map-layers";
 import type { WeatherMapPoint, WeatherMapRow } from "@/lib/open-meteo/map";
 
 /**
@@ -28,9 +28,23 @@ export type WeatherPopupData = {
 	attribution: SourceAttribution;
 };
 
-export function MapPopupContent({ selection, weather }: { selection: MapSelection; weather?: WeatherPopupData }) {
+type MapPopupContentProps = {
+	selection: MapSelection;
+	weather?: WeatherPopupData;
+	// Called whenever the content's size changes, e.g. when details replace "Loading…".
+	onResize: () => void;
+};
+
+export function MapPopupContent({ selection, weather, onResize }: MapPopupContentProps) {
+	const ref = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const observer = new ResizeObserver(onResize);
+		observer.observe(ref.current!);
+		return () => observer.disconnect();
+	}, [onResize]);
+
 	return (
-		<div className="w-64 space-y-2 text-xs text-zinc-900">
+		<div ref={ref} className="w-64 space-y-2 text-xs text-zinc-900">
 			{selection.source === "inaturalist" && <InatDetails id={selection.id} />}
 			{selection.source === "firms" && <FirmsDetails id={selection.id} />}
 			{selection.source === "weather" && weather && <WeatherDetails {...weather} />}
@@ -44,7 +58,7 @@ export function MapPopupContent({ selection, weather }: { selection: MapSelectio
 }
 
 // A primary-key lookup per click. A minute of staleTime saves a refetch when the same popup is
-// reopened, without holding a record much longer than the map layers do.
+// reopened; an open popup refetches on its layer's cadence, so it keeps up with the map.
 function useDetails<T>(source: "inaturalist" | "firms", id: number | string) {
 	return useQuery({
 		queryKey: ["map-details", source, id],
@@ -54,6 +68,7 @@ function useDetails<T>(source: "inaturalist" | "firms", id: number | string) {
 			return (await response.json()).record;
 		},
 		staleTime: 60_000,
+		refetchInterval: LAYER_REFRESH_MINUTES[source].poll * 60_000,
 		retry: 1,
 	});
 }
@@ -70,21 +85,33 @@ function InatDetails({ id }: { id: number }) {
 	if (isError) return <p className="text-red-700">Couldn&apos;t load this recorded observation.</p>;
 
 	const name = data.commonName ?? data.scientificName;
-	// Only CC-licensed photos are shown; a null license means all rights reserved.
-	const showPhoto = data.photoUrl !== null && data.photoLicense !== null;
 
 	return (
 		<>
 			<header className="flex gap-2">
-				{showPhoto && (
+				{/* Only CC-licensed photos are shown. An all-rights-reserved one (null license) gets an
+				    empty box linking to the observation, so it's clear a photo exists. */}
+				{data.photoUrl !== null && data.photoLicense !== null && (
 					<Image
-						src={data.photoUrl!}
+						src={data.photoUrl}
 						alt={`Photo of ${name}`}
 						width={64}
 						height={64}
 						unoptimized
-						className="size-16 rounded object-cover"
+						className="size-16 shrink-0 rounded object-cover"
 					/>
+				)}
+				{data.photoUrl !== null && data.photoLicense === null && (
+					<a
+						href={data.sourceUrl}
+						target="_blank"
+						rel="noreferrer"
+						title="Photo on iNaturalist (all rights reserved)"
+						aria-label={`Photo of ${name} on iNaturalist (all rights reserved)`}
+						className="flex size-16 shrink-0 items-center justify-center rounded bg-zinc-100 text-lg text-zinc-400 hover:bg-zinc-200"
+					>
+						↗
+					</a>
 				)}
 				<div>
 					<p className="text-zinc-500">Recorded observation</p>
@@ -105,8 +132,7 @@ function InatDetails({ id }: { id: number }) {
 			</Facts>
 			<p className="text-[11px] text-zinc-500">
 				Observation by {data.observer}, {licenseLabel(data.license)}.{" "}
-				{showPhoto && `Photo © ${data.observer}, ${licenseLabel(data.photoLicense)}.`}
-				{data.photoUrl && !showPhoto && "Photo not shown (all rights reserved)."}
+				{data.photoUrl && `Photo © ${data.observer}, ${licenseLabel(data.photoLicense)}.`}
 			</p>
 			<SourceLink href={data.sourceUrl}>View on iNaturalist</SourceLink>
 		</>

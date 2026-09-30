@@ -82,3 +82,12 @@ describe.each(Object.entries(detailRoutes))("GET /api/map/%s/[id]", (source, { G
 		expect(await response.json()).toMatchObject({ ok: false });
 	});
 });
+
+it("GET /api/map/inaturalist/[id] rejects an ID past 2^53, which would round to a neighbouring ID", async () => {
+	const id = "9007199254740993";
+	const response = await inaturalistDetails(new Request(`http://localhost/api/map/inaturalist/${id}`), {
+		params: Promise.resolve({ id }),
+	});
+
+	expect(response.status).toBe(400);
+});

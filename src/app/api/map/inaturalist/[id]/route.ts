@@ -2,8 +2,9 @@ import { z } from "zod";
 import { getInatMapDetails } from "@/lib/inaturalist/map";
 import { mapCacheHeaders } from "@/lib/map-query";
 
-// A positive integer within float8's exact range, like the map rows' IDs.
-const idSchema = z.string().regex(/^[1-9]\d{0,15}$/).transform(Number);
+// A positive integer within float8's exact range (2^53), like the map rows' IDs: a larger one
+// would round to a neighbouring ID.
+const idSchema = z.string().regex(/^[1-9]\d*$/).transform(Number).refine(Number.isSafeInteger);
 
 /** One recorded observation's details for its map popup: GET /api/map/inaturalist/{id}. */
 export async function GET(_request: Request, context: RouteContext<"/api/map/inaturalist/[id]">) {
