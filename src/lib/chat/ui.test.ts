@@ -6,6 +6,7 @@ import {
 	loadedData,
 	parseAnswer,
 	remainingNote,
+	retryMessage,
 	stepLabel,
 	suggestedQuestions,
 } from "@/lib/chat/ui";
@@ -91,6 +92,38 @@ describe("remainingNote", () => {
 	});
 });
 
+describe("retryMessage", () => {
+	const utcClock = (date: Date) =>
+		new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" }).format(date);
+	const now = new Date("2026-09-30T12:24:00Z");
+
+	it("gives the wait and the user's clock time", () => {
+		expect(retryMessage("hourly", new Date("2026-09-30T13:02:00Z"), now, utcClock)).toBe(
+			"Hourly limit reached. Try again in 38 min (1:02 PM).",
+		);
+		expect(retryMessage("daily", new Date("2026-10-01T07:00:00Z"), now, utcClock)).toBe(
+			"Daily demo limit reached. Try again in 18 h 36 min (7:00 AM).",
+		);
+		expect(retryMessage("daily", new Date("2026-09-30T14:24:00Z"), now, utcClock)).toBe(
+			"Daily demo limit reached. Try again in 2 h (2:24 PM).",
+		);
+	});
+
+	it("is used for a 429 that says when its limit lifts", () => {
+		const body = JSON.stringify({
+			ok: false,
+			error: "Hourly limit reached. Try again after Sep 30, 6:02 AM PT.",
+			bucket: "public",
+			limit: "hourly",
+			retryAt: "2026-09-30T13:02:00.000Z",
+		});
+		expect(chatError(apiError(429, body), now, utcClock)).toEqual({
+			message: "Hourly limit reached. Try again in 38 min (1:02 PM).",
+			bucket: "public",
+		});
+	});
+});
+
 describe("chatError", () => {
 	it("shows the route's own message, with the bucket a 429 names", () => {
 		const body = JSON.stringify({
@@ -100,7 +133,9 @@ describe("chatError", () => {
 			limit: "daily",
 			retryAt: "2026-10-01T07:00:00.000Z",
 		});
-		expect(chatError(apiError(429, body))).toEqual({
+		// Without a reset time, the route's own message.
+		const withoutRetry = JSON.stringify({ ...JSON.parse(body), retryAt: undefined });
+		expect(chatError(apiError(429, withoutRetry))).toEqual({
 			message: "Daily demo limit reached. It resets at midnight PT.",
 			bucket: "reviewer",
 		});
