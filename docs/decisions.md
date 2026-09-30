@@ -295,13 +295,13 @@ Model output is untrusted, so it never becomes HTML. Owning the parser makes cit
 
 Writing only on finish missed requests the client left or the model failed, so the log undercounted spend. Writing after every step survives a hard stop at the 120 s limit, but costs up to 8 writes per question. The Anthropic console stays the source of truth for spend; the log is for per-question analysis. **Tradeoff:** a request killed at the time limit logs nothing.
 
-## 36. Weather "right now" from the latest reading
+## 36. Weather answers from the readings it has
 
-**Decision:** When a range that reaches the present has no weather readings yet (a question before the hour's poll lands), the conditions tool falls back to the nearest point's latest reading and states its age. A past range with no readings is still refused. Within the map's own 3-hour lookback it counts as current; older, it's the last available reading and the feed is said to be behind.
+**Decision:** The conditions tool doesn't refuse a range for missing hours. It answers from the hours with readings and says how many ("54 of 72 hours") and how old the newest is. By-day answers give each day's hours read and mark partial days, which get no precipitation total. When a range that reaches the present has no readings yet (a question before the hour's poll lands), it falls back to the nearest point's latest reading and states its age: within the map's own 3-hour lookback that counts as current; older, it's the last available reading and the feed is said to be behind. A past range with no readings, or an area no run read, is still refused.
 
-**Considered:** refusing, as before; always treating the latest reading as current.
+**Considered:** the 80% rule the counting tools use (23); refusing "right now" before the poll lands; always treating the latest reading as current.
 
-Refusing made "what are conditions right now?" fail for part of every hour. Calling any latest reading current would present a stale feed as live. Sharing the map's lookback keeps the map and the agent from disagreeing about what "current" means. **Tradeoff:** an answer can describe conditions up to 3 hours old as current, with the age stated.
+A single reading isn't skewed by missing hours the way a count is, so refusing threw away good answers, and "what are conditions right now?" failed for part of every hour. The summaries are skewed, though: a day read only at night understates its high temperature and overstates its lowest humidity, and the driest or gustiest hour, or the prevailing wind, can be missing. So instead of refusing, the answer says which hours it rests on. Calling any latest reading current would present a stale feed as live, and sharing the map's lookback keeps the map and the agent from disagreeing about what "current" means. **Tradeoffs:** a summary over few hours can still read as more than it is if the model drops the caveat; an answer can describe conditions up to 3 hours old as current, with the age stated.
 
 ## 37. Open decisions
 

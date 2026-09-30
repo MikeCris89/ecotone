@@ -13,7 +13,7 @@ import {
 } from "@/lib/agent/contract";
 import { sql } from "@/lib/db";
 import { CALIFORNIA_TIME_ZONE, formatTime, HOUR, WEATHER_MAX_AGE_HOURS, weatherLookback } from "@/lib/timeline";
-import { localDate } from "@/lib/dates";
+import { localDate, nextDate, startOfLocalDate } from "@/lib/dates";
 
 // The live grid keeps every point in California within ~35 km of a sample point; past this, the
 // nearest grid cell says little about the place.
@@ -69,13 +69,17 @@ export type Conditions = {
 	daily:
 		| {
 				date: string;
+				// Hours with a reading, of the hours the date has. A partial day's values cover only its
+				// readings (e.g. only night hours understate the high).
 				hours: number;
+				hoursInDay: number;
+				partial: boolean;
 				temperatureMinC: number | null;
 				temperatureMaxC: number | null;
 				humidityMinPct: number | null;
 				windMaxKmh: number | null;
 				gustMaxKmh: number | null;
-				// Null unless every hour of the day has a value.
+				// Null unless every hour of the day has a reading with a value.
 				precipitationMm: number | null;
 		  }[]
 		| null;
@@ -114,11 +118,15 @@ export async function getConditions(
 		complete: isComplete(sources),
 		sources,
 	};
+	// Unlike the counting tools, a range read under MIN_READ_FRACTION is answered from the hours with
+	// readings, saying how many (decisions.md, 36). Refused: an area no run read, and a range with no
+	// readings that doesn't reach the present (the fallback below).
 	const insufficient = insufficientCoverage(sources);
+	const neverRead = sources[0].readHours === 0;
 
 	const place = sql`extensions.st_setsrid(extensions.st_makepoint(${location.longitude}, ${location.latitude}), 4326)::extensions.geography`;
 	// The nearest sample point with readings in the range, and its most common model there.
-	const [inRange] = insufficient
+	const [inRange] = neverRead
 		? []
 		: await sql<{ id: string; model: string }[]>`
 				select p.id, (
@@ -152,8 +160,8 @@ export async function getConditions(
 				order by p.location <-> ${place}
 				limit 1
 			`;
-	// A range with readings but too little of it read is refused, not answered from its newest hour.
-	if (insufficient && (!newest || newest.validAt >= window.start)) {
+	// Nothing to answer from, or readings no run over this area read (a place outside every run): refused.
+	if (!inRange && insufficient && (!newest || newest.validAt >= window.start)) {
 		return { result: null, evidence: [], coverage, limitations: [], insufficient };
 	}
 	const point = inRange ?? newest;
@@ -161,7 +169,7 @@ export async function getConditions(
 	let fallback: Conditions["fallback"] = null;
 	let readFrom = window;
 	if (newest) {
-		const lastHour = Math.floor((window.end.getTime() - 1) / (HOUR * 1000)) * HOUR;
+		const lastHour = lastHourOf(window.end);
 		const validAt = newest.validAt.getTime() / 1000;
 		fallback = {
 			validAt: newest.validAt.toISOString(),
@@ -233,6 +241,8 @@ export async function getConditions(
 	const driest = extreme((reading) => reading.relativeHumidityPct, true);
 	const gustiest = extreme((reading) => reading.windGustsKmh, false);
 	const latest = readings.at(-1)!;
+	const requestedHours = Math.round((window.end.getTime() - window.start.getTime()) / 3_600_000);
+	const days = readings.length <= MAX_HOURLY_READINGS ? null : daily(readings);
 
 	// Newest first, each reading once: the latest hour, then the driest and gustiest.
 	const evidenceReadings = [...new Set([latest, driest, gustiest].filter((reading) => reading !== null))];
@@ -254,7 +264,7 @@ export async function getConditions(
 			model: point.model,
 			gridCell: { longitude: cell.longitude, latitude: cell.latitude, elevationM: cell.elevationM, distanceKm },
 			hours: fallback ? 0 : readings.length,
-			requestedHours: Math.round((window.end.getTime() - window.start.getTime()) / 3_600_000),
+			requestedHours,
 			fallback,
 			summary: {
 				temperatureC: stats(readings.map((reading) => reading.temperatureC)),
@@ -269,13 +279,22 @@ export async function getConditions(
 			},
 			driestHour: driest && hour(driest),
 			gustiestHour: gustiest && hour(gustiest),
-			hourly: readings.length <= MAX_HOURLY_READINGS ? readings.map(hour) : null,
-			daily: readings.length <= MAX_HOURLY_READINGS ? null : daily(readings),
+			hourly: days ? null : readings.map(hour),
+			daily: days,
 		},
 		evidence,
 		coverage,
 		limitations: [
 			...(fallback ? [fallbackLimitation(fallback)] : []),
+			...(!fallback && readings.length < requestedHours
+				? [missingHoursLimitation(readings.length, requestedHours, latest.validAt, window.end)]
+				: []),
+			...(days?.some((day) => day.partial)
+				? [
+						"Days marked partial have readings for only some of their hours (the range's first or last day, or hours " +
+							"not stored), so their highs, lows and gusts cover only those hours, and they get no precipitation total.",
+					]
+				: []),
 			`Modeled conditions from ${point.model} for one grid cell whose centre is ${distanceKm} km from the place asked about; ` +
 				"not measured there. Terrain between them can make real conditions differ.",
 			"Wind direction is where the wind blows from. Gusts are the strongest over each hour; precipitation is each hour's total.",
@@ -292,6 +311,22 @@ function fallbackLimitation({ validAt, ageHours, current }: NonNullable<Conditio
 				`to count as current (up to ${WEATHER_MAX_AGE_HOURS} h, as on the map). Say how old they are.`
 		: `The weather feed is behind: no reading is stored for the range, and the latest is from ${when}. These are ` +
 				"the last available modeled conditions, not current ones: say so, and don't describe them as current.";
+}
+
+/** The start of the range's last hour, in epoch seconds. */
+const lastHourOf = (end: Date) => Math.floor((end.getTime() - 1) / (HOUR * 1000)) * HOUR;
+
+// The summaries only see the hours with readings: a stretch read only at night understates the high
+// temperature and overstates the lowest humidity, and the driest or gustiest hour may be missing.
+function missingHoursLimitation(hours: number, requestedHours: number, latestAt: Date, end: Date) {
+	const ageHours = (lastHourOf(end) - latestAt.getTime() / 1000) / HOUR;
+	return (
+		`Readings for ${hours} of ${requestedHours} hours in the range; the rest aren't stored. The summary, the driest ` +
+		"and gustiest hours and the prevailing wind cover only those hours, so they can miss the range's extremes: say so." +
+		(ageHours > 0
+			? ` The newest reading is from ${formatTime(latestAt.getTime())}, ${ageHours} h before the range's last hour.`
+			: "")
+	);
 }
 
 const present = (values: (number | null)[]) => values.filter((value) => value !== null);
@@ -335,16 +370,27 @@ function daily(readings: Reading[]): NonNullable<Conditions["daily"]> {
 		const date = localDate(reading.validAt, CALIFORNIA_TIME_ZONE);
 		byDate.set(date, [...(byDate.get(date) ?? []), reading]);
 	}
-	return [...byDate].map(([date, day]) => ({
-		date,
-		hours: day.length,
-		temperatureMinC: stats(day.map((reading) => reading.temperatureC))?.min ?? null,
-		temperatureMaxC: stats(day.map((reading) => reading.temperatureC))?.max ?? null,
-		humidityMinPct: stats(day.map((reading) => reading.relativeHumidityPct))?.min ?? null,
-		windMaxKmh: stats(day.map((reading) => reading.windSpeedKmh))?.max ?? null,
-		gustMaxKmh: stats(day.map((reading) => reading.windGustsKmh))?.max ?? null,
-		precipitationMm: day.some((reading) => reading.precipitationMm === null)
-			? null
-			: sum(day.map((reading) => reading.precipitationMm)),
-	}));
+	return [...byDate].map(([date, day]) => {
+		// 23 or 25 on the days clocks change.
+		const hoursInDay =
+			(startOfLocalDate(nextDate(date), CALIFORNIA_TIME_ZONE).getTime() -
+				startOfLocalDate(date, CALIFORNIA_TIME_ZONE).getTime()) /
+			(HOUR * 1000);
+		const partial = day.length < hoursInDay;
+		return {
+			date,
+			hours: day.length,
+			hoursInDay,
+			partial,
+			temperatureMinC: stats(day.map((reading) => reading.temperatureC))?.min ?? null,
+			temperatureMaxC: stats(day.map((reading) => reading.temperatureC))?.max ?? null,
+			humidityMinPct: stats(day.map((reading) => reading.relativeHumidityPct))?.min ?? null,
+			windMaxKmh: stats(day.map((reading) => reading.windSpeedKmh))?.max ?? null,
+			gustMaxKmh: stats(day.map((reading) => reading.windGustsKmh))?.max ?? null,
+			precipitationMm:
+				partial || day.some((reading) => reading.precipitationMm === null)
+					? null
+					: sum(day.map((reading) => reading.precipitationMm)),
+		};
+	});
 }
