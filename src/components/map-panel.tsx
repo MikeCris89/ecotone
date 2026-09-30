@@ -38,7 +38,8 @@ type MapPanelProps = {
 	onVisibleChange: (visible: LayerVisibility) => void;
 	inaturalist: LayerSummary;
 	firms: LayerSummary;
-	weather: LayerSummary & { latestHour: number | null };
+	// `scrubbed`: the timeline handle picks the hour shown, rather than each point's latest.
+	weather: LayerSummary & { latestHour: number | null; scrubbed: boolean };
 };
 
 export function formatTime(epochMs: number) {
@@ -51,14 +52,14 @@ export function formatTime(epochMs: number) {
 	});
 }
 
-// Top-left, leaving the bottom edge for the timeline and the right side for the chat panel.
+// Top-left, stopping above the timeline along the bottom edge and leaving the right side for the chat panel.
 export function MapPanel(props: MapPanelProps) {
 	const { mapWindow, onWindowChange, visible, onVisibleChange, inaturalist, firms, weather } = props;
 	const toggle = (layer: keyof LayerVisibility) => (checked: boolean) =>
 		onVisibleChange({ ...visible, [layer]: checked });
 
 	return (
-		<div className="absolute top-3 left-3 max-h-[calc(100%-1.5rem)] w-80 space-y-3 overflow-y-auto rounded-lg bg-white/95 p-3 text-sm text-zinc-900 shadow-md">
+		<div className="absolute top-3 left-3 max-h-[calc(100%-12.5rem)] w-80 space-y-3 overflow-y-auto rounded-lg bg-white/95 p-3 text-sm text-zinc-900 shadow-md">
 			<h1 className="font-semibold">Live California</h1>
 
 			<div className="flex rounded-md border border-zinc-200 p-0.5" role="group" aria-label="Time window">
@@ -122,7 +123,11 @@ export function MapPanel(props: MapPanelProps) {
 				count={`${weather.inWindow.toLocaleString()} points`}
 				emptyText="No modeled conditions in this window."
 			>
-				{weather.latestHour !== null && <p>Latest hour: {formatTime(weather.latestHour * 1000)}</p>}
+				{weather.latestHour !== null && (
+					<p>
+						{weather.scrubbed ? "Hour" : "Latest hour"}: {formatTime(weather.latestHour * 1000)}
+					</p>
+				)}
 				<TemperatureScale />
 			</LayerEntry>
 		</div>

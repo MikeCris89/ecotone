@@ -113,9 +113,9 @@ export function firmsGeoJson(rows: FirmsMapRow[]): PointCollection<{ id: string;
 }
 
 /**
- * Each point's latest reading, placed at the model grid cell its values describe. Every window
- * ends at the response's `end`, so the latest reading in the widest window is the latest in each
- * narrower one too; the window filter hides a point whose latest reading falls before the window.
+ * Each point's latest reading among `rows`, placed at the model grid cell its values describe.
+ * The map passes the rows in the shown span (the window, or the timeline handle's hour), so a point
+ * with no reading in it is left out.
  */
 export function weatherGeoJson(
 	points: WeatherMapPoint[],

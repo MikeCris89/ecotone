@@ -7,6 +7,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import Map, { Layer, type MapLayerMouseEvent, Popup, Source } from "react-map-gl/maplibre";
 import { type LayerSummary, type LayerVisibility, MapPanel } from "@/components/map-panel";
 import { MapPopupContent, type MapSelection, type WeatherPopupData } from "@/components/map-popup";
+import { Timeline } from "@/components/timeline";
 import {
 	DETECTION_COLOR,
 	OBSERVATION_COLOR,
@@ -29,10 +30,21 @@ import {
 	type MapWindow,
 	type PointCollection,
 	type PointFeature,
+	type TimeWindow,
 	type WeatherLayerResponse,
 	weatherGeoJson,
 	windowBounds,
 } from "@/lib/map-layers";
+import {
+	countByHour,
+	countDateOnlyByDay,
+	firmsTimes,
+	hourAxis,
+	recencyFade,
+	spanToHour,
+	TRAILING_HOURS,
+	timedInatTimes,
+} from "@/lib/timeline";
 
 const MAP_STYLE_URL = process.env.NEXT_PUBLIC_MAP_STYLE_URL || "https://tiles.openfreemap.org/styles/positron";
 
@@ -108,6 +120,18 @@ function useMapLayer<T>(source: MapLayerName) {
 	});
 }
 
+/**
+ * The span a layer shows: while the whole window is shown, its own window, ending at its own
+ * response's `end`; while scrubbing, the handle's span on the shared timeline. Stable between
+ * renders, so counts and filters only recompute when it changes.
+ */
+function useShownSpan(responseEnd: string | undefined, mapWindow: MapWindow, scrubbed: TimeWindow | null) {
+	return useMemo(
+		() => (responseEnd ? (scrubbed ?? windowBounds(responseEnd, mapWindow)) : undefined),
+		[responseEnd, mapWindow, scrubbed],
+	);
+}
+
 // `time` reads a row's time (the start of its span, for iNaturalist). The routes return rows newest
 // first and a capped layer drops the oldest, so the last row marks where the loaded data stops.
 function summarize<Row>(
@@ -132,6 +156,8 @@ export function LiveMap() {
 	const [mapWindow, setMapWindow] = useState<MapWindow>("7d");
 	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: false });
 	const [selection, setSelection] = useState<MapSelection | null>(null);
+	// The start of the timeline handle's hour (epoch seconds), or null for the whole window.
+	const [hour, setHour] = useState<number | null>(null);
 	const [cursor, setCursor] = useState<string>();
 	const popupRef = useRef<MapLibrePopup>(null);
 	// MapLibre picks the popup's side (above, below, ...) from its size only when placed or when the
@@ -146,47 +172,91 @@ export function LiveMap() {
 	const firms = useMapLayer<MapLayerResponse<FirmsMapRow>>("firms");
 	const weather = useMapLayer<WeatherLayerResponse>("weather");
 
+	// The timeline ends at the newest response's end, since the layers refresh on different cadences.
+	// A layer whose data ends earlier just has nothing to show in its last hours.
+	const ends = [inaturalist.data, firms.data, weather.data].flatMap((data) => (data ? [Date.parse(data.end)] : []));
+	const latestEnd = ends.length ? Math.max(...ends) : null;
+	const timeline = useMemo(
+		() => (latestEnd === null ? null : windowBounds(new Date(latestEnd).toISOString(), mapWindow)),
+		[latestEnd, mapWindow],
+	);
+	// A narrower window can leave the handle off the timeline; show the whole window instead.
+	if (hour !== null && (!timeline || hour < hourAxis(timeline).first || hour >= timeline.end)) setHour(null);
+
+	// Records show for the trailing hours to the handle, weather for the handle's hour only.
+	const trailing = useMemo(
+		() => (hour !== null && timeline ? spanToHour(hour, TRAILING_HOURS, timeline) : null),
+		[hour, timeline],
+	);
+	const handleHour = useMemo(() => (hour !== null && timeline ? spanToHour(hour, 1, timeline) : null), [hour, timeline]);
+	const inatSpan = useShownSpan(inaturalist.data?.end, mapWindow, trailing);
+	const firmsSpan = useShownSpan(firms.data?.end, mapWindow, trailing);
+	const weatherSpan = useShownSpan(weather.data?.end, mapWindow, handleHour);
+	const fadeEnd = trailing?.end ?? null;
+
 	// Built once per response; a new object here is what makes MapLibre re-read the data.
 	const inatData = useMemo(() => (inaturalist.data ? inatGeoJson(inaturalist.data.rows) : EMPTY), [inaturalist.data]);
 	const firmsData = useMemo(() => (firms.data ? firmsGeoJson(firms.data.rows) : EMPTY), [firms.data]);
-	const weatherData = useMemo(
-		() => (weather.data ? weatherGeoJson(weather.data.points, weather.data.rows) : EMPTY),
-		[weather.data],
+	// Weather is rebuilt per span instead (169 points): each point at its latest reading in the span.
+	const weatherRows = useMemo(
+		() => (weather.data && weatherSpan ? weather.data.rows.filter(([, time]) => instantInWindow(time, weatherSpan)) : []),
+		[weather.data, weatherSpan],
 	);
-	const latestWeather = useMemo(() => weather.data && latestWeatherRows(weather.data.rows), [weather.data]);
+	const weatherData = useMemo(
+		() => (weather.data ? weatherGeoJson(weather.data.points, weatherRows) : EMPTY),
+		[weather.data, weatherRows],
+	);
+	const latestWeather = useMemo(() => latestWeatherRows(weatherRows), [weatherRows]);
 
-	// Changing the window only swaps these filters and recounts; the data stays as loaded.
-	const inatWindow = inaturalist.data && windowBounds(inaturalist.data.end, mapWindow);
-	const firmsWindow = firms.data && windowBounds(firms.data.end, mapWindow);
-	const weatherWindow = weather.data && windowBounds(weather.data.end, mapWindow);
-	const inatFilter = inatWindow && inatWindowFilter(inatWindow);
-	const firmsFilter = firmsWindow && instantWindowFilter(firmsWindow);
-	const weatherFilter = weatherWindow && instantWindowFilter(weatherWindow);
+	// Changing the span only swaps these filters and recounts; the data stays as loaded.
+	const inatFilter = inatSpan && inatWindowFilter(inatSpan);
+	const firmsFilter = firmsSpan && instantWindowFilter(firmsSpan);
 
-	// Counted with the same rules as the filters (a few ms at most for a full layer).
-	const inatShown = inatWindow
-		? inatData.features.filter(({ properties }) => inatInWindow(properties.from, properties.to, inatWindow))
-		: [];
-	const firmsShown = firmsWindow
-		? firmsData.features.filter(({ properties }) => instantInWindow(properties.time, firmsWindow))
-		: [];
-	const weatherShown = weatherWindow
-		? weatherData.features.filter(({ properties }) => instantInWindow(properties.time, weatherWindow))
-		: [];
+	// Counted with the same rules as the filters (a few ms at most for a full layer), once per span:
+	// hovering re-renders on every mouse move.
+	const inatShown = useMemo(
+		() =>
+			inatSpan
+				? inatData.features.filter(({ properties }) => inatInWindow(properties.from, properties.to, inatSpan))
+				: [],
+		[inatData, inatSpan],
+	);
+	const firmsShown = useMemo(
+		() => (firmsSpan ? firmsData.features.filter(({ properties }) => instantInWindow(properties.time, firmsSpan)) : []),
+		[firmsData, firmsSpan],
+	);
+	const weatherShown = weatherData.features;
 	const latestHour = weatherShown.length ? Math.max(...weatherShown.map(({ properties }) => properties.time)) : null;
 
-	// The popup stays open while its record is on the map. A hidden layer, a window that filters the
-	// record out, or a refresh that drops it closes the popup rather than leaving a stale one.
-	// Cleared during render, React's pattern for state derived from other state: it re-renders
-	// before painting, so the popup never flashes.
-	const shown = { inaturalist: inatShown, firms: firmsShown, weather: weatherShown };
-	const selectedFeature =
-		selection && visible[selection.source] ? findFeature(shown[selection.source], selection.id) : undefined;
+	// The timeline's bars, per hour of its axis; date-only records per date, never spread over hours.
+	const observationsPerHour = useMemo(
+		() => timeline && countByHour(inaturalist.data ? timedInatTimes(inaturalist.data.rows) : [], timeline),
+		[inaturalist.data, timeline],
+	);
+	const dateOnlyPerDay = useMemo(
+		() => (timeline && inaturalist.data ? countDateOnlyByDay(inaturalist.data.rows, timeline) : []),
+		[inaturalist.data, timeline],
+	);
+	const detectionsPerHour = useMemo(
+		() => timeline && countByHour(firms.data ? firmsTimes(firms.data.rows) : [], timeline),
+		[firms.data, timeline],
+	);
+
+	// The popup stays open while its record is on the map. A hidden layer, a window or timeline span
+	// that filters the record out, or a refresh that drops it closes the popup rather than leaving a
+	// stale one. Cleared during render, React's pattern for state derived from other state: it
+	// re-renders before painting, so the popup never flashes.
+	const selectedFeature = useMemo(() => {
+		if (!selection || !visible[selection.source]) return undefined;
+		const shown = { inaturalist: inatShown, firms: firmsShown, weather: weatherShown };
+		return findFeature(shown[selection.source], selection.id);
+	}, [selection, visible, inatShown, firmsShown, weatherShown]);
 	if (selection && !selectedFeature) setSelection(null);
 
-	// Weather popups read the loaded layer: the point's latest reading, as the map draws it.
+	// Weather popups read the loaded layer: the point's reading as the map draws it, its latest in
+	// the window, or the handle's hour while scrubbing.
 	let weatherPopup: WeatherPopupData | undefined;
-	if (selection?.source === "weather" && weather.data && latestWeather) {
+	if (selection?.source === "weather" && weather.data) {
 		const point = weather.data.points.find(([id]) => id === selection.id);
 		const row = latestWeather.get(selection.id);
 		const model = weather.data.filters.model[0];
@@ -213,7 +283,6 @@ export function LiveMap() {
 					<Layer
 						id="weather-points"
 						type="circle"
-						{...windowFilter(weatherFilter)}
 						layout={{ visibility: visibility("weather") }}
 						paint={{
 							"circle-radius": 6,
@@ -248,6 +317,7 @@ export function LiveMap() {
 								OBSERVATION_DENSE_COLOR,
 							],
 							"heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 7, 1, 9, 0],
+							"heatmap-weight": recencyFade(fadeEnd, "to"),
 						}}
 					/>
 					{/*
@@ -270,7 +340,7 @@ export function LiveMap() {
 								INAT_POINTS_FADE.from,
 								0,
 								INAT_POINTS_FADE.to,
-								["match", ["get", "precision"], "precise", 0.9, "imprecise", 0.2, 0],
+								["*", ["match", ["get", "precision"], "precise", 0.9, "imprecise", 0.2, 0], recencyFade(fadeEnd, "to")],
 							],
 							"circle-stroke-color": [
 								"match",
@@ -287,7 +357,7 @@ export function LiveMap() {
 								INAT_POINTS_FADE.from,
 								0,
 								INAT_POINTS_FADE.to,
-								1,
+								recencyFade(fadeEnd, "to"),
 							],
 						}}
 					/>
@@ -301,8 +371,10 @@ export function LiveMap() {
 						paint={{
 							"circle-radius": ["interpolate", ["linear"], ["zoom"], 5, 3, 10, 6],
 							"circle-color": DETECTION_COLOR,
+							"circle-opacity": recencyFade(fadeEnd, "time"),
 							"circle-stroke-color": "#ffffff",
 							"circle-stroke-width": 1,
+							"circle-stroke-opacity": recencyFade(fadeEnd, "time"),
 						}}
 					/>
 				</Source>
@@ -327,8 +399,18 @@ export function LiveMap() {
 				onVisibleChange={setVisible}
 				inaturalist={summarize(inaturalist, inatShown.length, (row) => row[3])}
 				firms={summarize(firms, firmsShown.length, (row) => row[3])}
-				weather={{ ...summarize(weather, weatherShown.length, (row) => row[1]), latestHour }}
+				weather={{ ...summarize(weather, weatherShown.length, (row) => row[1]), latestHour, scrubbed: hour !== null }}
 			/>
+			{timeline && observationsPerHour && detectionsPerHour && (
+				<Timeline
+					window={timeline}
+					hour={hour}
+					onHourChange={setHour}
+					observations={observationsPerHour}
+					detections={detectionsPerHour}
+					dateOnly={dateOnlyPerDay}
+				/>
+			)}
 		</div>
 	);
 }
