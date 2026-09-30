@@ -286,6 +286,14 @@ describe("observationsNearDetections", () => {
 		expect(result!.otherClusters).toEqual({ clusters: 1, observations: 0 });
 	});
 
+	it("counts the observations near only an unlisted cluster", async () => {
+		// From 10 MW, b1 (50 MW) ranks first and a2 (20 MW) second; both observations are near a2 only.
+		const { result } = await observationsNearDetections({ area: AREA, range: RANGE, minFrpMw: 10, maxClusters: 1 });
+
+		expect(result!.clusters.map((cluster) => cluster.observations.total)).toEqual([0]);
+		expect(result!.otherClusters).toEqual({ clusters: 1, observations: 2 });
+	});
+
 	it("leaves out detections below a minimum power, and says so", async () => {
 		const [near, summary] = await Promise.all([
 			observationsNearDetections({ area: AREA, range: RANGE, minFrpMw: 10 }),
