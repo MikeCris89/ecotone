@@ -10,7 +10,8 @@ export default defineConfig({
 		},
 	},
 	test: {
-		include: ["src/**/*.test.ts"],
+		// evals/ holds unit tests of the evals' own checks; the evals (*.eval.ts) run with `pnpm eval`.
+		include: ["src/**/*.test.ts", "evals/**/*.test.ts"],
 		// Test files share one local database, so files running in parallel interfered with each other,
 		// e.g. through cleanups that delete by date range (about 1 full run in 3 failed; 6 of 6 passed
 		// serially, issue #9). A separate test database (TEST_DATABASE_URL) is the proper fix.
