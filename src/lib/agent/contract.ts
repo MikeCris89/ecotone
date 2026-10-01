@@ -165,19 +165,22 @@ export const OUTSIDE_CALIFORNIA = "This area is outside California. The app only
 
 /**
  * Where the area lies against California's outline. Records outside the outline aren't counted,
- * so an area outside it would read as zero where records are in fact stored: tools refuse it, and
- * state it when the area only crosses the line.
+ * so an area outside it would read as zero where records are in fact stored: tools refuse it.
+ * Only a crossing area gets a limitation, since only there does the answer cover less than what
+ * was asked about: an area holding the whole state asked about California and got all of it.
  */
-export async function californiaExtent(area: Bbox): Promise<"inside" | "crossing" | "outside"> {
-	const [{ intersects, within }] = await sql<{ intersects: boolean; within: boolean }[]>`
+export async function californiaExtent(area: Bbox): Promise<"inside" | "containing" | "crossing" | "outside"> {
+	const [{ intersects, within, contains }] = await sql<{ intersects: boolean; within: boolean; contains: boolean }[]>`
 		select
 			extensions.st_intersects(outline, envelope) as intersects,
-			extensions.st_within(envelope, outline) as within
+			extensions.st_within(envelope, outline) as within,
+			extensions.st_contains(envelope, outline) as contains
 		from boundaries
 		cross join extensions.st_makeenvelope(${area.west}, ${area.south}, ${area.east}, ${area.north}, 4326) as envelope
 		where slug = 'california'
 	`;
-	return within ? "inside" : intersects ? "crossing" : "outside";
+	if (!intersects) return "outside";
+	return within ? "inside" : contains ? "containing" : "crossing";
 }
 
 /**

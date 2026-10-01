@@ -3,7 +3,7 @@
 // apart from the other agent tests' fixtures.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ZodError } from "zod";
-import { LIMITATIONS, OUTSIDE_CALIFORNIA } from "@/lib/agent/contract";
+import { californiaExtent, LIMITATIONS, OUTSIDE_CALIFORNIA } from "@/lib/agent/contract";
 import { summarizeDetections } from "@/lib/agent/detections";
 import { observationsNearDetections } from "@/lib/agent/near-detections";
 import { getDataset } from "@/lib/datasets";
@@ -385,6 +385,16 @@ describe("California's outline", () => {
 		expect(border).toMatchObject({ detections: 1, observations: { total: 0 }, closest: null });
 		expect(near.result!.detections).toBe(5);
 		expect(near.limitations[0]).toBe(LIMITATIONS.beyondCalifornia);
+	});
+
+	it("only calls an area crossing when it holds part of California but not all of it", async () => {
+		const dataset = await getDataset("live-california");
+
+		expect(await californiaExtent(AREA)).toBe("inside");
+		expect(await californiaExtent(CROSSING_AREA)).toBe("crossing");
+		// "All of California" asked about all of it: no limitation, though the rectangle reaches past it.
+		expect(await californiaExtent(dataset)).toBe("containing");
+		expect(await californiaExtent(MEXICO_AREA)).toBe("outside");
 	});
 
 	it("refuses an area outside California rather than answering zero", async () => {
