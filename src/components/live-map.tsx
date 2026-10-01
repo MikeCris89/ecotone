@@ -13,7 +13,7 @@ import Map, {
 	Source,
 } from "react-map-gl/maplibre";
 import { ChatPanel } from "@/components/chat-panel";
-import { type LayerSummary, type LayerVisibility, MapPanel } from "@/components/map-panel";
+import { type LayerSummary, type LayerVisibility, MapPanel, type WeatherView } from "@/components/map-panel";
 import {
 	EvidencePopupContent,
 	MapPopupContent,
@@ -23,10 +23,12 @@ import {
 import { Timeline } from "@/components/timeline";
 import {
 	DETECTION_COLOR,
+	NO_VALUE_COLOR,
 	OBSERVATION_COLOR,
 	OBSERVATION_DENSE_COLOR,
-	TEMPERATURE_COLOR,
+	WEATHER_COLORS,
 } from "@/components/map-colors";
+import { addWindIcons, WIND_FILTER, WIND_LAYOUT } from "@/components/wind-icons";
 import type { ChatContext } from "@/lib/chat/context";
 import { evidenceGeoJson, loadedData, type NumberedEvidence, suggestedQuestions } from "@/lib/chat/ui";
 import { layerCoverage } from "@/lib/coverage";
@@ -82,7 +84,14 @@ const EMPTY: PointCollection<never> = { type: "FeatureCollection", features: [] 
 
 // Clickable layers. Their source IDs match MapSelection's sources, except FIRMS clusters (not
 // records: clicking one zooms in until it splits) and the answer's evidence markers.
-const INTERACTIVE_LAYERS = ["evidence-points", "firms-clusters", "firms-points", "inaturalist-points", "weather-points"];
+const INTERACTIVE_LAYERS = [
+	"evidence-points",
+	"firms-clusters",
+	"firms-points",
+	"inaturalist-points",
+	"weather-points",
+	"weather-wind",
+];
 
 // The zoom a picked record is flown to, unless the map is already zoomed in further.
 const EVIDENCE_ZOOM = 10;
@@ -224,7 +233,9 @@ function summarize<Row>(
 
 export function LiveMap() {
 	const [mapWindow, setMapWindow] = useState<MapWindow>("7d");
-	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: false });
+	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: true });
+	// Wind on its own by default: colouring the points too would compete with the other layers.
+	const [weatherView, setWeatherView] = useState<WeatherView>({ wind: true, color: null });
 	const [selection, setSelection] = useState<MapSelection | null>(null);
 	// The newest answer's evidence, and the record whose popup is open. That popup is anchored at the
 	// record's own coordinates, so unlike the layers' it stays open whatever the timeline shows.
@@ -403,6 +414,7 @@ export function LiveMap() {
 	);
 
 	const visibility = (layer: keyof LayerVisibility) => (visible[layer] ? "visible" : "none");
+	const weatherOpacity = weatherHour === null ? 1 : weatherStaleOpacity(weatherHour);
 
 	return (
 		<div className="relative h-dvh w-full">
@@ -414,6 +426,7 @@ export function LiveMap() {
 				attributionControl={false}
 				interactiveLayerIds={INTERACTIVE_LAYERS}
 				cursor={cursor}
+				onLoad={(event) => void addWindIcons(event.target)}
 				onMouseMove={(event) =>
 					setCursor(
 						evidenceAt(event) || recordsAt(event).length || event.features?.some(isCluster) ? "pointer" : undefined,
@@ -433,17 +446,29 @@ export function LiveMap() {
 				}}
 			>
 				<Source id="weather" type="geojson" data={weatherData}>
+					{/*
+					 * Coloured by the picked variable, or a small grey dot marking the sample point when none is
+					 * picked: a point whose wind has no model value then shows the dot alone.
+					 */}
 					<Layer
 						id="weather-points"
 						type="circle"
 						layout={{ visibility: visibility("weather") }}
 						paint={{
-							"circle-radius": 6,
-							"circle-color": TEMPERATURE_COLOR,
-							...(weatherHour !== null && { "circle-opacity": weatherStaleOpacity(weatherHour) }),
+							"circle-radius": weatherView.color ? 6 : 2.5,
+							"circle-color": weatherView.color ? WEATHER_COLORS[weatherView.color].color : NO_VALUE_COLOR,
+							"circle-opacity": weatherOpacity,
 							"circle-stroke-color": "#ffffff",
 							"circle-stroke-width": 1,
+							"circle-stroke-opacity": weatherOpacity,
 						}}
+					/>
+					<Layer
+						id="weather-wind"
+						type="symbol"
+						filter={WIND_FILTER}
+						layout={{ ...WIND_LAYOUT, visibility: visible.weather && weatherView.wind ? "visible" : "none" }}
+						paint={{ "icon-opacity": weatherOpacity }}
 					/>
 				</Source>
 				<Source id="inaturalist" type="geojson" data={inatData}>
@@ -608,6 +633,8 @@ export function LiveMap() {
 							onWindowChange={setMapWindow}
 							visible={visible}
 							onVisibleChange={setVisible}
+							weatherView={weatherView}
+							onWeatherViewChange={setWeatherView}
 							inaturalist={{
 								...summarize(inaturalist, inatShown.length, (row) => row[3]),
 								coverage: freshness ? layerCoverage(freshness, "inaturalist", inatSpan) : null,

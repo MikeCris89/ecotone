@@ -1,6 +1,6 @@
 import { Color, expression, featureFilter, latest } from "@maplibre/maplibre-gl-style-spec";
 import { describe, expect, it } from "vitest";
-import { NO_VALUE_COLOR, TEMPERATURE_COLOR } from "@/components/map-colors";
+import { NO_VALUE_COLOR, WEATHER_COLORS } from "@/components/map-colors";
 import {
 	FIRMS_CLUSTER,
 	FIRMS_CLUSTER_MAX_RADIUS,
@@ -134,12 +134,28 @@ describe("weatherGeoJson", () => {
 			{
 				type: "Feature",
 				geometry: { type: "Point", coordinates: [-122.01, 37.02] },
-				properties: { id: 1, time: end - 3600, temperatureC: 15 },
+				properties: {
+					id: 1,
+					time: end - 3600,
+					temperatureC: 15,
+					humidityPct: 50,
+					windKmh: 10,
+					windDirectionDeg: 180,
+					gustsKmh: 20,
+				},
 			},
 			{
 				type: "Feature",
 				geometry: { type: "Point", coordinates: [-120.03, 35.99] },
-				properties: { id: 2, time: end - 3600, temperatureC: null },
+				properties: {
+					id: 2,
+					time: end - 3600,
+					temperatureC: null,
+					humidityPct: 50,
+					windKmh: 10,
+					windDirectionDeg: 180,
+					gustsKmh: 20,
+				},
 			},
 		]);
 	});
@@ -171,18 +187,19 @@ describe("FIRMS_CLUSTER_RADIUS", () => {
 	});
 });
 
-// temperatureC is the only nullable property in the map's features: accuracy becomes a precision
-// class before it reaches MapLibre, and FRP isn't in the features.
-describe("TEMPERATURE_COLOR", () => {
-	it.each([
-		["a null temperature", { temperatureC: null }],
-		["a missing temperature", {}],
-	])("colours %s as no value, without an expression error", (_, properties) => {
-		expect(evaluatePaint("circle-color", TEMPERATURE_COLOR, 8, properties)).toEqual(Color.parse(NO_VALUE_COLOR));
+// The weather values are the only nullable properties in the map's features: accuracy becomes a
+// precision class before it reaches MapLibre, and FRP isn't in the features.
+describe("weather colour scales", () => {
+	const scales = Object.entries(WEATHER_COLORS).map(([name, { property, color }]) => [name, property, color] as const);
+
+	it.each(scales)("colours a null or missing %s as no value, without an expression error", (_, property, color) => {
+		expect(evaluatePaint("circle-color", color, 8, { [property]: null })).toEqual(Color.parse(NO_VALUE_COLOR));
+		expect(evaluatePaint("circle-color", color, 8, {})).toEqual(Color.parse(NO_VALUE_COLOR));
 	});
 
-	it.each([-15, 0, 20, 55])("colours %i °C on the scale, clamped at the ends", (temperatureC) => {
-		const color = evaluatePaint("circle-color", TEMPERATURE_COLOR, 8, { temperatureC });
-		expect(color).not.toEqual(Color.parse(NO_VALUE_COLOR));
+	it.each(scales)("colours %s values on the scale, clamped at the ends", (_, property, color) => {
+		for (const value of [-15, 0, 20, 55, 150]) {
+			expect(evaluatePaint("circle-color", color, 8, { [property]: value })).not.toEqual(Color.parse(NO_VALUE_COLOR));
+		}
 	});
 });

@@ -252,9 +252,9 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 
 ## Phase 11: Agent evals (right after Phase 10, not optional)
 
-Split in two (Mike, 2026-09-30): 11a the evals, 11b the schema trim, each its own PR. Order for the rest of the night: 11a, Phase 13 (README), 11b, Phase 12.
+Split in two (Mike, 2026-09-30): 11a the evals, 11b the schema trim, each its own PR. Order for the rest of the night: 11a, Phase 13 (README), 11b, Phase 12. Changed after 11a (Mike, 2026-09-30): Phase 12's weather layer, then 12b (mobile and UI), then Phase 13; 11b only if time allows, since it only saves cost.
 
-- [ ] 10–15 questions with expected behaviour (answers, refuses, flags stale data, picks the right tool), run by `pnpm eval` against the deployed model. Graded by code, not an LLM. Kept out of `pnpm test`: it calls the real API
+- [x] 10–15 questions with expected behaviour (answers, refuses, flags stale data, picks the right tool), run by `pnpm eval` against the deployed model. Graded by code, not an LLM. Kept out of `pnpm test`: it calls the real API
   - Include a question hard enough to use all 8 steps, checking the reply still ends with text (the last-step instruction works), alongside the `chat_requests` no-answer flag in production
   - Include a fire question, checking the answer leads with the largest clusters rather than the closest pairs statewide
   - Report `chat_requests.unmatched_citations` alongside `no_answer`: the share of answers with a citation no tool returned
@@ -276,18 +276,43 @@ Split in two (Mike, 2026-09-30): 11a the evals, 11b the schema trim, each its ow
   - Verified (2026-09-30): typecheck, lint, the eval file collected by `vitest list`, a missing key failing with a clear message, and the stream parsing against the real route with a mocked model (text, tool results, steps, the unmatched count and the reviewer header all read back; a stream error throws). Not run against production: the first `pnpm eval` is Mike's
   - First run (Mike, 2026-09-30, about 3 minutes): 10 of 12 passed, no unmatched citations. Question 2 failed on two eval bugs, fixed since (the refusal verbs and the "consistent with" equivalents above). Question 12 found a real no-answer: the model asked for 10 tools at once in its second step (5 `get_conditions`, then only 4 of 5 `compare_periods`) and the reply ended there with no text, at 2 steps, never near the 8-step limit. Likely cause: `MAX_OUTPUT_TOKENS` (2,000 per step) cut the step off mid-call. Its `chat_requests` row (2 steps, 2,588 output tokens) fits ~590 in step 1 plus the cap in step 2
   - Confirmed on a rerun of questions 1, 2 and 12 (Mike, 2026-09-30), after the eval learnt to report each reply's finish reason: question 12 stopped with `length` and 9 tool calls never ran. Questions 1 and 2 passed. Since the model runs tools in parallel, a question asking for many lookups hits the output cap long before the 8-step limit. Fixed by raising `MAX_OUTPUT_TOKENS` to 4,000 (Mike, 2026-09-30; you pay only for tokens generated). Rejected for tonight: turning off parallel tool calls, so the 8-step limit and its last-step instruction handle big questions, which is slower and changes every answer. Post-merge check (Mike): `pnpm eval -t "agent evals > 12\. "` ends with an answer
+  - Post-merge check failed (Mike, 2026-09-30, 22:36 EDT): question 12 still ends without an answer, now on time instead of tokens. The 4,000-token cap worked: step 2 asked for all 11 remaining tools in full (`observations_near_detections`, 5 `get_conditions`, 5 `compare_periods`), with no `length` stop. But the run took 120.25 s, the route's `maxDuration` (the eval's own timeout is 150 s), and 4 of those calls never finished: Vercel stopped the function before the model got a third step to write its answer. The finish reason is `unknown` because a hard stop at `maxDuration` skips every callback, so this request's `chat_requests` row is probably missing too (Phase 10 limitations)
+  - Likely cause, not yet confirmed in Vercel's logs: the parallel tools share one postgres.js client with its default pool of 10 connections (`src/lib/db.ts` sets no `max`), and their queries are heavy (each `observations_near_detections` runs three DBSCAN queries, each `compare_periods` several), so dozens queue for 10 connections. No tool has its own time budget, so nothing gives up early to leave the model time to answer. Which tool was slowest, and whether the time went to queueing or to the queries, would show in that request's logs
+  - Not fixed tonight (Mike, 2026-09-30). Options: a time budget per tool, returning `insufficient` when it runs out so the model can still answer; capping tool calls per step, or turning off parallel tool calls (rejected above as slower and changing every answer); clustering detections once per request instead of three times (Phase 10 limitations); a higher `maxDuration`, which only moves the limit. Ordinary questions are unaffected: questions 1–11 passed in the earlier runs
 - [ ] Trim the tool schemas' ISO date patterns (~3k of the ~9k cached prefix, see "Known limitations from Phase 10")
 
 ## Phase 12: Weather on the map
 
-- [ ] Modeled conditions at the detection's hour in thermal detection popups (nearest grid point, with distance)
-- [ ] Wind arrows (default weather view), sized by speed, coloured by gusts
-- [ ] Variable picker: wind, humidity, temperature
+- [ ] Modeled conditions at the detection's hour in thermal detection popups (nearest grid point, with distance). Optional: skipped for 12b and the README
+- [x] Wind arrows (default weather view), sized by speed
+  - Mike (2026-09-30): the weather layer is on by default, showing wind alone. Each point gets wavy streaks pointing where the wind blows (the stored direction is where it comes from, so the icon turns 180°), bigger for faster wind and with one more streak from 12 and from 30 km/h; under 2 km/h a ring, since the direction means little. A point with no wind value draws no arrow, only its grey sample-point dot, so it never reads as calm. Gusts became a colour option instead of the arrows' colour, so the arrows stay one readable dark colour over any fill
+  - The icons are SVG data URLs added to the map's style on load (`src/components/wind-icons.ts`); the legend shows the same images
+- [x] Variable picker: wind, humidity, temperature
+  - A Wind checkbox plus "Colour points by": None (default), Gusts, Humidity, Temperature. One colour at a time, since two fills on one point can't both be read. Built on the client from the already-loaded layer (all six values were in it), so no route change
+
+## Phase 12b: Mobile layout and UI polish (next branch)
+
+Mike (2026-09-30): a responsive mobile version, kept simple. Brief 10 makes mobile a nice-to-have, so desktop stays as it is unless a question below says otherwise.
+
+- [ ] Timeline fits on mobile: a little shorter, its buttons in their own row above the bars, better spaced
+- [ ] One sheet for the data panel and the chat on mobile, with a tab to switch between them
+- [ ] The sheet collapses to its header (the 24h / 3 days / 7 days switch) with an arrow to open it
+
+Proposed (Claude), open for Mike before building:
+
+1. **Breakpoint:** only screens under 768 px (Tailwind `md`) get the mobile layout; desktop is unchanged. Yes?
+2. **Sheet's first state:** start minimised, so the map is what a phone sees first? Or open on the Data tab?
+3. **Sheet position:** the timeline stays pinned along the bottom and the sheet sits above it, up to ~55% of the screen when open. Or should the open sheet cover the timeline?
+4. **Mobile timeline:** buttons (play, speed, whole window) in one row above the bars; bars shorter (h-8 → h-6); each row's label as a small line above it instead of the left column; the long "Showing…" sentence hidden, keeping only the shown span. Is hiding that sentence acceptable, or should it move into the sheet?
+5. **Chat on mobile:** picking a citation chip or evidence item flies the map to the record, but the open sheet would hide it. Minimise the sheet when one is picked?
+6. **Desktop "UI a bit":** anything specific on desktop, or is mobile the whole of it?
 
 ## Phase 13: README and submission
 
 - [ ] README (including how the system would evolve: on-demand history fetching), decisions review, final deploy check
   - Include: one big fire becomes one detection cluster, since DBSCAN chains nearby detections (650 in one near Yosemite, Sep 2026); known issues, including serial test runs until tests get their own database (issue #9)
+  - Also a known limitation: introduced species aren't distinguished on the map (brief 10). iNaturalist's introduced flag was never verified for California (Phase 2 limitations), so it stays out rather than risk a wrong label
+  - Ask Mike whether the feature freeze covers the README; if it does, it goes before 12b
 - [ ] Before submitting: check the Supabase database's size growth per day and its egress, and confirm whether rows outside the live window are ever pruned (the "Later" list says they aren't; check the code and the table sizes). Note the answer in the README's scaling section
 
 ## Phase 14 (stretch): CZU for the agent
@@ -395,7 +420,7 @@ Split in two (Mike, 2026-09-30): 11a the evals, 11b the schema trim, each its ow
 
 - **Eval chats count as real usage:** `pnpm eval` sends its questions in the reviewer bucket, so they mix into production's `chat_requests` rates and use 12 of the reviewer's 60 questions an hour (300 a day). Tagging eval requests would fix it, but needs a route change (Mike, 2026-09-30)
 - **Pattern checks miss wordings:** a claim phrased in a way the patterns don't catch passes, and a refusal worded outside the pattern fails. Each question runs once, and answers vary between runs
-- **A question asking for very many lookups can still end without an answer:** the model can request every tool call in one step, and 4,000 output tokens fit about 20. Past that, the step is cut off, nothing runs and the reply has no text (logged as `no_answer`)
+- **A question asking for very many lookups can still end without an answer:** the model can request every tool call in one step. Two limits can stop it. Output: 4,000 tokens fit about 20 calls; past that the step is cut off, nothing runs and the reply has no text (logged as `no_answer`). Time: the calls run in parallel on a pool of 10 database connections with no per-tool time budget, so a dozen heavy ones (question 12's 11) can outlast the route's 120 s `maxDuration`. Vercel then stops the function before the model writes an answer, every callback is skipped, and the request may not be logged at all. Question 12 fails on time since the token cap was raised (Phase 11)
 - **One sentence can refuse and claim at once:** sentences are judged one at a time, and a refusal anywhere in a sentence passes all of it, so "I can't establish causation, but the deer population clearly dropped." passes. Not fixed (Mike, 2026-09-30)
 
 ### Known limitations from Phase 6 (check later)
