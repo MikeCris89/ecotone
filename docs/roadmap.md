@@ -228,10 +228,10 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - Not subdivided (Mike had asked for `ST_Subdivide` pieces up front): measured on the local data, the whole outline added ~10 ms to a statewide observation count (~18 ms to ~28 ms, 31,565 rows), the indexed pieces ~38 ms. PostGIS prepares a polygon it tests row after row in one query, so the whole outline doesn't walk every edge per row
   - Locally, 1,163 of 31,565 recorded observations (3.7%) and 221 of 3,218 detections (6.9%) were in the bbox but outside the outline
   - Tests moved their fixtures from the Pacific into California (same far-past dates), since records outside the outline no longer count. New tests: a record across the Nevada or Mexican line inside the bbox isn't counted by the tools or the layers, a crossing area gets the limitation, the Live bbox is containing (not crossing), an area wholly outside is refused. Disabling the filter in `detectionsIn`, `observationsIn` or the proximity query, one at a time, fails a test each time
-  - Verified locally (2026-09-30): the `detections`, `observations` and `conditions` agent tests, both map layer tests and `context` (70 tests), typecheck, lint
-  - Before merge (Mike): `supabase db push` for `boundaries`, or every map layer and tool query fails
+  - Verified locally (2026-09-30): the `detections`, `observations` and `conditions` agent tests, both map layer tests and `context` (70 tests), typecheck, lint. Full `pnpm test` passed (Mike, 2026-09-30)
+  - `boundaries` pushed to production (Mike, 2026-09-30)
   - If the `california` row were missing (only by deleting it by hand: the migration that creates the table inserts it), the outline subquery is null, `ST_Intersects` with null is null, and every row is filtered out: the map layers would show nothing with no error. The tools would fail loudly instead (`californiaExtent` finds no row and throws)
-  - After merge (Mike): reload the page and ask the fire question; the Nevada cluster (40.82, -114.26) is gone from the map and the answer. The layers are CDN-cached (FIRMS 5 minutes fresh plus 5 stale) and an open tab keeps what it loaded, so reload first, and if the cluster is still on the map wait 10 minutes before deciding the fix didn't work
+  - Post-merge check (Mike): reload the page and ask the fire question; the Nevada cluster (40.82, -114.26) is gone from the map and the answer. The layers are CDN-cached (FIRMS 5 minutes fresh plus 5 stale) and an open tab keeps what it loaded, so reload first, and if the cluster is still on the map wait 10 minutes before deciding the fix didn't work
 - Recorded in decisions.md (29 to 38, 2026-09-30, for Mike to prune): the chat's map context, reviewer access, evidence from tool results, history without tool results, proximity per cluster, the answer renderer, usage logging, weather from the readings it has, evidence markers from their own coordinates, unmatched citations counted
 - Decision log candidates awaiting Mike's approval:
   - The model sees a trimmed tool result, the UI the full one (alternative: the same result for both, ~40% more input tokens per tool call)
@@ -247,6 +247,7 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - The map layers clipped like the tools (alternative: tools only, leaving the map and chat counts disagreeing)
   - State waters included (alternative: land only, which drops beach and tide-pool records just offshore). Not a fix for obscured records, which move up to ~20 km
   - An area wholly outside California is refused, not answered (alternative: count zero, which hides records that are stored)
+  - Only an area holding part of California but not all of it gets the "extends beyond California" limitation (alternative: any area past the state line, which put it on almost every statewide answer). A limitation means the answer covers less than what was asked about, and one on every answer teaches people to skip limitations, the stale and missing data ones included
   - The whole outline, not `ST_Subdivide` pieces (Mike had asked for pieces): measured faster on the local data, since PostGIS prepares a polygon used row after row
 
 ## Phase 11: Agent evals (right after Phase 10, not optional)
@@ -260,6 +261,9 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
     - After a map move, the model never retracts an earlier answer
     - The "right now" weather fallback labels an old reading as the last available, not current, and states its age (since 10c-2 this rests on the `get_conditions` description, not the limitation text)
     - Only offer actions the tools can do now (it offered "I can check again later")
+  - From 10d:
+    - A question about a view outside the state but inside the bbox (e.g. Reno) is answered as outside California, never as zero recorded observations
+    - A statewide question's answer carries no "extends beyond California" limitation
 - [ ] Trim the tool schemas' ISO date patterns (~3k of the ~9k cached prefix, see "Known limitations from Phase 10")
 
 ## Phase 12: Weather on the map
