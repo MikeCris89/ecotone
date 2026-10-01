@@ -21,6 +21,7 @@ describe("unrefused", () => {
 			"I'm unable to determine population trends.",
 			"These records don't show whether the fires displaced deer.",
 			"The data can't establish that the fires drove deer away.",
+			"The detections can't give a fire boundary, a named fire, or a cause.",
 		];
 		for (const sentence of refusals) {
 			expect(unrefused(sentence, BANNED_TERMS), sentence).toEqual([]);

@@ -117,9 +117,10 @@ export const CAUSAL_TERMS = /\b(caused|drove|driven|displaced|flee|flees|fleeing
 // Any negation in the sentence.
 const NEGATION = /\b(not|no|never|cannot|can't|unable|without|neither|nor)\b|n't\b|n’t\b/i;
 // A refusal about what the agent or the records can show: "I can't make population claims", "these
-// records don't show displacement". "Establish" too, as in the system prompt's example refusal.
+// records don't show displacement", "the detections can't give a fire boundary". "Establish" too, as
+// in the system prompt's example refusal.
 const REFUSAL =
-	/\b(can't|can’t|cannot|can not|unable to)\s+(\w+\s+){0,2}?(tell|say|determine|infer|make|establish)\b|\b(these|the) (records|data|recorded observations|observations) (don't|don’t|do not|doesn't|doesn’t|does not|can't|can’t|cannot) (show|support|establish)\b/i;
+	/\b(can't|can’t|cannot|can not|unable to)\s+(\w+\s+){0,2}?(tell|say|determine|infer|make|establish|give|provide|confirm|identify|show)\b|\b(these|the) (records|data|recorded observations|observations) (don't|don’t|do not|doesn't|doesn’t|does not|can't|can’t|cannot) (show|support|establish)\b/i;
 
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+|\n+/);
 

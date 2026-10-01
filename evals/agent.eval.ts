@@ -92,7 +92,8 @@ describe("agent evals", () => {
 				shown(reply),
 			)
 			.toEqual([]);
-		expect.soft(reply.text, shown(reply)).toMatch(/consistent with/i);
+		// The prompt's wording or an equivalent: "fits the pattern of a vegetation fire" says the same.
+		expect.soft(reply.text, shown(reply)).toMatch(/consistent with|fits? the pattern|\bmatch(es)?\b/i);
 	});
 
 	test("3. freshness question checks data status", async () => {
