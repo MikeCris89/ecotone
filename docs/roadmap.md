@@ -281,8 +281,11 @@ Split in two (Mike, 2026-09-30): 11a the evals, 11b the schema trim, each its ow
 ## Phase 12: Weather on the map
 
 - [ ] Modeled conditions at the detection's hour in thermal detection popups (nearest grid point, with distance)
-- [ ] Wind arrows (default weather view), sized by speed, coloured by gusts
-- [ ] Variable picker: wind, humidity, temperature
+- [x] Wind arrows (default weather view), sized by speed
+  - Mike (2026-09-30): the weather layer is on by default, showing wind alone. Each point gets wavy streaks pointing where the wind blows (the stored direction is where it comes from, so the icon turns 180°), bigger for faster wind and with one more streak from 12 and from 30 km/h; under 2 km/h a ring, since the direction means little. A point with no wind value draws no arrow, only its grey sample-point dot, so it never reads as calm. Gusts became a colour option instead of the arrows' colour, so the arrows stay one readable dark colour over any fill
+  - The icons are SVG data URLs added to the map's style on load (`src/components/wind-icons.ts`); the legend shows the same images
+- [x] Variable picker: wind, humidity, temperature
+  - A Wind checkbox plus "Colour points by": None (default), Gusts, Humidity, Temperature. One colour at a time, since two fills on one point can't both be read. Built on the client from the already-loaded layer (all six values were in it), so no route change
 
 ## Phase 13: README and submission
 

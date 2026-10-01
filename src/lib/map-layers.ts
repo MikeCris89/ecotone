@@ -146,15 +146,22 @@ export const FIRMS_CLUSTER_RADIUS: ExpressionSpecification = [
 	FIRMS_CLUSTER_MAX_RADIUS,
 ];
 
+export type WeatherProperties = {
+	id: number;
+	time: number;
+	temperatureC: number | null;
+	humidityPct: number | null;
+	windKmh: number | null;
+	windDirectionDeg: number | null;
+	gustsKmh: number | null;
+};
+
 /**
  * Each point's latest reading among `rows`, placed at the model grid cell its values describe.
  * The map passes the rows in the shown span (the window, or the timeline handle's hour), so a point
  * with no reading in it is left out.
  */
-export function weatherGeoJson(
-	points: WeatherMapPoint[],
-	rows: WeatherMapRow[],
-): PointCollection<{ id: number; time: number; temperatureC: number | null }> {
+export function weatherGeoJson(points: WeatherMapPoint[], rows: WeatherMapRow[]): PointCollection<WeatherProperties> {
 	const latest = latestWeatherRows(rows);
 
 	return {
@@ -162,12 +169,12 @@ export function weatherGeoJson(
 		features: points.flatMap(([id, , , gridLon, gridLat]) => {
 			const row = latest.get(id);
 			if (!row) return [];
-			// Null temperatures stay null (no model value), never zero.
-			const [, time, temperatureC] = row;
-			const feature: PointFeature<{ id: number; time: number; temperatureC: number | null }> = {
+			// Null values stay null (no model value), never zero.
+			const [, time, temperatureC, humidityPct, , windKmh, windDirectionDeg, gustsKmh] = row;
+			const feature: PointFeature<WeatherProperties> = {
 				type: "Feature",
 				geometry: { type: "Point", coordinates: [gridLon, gridLat] },
-				properties: { id, time, temperatureC },
+				properties: { id, time, temperatureC, humidityPct, windKmh, windDirectionDeg, gustsKmh },
 			};
 			return [feature];
 		}),

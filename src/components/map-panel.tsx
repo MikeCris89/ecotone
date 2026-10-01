@@ -5,8 +5,10 @@ import {
 	DETECTION_COLOR,
 	NO_VALUE_COLOR,
 	OBSERVATION_COLOR,
-	TEMPERATURE_STOPS,
+	WEATHER_COLORS,
+	type WeatherColor,
 } from "@/components/map-colors";
+import { WIND_ICONS } from "@/components/wind-icons";
 import type { LayerCoverage } from "@/lib/coverage";
 import type { SourceAttribution } from "@/lib/data-sources";
 import { PRECISE_ACCURACY_M } from "@/lib/default-filters";
@@ -14,6 +16,8 @@ import { FIRMS_CLUSTER, type MapWindow, WINDOW_HOURS } from "@/lib/map-layers";
 import { formatTime, WEATHER_MAX_AGE_HOURS } from "@/lib/timeline";
 
 export type LayerVisibility = { inaturalist: boolean; firms: boolean; weather: boolean };
+/** What the weather layer draws: wind arrows, and points coloured by one variable or none. */
+export type WeatherView = { wind: boolean; color: WeatherColor | null };
 
 /** What the legend says about one layer in the selected window. */
 export type LayerSummary = {
@@ -40,6 +44,8 @@ type MapPanelProps = {
 	onWindowChange: (window: MapWindow) => void;
 	visible: LayerVisibility;
 	onVisibleChange: (visible: LayerVisibility) => void;
+	weatherView: WeatherView;
+	onWeatherViewChange: (view: WeatherView) => void;
 	inaturalist: LayerSummary;
 	firms: LayerSummary;
 	// The hour the weather layer shows (null when no point has a reading for it), and how many
@@ -49,7 +55,8 @@ type MapPanelProps = {
 
 // Top-left, above the timeline (the parent stacks them), leaving the right side for the chat panel.
 export function MapPanel(props: MapPanelProps) {
-	const { mapWindow, onWindowChange, visible, onVisibleChange, inaturalist, firms, weather } = props;
+	const { mapWindow, onWindowChange, visible, onVisibleChange, weatherView, onWeatherViewChange } = props;
+	const { inaturalist, firms, weather } = props;
 	const toggle = (layer: keyof LayerVisibility) => (checked: boolean) =>
 		onVisibleChange({ ...visible, [layer]: checked });
 
@@ -122,7 +129,7 @@ export function MapPanel(props: MapPanelProps) {
 
 			<LayerEntry
 				label="Modeled conditions"
-				swatch={TEMPERATURE_STOPS[2][1]}
+				swatch={NO_VALUE_COLOR}
 				checked={visible.weather}
 				onChange={toggle("weather")}
 				summary={weather}
@@ -136,7 +143,7 @@ export function MapPanel(props: MapPanelProps) {
 						reading, up to {WEATHER_MAX_AGE_HOURS} h old, drawn faded.
 					</p>
 				)}
-				<TemperatureScale />
+				<WeatherControls view={weatherView} onChange={onWeatherViewChange} />
 			</LayerEntry>
 		</div>
 	);
@@ -232,28 +239,83 @@ function Linkified({ text }: { text: string }) {
 	);
 }
 
+const COLOR_OPTIONS: [WeatherColor | null, string][] = [
+	[null, "None"],
+	...(Object.keys(WEATHER_COLORS) as WeatherColor[]).map((color): [WeatherColor, string] => [
+		color,
+		WEATHER_COLORS[color].label,
+	]),
+];
+
+function WeatherControls({ view, onChange }: { view: WeatherView; onChange: (view: WeatherView) => void }) {
+	return (
+		<div className="space-y-2 text-zinc-700">
+			<label className="flex items-center gap-2">
+				<input type="checkbox" checked={view.wind} onChange={(event) => onChange({ ...view, wind: event.target.checked })} />
+				Wind
+			</label>
+			{view.wind && (
+				<div className="space-y-1 text-zinc-600">
+					<p>Arrows point where the wind blows; more streaks and bigger for stronger wind.</p>
+					<ul className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+						{WIND_ICONS.map(({ name, label, url }) => (
+							<li key={name} className="flex items-center gap-1">
+								{/* eslint-disable-next-line @next/next/no-img-element -- an inline SVG data URL */}
+								<img src={url} alt="" className="size-5" />
+								{label}
+							</li>
+						))}
+					</ul>
+				</div>
+			)}
+			<div className="space-y-1">
+				<p>Colour points by</p>
+				<div className="flex rounded-md border border-zinc-200 p-0.5" role="group" aria-label="Colour weather points by">
+					{COLOR_OPTIONS.map(([color, label]) => (
+						<button
+							key={label}
+							type="button"
+							aria-pressed={color === view.color}
+							onClick={() => onChange({ ...view, color })}
+							className={`flex-1 rounded px-1 py-0.5 ${
+								color === view.color ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+							}`}
+						>
+							{label}
+						</button>
+					))}
+				</div>
+			</div>
+			{view.color && <ColorScale color={view.color} />}
+			<p className="flex items-center gap-1 text-zinc-600">
+				<span className="size-2.5 rounded-full" style={{ backgroundColor: NO_VALUE_COLOR }} />
+				{view.color ? "No model value" : "Sample point; without an arrow, no modeled wind"}
+			</p>
+		</div>
+	);
+}
+
 // The stops are evenly spaced, so a CSS gradient through their colours matches the map's
 // linear interpolation.
-function TemperatureScale() {
-	const last = TEMPERATURE_STOPS.length - 1;
-	const gradient = `linear-gradient(to right, ${TEMPERATURE_STOPS.map(([, color]) => color).join(", ")})`;
+function ColorScale({ color }: { color: WeatherColor }) {
+	const { label, unit, stops } = WEATHER_COLORS[color];
+	const last = stops.length - 1;
+	const gradient = `linear-gradient(to right, ${stops.map(([, stop]) => stop).join(", ")})`;
 
 	return (
-		<div className="space-y-0.5">
-			<p>Temperature (°C)</p>
+		<div className="space-y-0.5 text-zinc-600">
+			<p>
+				{label} ({unit})
+			</p>
 			<div className="h-2 rounded-sm" style={{ background: gradient }} />
 			<div className="flex justify-between tabular-nums">
-				{TEMPERATURE_STOPS.map(([celsius], index) => (
-					<span key={celsius}>
+				{stops.map(([value], index) => (
+					<span key={value}>
 						{index === 0 ? "≤" : index === last ? "≥" : ""}
-						{celsius}
+						{value}
 					</span>
 				))}
 			</div>
-			<p className="flex items-center gap-1">
-				<span className="size-2.5 rounded-full" style={{ backgroundColor: NO_VALUE_COLOR }} />
-				No model value
-			</p>
 		</div>
 	);
 }
