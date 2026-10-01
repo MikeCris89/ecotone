@@ -160,59 +160,70 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 	const at = (time: number) => Math.min(Math.max(((time - first) / (count * HOUR)) * 100, 0), 100);
 
 	return (
-		<div className="pointer-events-auto w-full shrink-0 space-y-2 rounded-lg bg-white/95 p-3 text-xs text-zinc-700 shadow-md">
-			<div className="flex items-center gap-3">
-				<button
-					type="button"
-					onClick={playing ? pause : play}
-					className="w-20 shrink-0 rounded border border-zinc-200 px-2 py-1 text-zinc-600 hover:bg-zinc-100"
-				>
-					{playing ? "❚❚ Pause" : "▶ Play"}
-				</button>
-				<div className="flex shrink-0 rounded-md border border-zinc-200 p-0.5" role="group" aria-label="Playback speed">
-					{PLAYBACK_SPEEDS.map((option) => (
-						<button
-							key={option}
-							type="button"
-							aria-pressed={option === speed}
-							onClick={() => setSpeed(option)}
-							className={`rounded px-1.5 ${
-								option === speed ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
-							}`}
-						>
-							{option}×
-						</button>
-					))}
+		<div className="pointer-events-auto w-full shrink-0 space-y-2 rounded-lg bg-white/95 p-2 text-xs text-zinc-700 shadow-md md:p-3">
+			{/* On narrow screens the buttons get their own row above a short span; from md up, one row. */}
+			<div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+				<div className="flex items-center gap-2 md:contents">
+					<button
+						type="button"
+						onClick={playing ? pause : play}
+						className="w-20 shrink-0 rounded border border-zinc-200 px-2 py-1 text-zinc-600 hover:bg-zinc-100"
+					>
+						{playing ? "❚❚ Pause" : "▶ Play"}
+					</button>
+					<div className="flex shrink-0 rounded-md border border-zinc-200 p-0.5" role="group" aria-label="Playback speed">
+						{PLAYBACK_SPEEDS.map((option) => (
+							<button
+								key={option}
+								type="button"
+								aria-pressed={option === speed}
+								onClick={() => setSpeed(option)}
+								className={`rounded px-1.5 ${
+									option === speed ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+								}`}
+							>
+								{option}×
+							</button>
+						))}
+					</div>
+					<button
+						type="button"
+						aria-pressed={hour === null}
+						onClick={() => {
+							pause();
+							setHourNow(null);
+						}}
+						className={`shrink-0 rounded border border-zinc-200 px-2 py-1 ${
+							hour === null ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
+						}`}
+					>
+						Whole window
+					</button>
 				</div>
-				<button
-					type="button"
-					aria-pressed={hour === null}
-					onClick={() => {
-						pause();
-						setHourNow(null);
-					}}
-					className={`shrink-0 rounded border border-zinc-200 px-2 py-1 ${
-						hour === null ? "bg-zinc-900 text-white" : "text-zinc-600 hover:bg-zinc-100"
-					}`}
-				>
-					Whole window
-				</button>
 				{span && hour !== null ? (
-					<p>
-						Showing {formatSeconds(span.start)} – {formatSeconds(span.end)}: the {TRAILING_HOURS} hours to the handle,
-						older records fainter. Modeled conditions for the hour from {formatSeconds(hour)}, or the latest reading
-						up to {WEATHER_MAX_AGE_HOURS} h earlier, faded.
-					</p>
+					<>
+						<p className="hidden md:block">
+							Showing {formatSeconds(span.start)} – {formatSeconds(span.end)}: the {TRAILING_HOURS} hours to the
+							handle, older records fainter. Modeled conditions for the hour from {formatSeconds(hour)}, or the latest
+							reading up to {WEATHER_MAX_AGE_HOURS} h earlier, faded.
+						</p>
+						<p className="md:hidden">
+							Showing {formatSeconds(span.start)} – {formatSeconds(span.end)}
+						</p>
+					</>
 				) : (
-					<p>
-						Showing the whole window, with modeled conditions for its newest hour. Drag along the timeline, use the
-						arrow keys, or press play to step through it by the hour.
-					</p>
+					<>
+						<p className="hidden md:block">
+							Showing the whole window, with modeled conditions for its newest hour. Drag along the timeline, use the
+							arrow keys, or press play to step through it by the hour.
+						</p>
+						<p className="md:hidden">Showing the whole window. Drag the bars or press play.</p>
+					</>
 				)}
 			</div>
 
 			<div className="flex gap-2">
-				<div className="w-44 shrink-0 space-y-1 text-zinc-600">
+				<div className="hidden w-44 shrink-0 space-y-1 text-zinc-600 md:block">
 					<p className="flex h-8 items-center">Recorded observations / hour</p>
 					<p className="flex h-3 items-center text-[11px]">Date only, no time recorded / day</p>
 					<p className="flex h-8 items-center">Satellite thermal detections / hour</p>
@@ -226,6 +237,25 @@ export const Timeline = memo(function Timeline(props: TimelineProps) {
 				</div>
 
 				<div className="min-w-0 flex-1">
+					{/* Narrow screens: a one-line key instead of the label column. */}
+					<p className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-zinc-600 md:hidden">
+						<span className="flex items-center gap-1">
+							<span className="size-2.5" style={{ backgroundColor: OBSERVATION_COLOR }} />
+							Recorded observations / h
+						</span>
+						<span className="flex items-center gap-1">
+							<span className="size-2.5" style={{ backgroundColor: DETECTION_COLOR }} />
+							Satellite thermal detections / h
+						</span>
+						<span className="flex items-center gap-1">
+							<span className="size-2.5" style={{ backgroundColor: NOT_LOADED_COLOR }} />
+							Not loaded or not read yet
+						</span>
+						<span className="flex items-center gap-1">
+							<span className="size-2.5" style={{ backgroundImage: INCOMPLETE_HATCH }} />
+							Likely incomplete
+						</span>
+					</p>
 					<div
 						ref={plotRef}
 						role="slider"
@@ -334,7 +364,7 @@ type HourBarsProps = { counts: number[]; first: number; shading: RowShading; col
 const HourBars = memo(function HourBars({ counts, first, shading, color, noun }: HourBarsProps) {
 	const max = Math.max(1, ...counts);
 	return (
-		<div className="relative h-8">
+		<div className="relative h-6 md:h-8">
 			<Shading shading={shading} first={first} count={counts.length} />
 			<svg
 				className="pointer-events-none relative block h-full w-full"

@@ -294,18 +294,15 @@ Split in two (Mike, 2026-09-30): 11a the evals, 11b the schema trim, each its ow
 
 Mike (2026-09-30): a responsive mobile version, kept simple. Brief 10 makes mobile a nice-to-have, so desktop stays as it is unless a question below says otherwise.
 
-- [ ] Timeline fits on mobile: a little shorter, its buttons in their own row above the bars, better spaced
-- [ ] One sheet for the data panel and the chat on mobile, with a tab to switch between them
-- [ ] The sheet collapses to its header (the 24h / 3 days / 7 days switch) with an arrow to open it
+Built differently from the first plan (Mike, 2026-10-01): no tab sheet. Desktop got collapsible panels too, since the panels covered the map there as well (decisions.md, 40 to 42).
 
-Proposed (Claude), open for Mike before building:
-
-1. **Breakpoint:** only screens under 768 px (Tailwind `md`) get the mobile layout; desktop is unchanged. Yes?
-2. **Sheet's first state:** start minimised, so the map is what a phone sees first? Or open on the Data tab?
-3. **Sheet position:** the timeline stays pinned along the bottom and the sheet sits above it, up to ~55% of the screen when open. Or should the open sheet cover the timeline?
-4. **Mobile timeline:** buttons (play, speed, whole window) in one row above the bars; bars shorter (h-8 → h-6); each row's label as a small line above it instead of the left column; the long "Showing…" sentence hidden, keeping only the shown span. Is hiding that sentence acceptable, or should it move into the sheet?
-5. **Chat on mobile:** picking a citation chip or evidence item flies the map to the record, but the open sheet would hide it. Minimise the sheet when one is picked?
-6. **Desktop "UI a bit":** anything specific on desktop, or is mobile the whole of it?
+- [x] Timeline fits on mobile: below `md`, the buttons get their own row, the long "Showing…" sentence becomes the shown span alone, a one-line key replaces the label column, and the bars are shorter (h-8 → h-6)
+- [x] Panels collapse on desktop: a Hide/Show button on each, both open on load. The data panel keeps its title, window switch and one line per layer (⚠ when a layer has a failed fetch, unread hours or polling behind); its title and window switch stay fixed while the layers scroll. The chat keeps its header and input (`src/components/collapse-button.tsx`)
+- [x] Phones (below 768 px): the panels stack full width, one at a time, and start closed: the data panel's header at the top, the chat's input bar above the timeline. Focusing the input opens the chat over the data panel; tapping the map, Hide or a citation closes it, and a citation also collapses the data panel. The open state starts as null ("not toggled"), which CSS shows as open on desktop and closed on phones, so the static page doesn't flash. A strip on the right stays clear for the attribution button. The input is 16 px on phones, since iOS Safari zooms into smaller focused fields
+- [x] Source credits (with licenses) in the map's attribution control, so they show when the data panel is collapsed
+- [x] The page no longer scrolls on phones (the map container and body clip overflow)
+- Verified (2026-10-01): typecheck and lint; Mike's browser checks on desktop and at phone widths. No component tests cover the layout
+- Not done: hiding the timeline while the chat is open on phones, so the keyboard pushes the page up less. Today the top of the open chat can scroll off screen while typing
 
 ## Phase 13: README and submission
 

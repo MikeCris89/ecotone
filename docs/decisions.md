@@ -327,6 +327,30 @@ Dropping them silently makes an answer look better grounded than the model actua
 
 Wind is the condition most tied to how fire behaves, and arrows read at a glance without a legend. One dark arrow colour stays readable over the basemap and over any fill, and two colours on one dot can't both be read. **Tradeoff:** gusts only show when picked, and a third layer on by default adds clutter next to the recorded observations and detections.
 
-## 40. Open decisions
+## 40. Collapsible panels, not one merged panel
+
+**Decision:** On desktop, the data panel and the chat stay two panels, each with a Hide button, and both open when the map loads. The collapsed data panel keeps its title, the window switch and one line per layer, with a ⚠ standing in for the warnings it hides; the collapsed chat keeps its header and input. Suggested by Claude; I agreed.
+
+**Considered:** merging the chat into the data panel behind tabs; collapsing the data panel to its header alone.
+
+The panels covered too much of the map, but tabs would stop a reviewer seeing the legend next to an answer whose evidence is on the map. Layer toggles are the quickest way to clear the map, so they stay one click away, and freshness warnings stay visible when collapsed (brief 10). **Tradeoff:** two panels still take both top corners of the map when open.
+
+## 41. Phones: one panel at a time, the chat as its input bar
+
+**Decision:** Below 768 px, the panels stack full width and start closed: the data panel's header at the top, the chat's input bar just above the timeline. Focusing the input opens the chat over the data panel; tapping the map or a citation closes it (and collapses the data panel), so the map shows the record. The "not toggled yet" state is resolved in CSS, so the static page renders closed on phones and open on desktop without a flash. Claude suggested a chat bubble; I made it the input bar instead.
+
+**Considered:** one sheet with Data and Chat tabs (the 12b plan); a chat bubble that opens the chat; both panels minimised separately.
+
+A tab sheet still covers the map whenever it's open, and two minimised headers plus the timeline leave little map on a phone. A bubble costs a tap before typing, while the bar is the open chat's own input in the same place, so the field doesn't jump when the chat opens. **Tradeoffs:** the keyboard pushes the page up while typing, so the top of the open chat can scroll off screen; the collapsed data panel on a phone hides the layer lines and their warnings until opened.
+
+## 42. Source credits in the map's attribution
+
+**Decision:** The map's attribution control credits NASA FIRMS, iNaturalist and Open-Meteo, with links and licenses, built from `data_sources`. The full attribution texts stay in the expanded data panel. Suggested by Claude; I agreed.
+
+**Considered:** keeping attribution only in the data panel.
+
+Collapsing the panel would hide the credits, and Open-Meteo's CC BY license asks for visible attribution wherever its data is shown. **Tradeoff:** MapLibre only reads the text when the control is created, so it's remounted as each layer's credit arrives.
+
+## 43. Open decisions
 
 - Charting library for the agent's metrics (the timeline uses plain SVG, 19)
