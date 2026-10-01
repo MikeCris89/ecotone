@@ -252,6 +252,8 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 
 ## Phase 11: Agent evals (right after Phase 10, not optional)
 
+Split in two (Mike, 2026-09-30): 11a the evals, 11b the schema trim, each its own PR. Order for the rest of the night: 11a, Phase 13 (README), 11b, Phase 12.
+
 - [ ] 10–15 questions with expected behaviour (answers, refuses, flags stale data, picks the right tool), run by `pnpm eval` against the deployed model. Graded by code, not an LLM. Kept out of `pnpm test`: it calls the real API
   - Include a question hard enough to use all 8 steps, checking the reply still ends with text (the last-step instruction works), alongside the `chat_requests` no-answer flag in production
   - Include a fire question, checking the answer leads with the largest clusters rather than the closest pairs statewide
@@ -264,6 +266,14 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
   - From 10d:
     - A question about a view outside the state but inside the bbox (e.g. Reno) is answered as outside California, never as zero recorded observations
     - A statewide question's answer carries no "extends beyond California" limitation
+  - Built (11a, 2026-09-30) as `pnpm eval`: `vitest.eval.mts` runs `evals/agent.eval.ts`, kept out of `pnpm test`. `evals/chat.ts` sends each question to the deployed `POST /api/chat` the way the chat panel does (context in the body and the question's metadata, reviewer key in the header) and reads the stream back with the SDK's own parser (`parseJsonEventStream`, `readUIMessageStream`). A stream error fails the question instead of passing as an empty answer. Production over HTTP (Mike, 2026-09-30): it tests what reviewers use. Needs `EVAL_REVIEWER_KEY` (production's reviewer key) in `.env.local`; `EVAL_BASE_URL` defaults to the production URL. Twelve questions, one run each, about $1 a run
+  - Every answer: has text, and uses no banned term ("population", "abundance", "sightings", "fire spread", "fire boundary", "burned area") outside a negated sentence. Negated use passes, so "I can't make population claims" is a good answer to the population question (Mike's review). Checks are patterns, strict on clear failures; a failure prints the answer
+  - "Is this a fire?" fails on any answer opening with yes or no, "No, I can't confirm that" included: an opening no reads as a verdict (Mike, 2026-09-30). It must also say "consistent with"
+  - Follow-ups reuse an earlier answer as history: "Is the largest cluster a fire?" follows the fire question; the map-move question follows the statewide count with a Bay Area view
+  - Step limit: any reply that uses all 8 steps gets a note, since an ordinary question shouldn't need them. Question 12 is meant to reach the limit, since that's what tests the last-step instruction: it fails only without text, and gets a "not tested" note when it stops short. The model can run tools in parallel within one step, so reaching 8 isn't guaranteed. The weather fallback check is the same: it only runs when the range has no reading yet, otherwise noted as not exercised
+  - The summary prints a table (steps, tools, no answer, unmatched citations, notes per question) and the run's no-answer and unmatched-citation shares. Unmatched citations are reported, not failed
+  - The same rates over all real chats, in the Supabase SQL editor (production): `select count(*) filter (where no_answer) as no_answer, count(*) filter (where unmatched_citations > 0) as unmatched, count(*) filter (where no_answer is not null) as judged from chat_requests where limited is null;`
+  - Verified (2026-09-30): typecheck, lint, the eval file collected by `vitest list`, a missing key failing with a clear message, and the stream parsing against the real route with a mocked model (text, tool results, steps, the unmatched count and the reviewer header all read back; a stream error throws). Not run against production: the first `pnpm eval` is Mike's
 - [ ] Trim the tool schemas' ISO date patterns (~3k of the ~9k cached prefix, see "Known limitations from Phase 10")
 
 ## Phase 12: Weather on the map
@@ -378,6 +388,11 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 - **Flying to a record moves the question's "here":** clicking a chip or evidence item flies the map there, so the next question's area is that view, not the one the answer described. Each question records the view it was asked with, so earlier answers aren't misread
 - **Overlapping evidence markers:** a weather answer's latest, driest and gustiest readings share one grid cell, and a recorded observation can sit metres from a detection. Clicking the map opens the top marker only; the chips reach each record
 - **Today can be marked partial for up to 20 minutes each hour:** the range counts the current hour's mark, but that hour's reading only arrives with the :20 poll. Between :00 and :20 a by-day weather answer marks today `partial` (and gives it no precipitation total), and the range says one hour is missing
+
+### Known limitations from Phase 11 (check later)
+
+- **Eval chats count as real usage:** `pnpm eval` sends its questions in the reviewer bucket, so they mix into production's `chat_requests` rates and use 12 of the reviewer's 60 questions an hour (300 a day). Tagging eval requests would fix it, but needs a route change (Mike, 2026-09-30)
+- **Pattern checks miss wordings:** a claim phrased in a way the patterns don't catch passes, and a sentence with any negation passes the banned-term check even if it also makes a claim. Each question runs once, and answers vary between runs
 
 ### Known limitations from Phase 6 (check later)
 
