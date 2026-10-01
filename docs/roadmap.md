@@ -252,9 +252,9 @@ Model: Claude Sonnet 5.5 (`claude-sonnet-5-5`) via the AI SDK (`ai` v7, `@ai-sdk
 
 ## Phase 11: Agent evals (right after Phase 10, not optional)
 
-Split in two (Mike, 2026-09-30): 11a the evals, 11b the schema trim, each its own PR. Order for the rest of the night: 11a, Phase 13 (README), 11b, Phase 12.
+Split in two (Mike, 2026-09-30): 11a the evals, 11b the schema trim, each its own PR. Order for the rest of the night: 11a, Phase 13 (README), 11b, Phase 12. Changed after 11a (Mike, 2026-09-30): Phase 12's weather layer, then 12b (mobile and UI), then Phase 13; 11b only if time allows, since it only saves cost.
 
-- [ ] 10–15 questions with expected behaviour (answers, refuses, flags stale data, picks the right tool), run by `pnpm eval` against the deployed model. Graded by code, not an LLM. Kept out of `pnpm test`: it calls the real API
+- [x] 10–15 questions with expected behaviour (answers, refuses, flags stale data, picks the right tool), run by `pnpm eval` against the deployed model. Graded by code, not an LLM. Kept out of `pnpm test`: it calls the real API
   - Include a question hard enough to use all 8 steps, checking the reply still ends with text (the last-step instruction works), alongside the `chat_requests` no-answer flag in production
   - Include a fire question, checking the answer leads with the largest clusters rather than the closest pairs statewide
   - Report `chat_requests.unmatched_citations` alongside `no_answer`: the share of answers with a citation no tool returned
@@ -280,17 +280,36 @@ Split in two (Mike, 2026-09-30): 11a the evals, 11b the schema trim, each its ow
 
 ## Phase 12: Weather on the map
 
-- [ ] Modeled conditions at the detection's hour in thermal detection popups (nearest grid point, with distance)
+- [ ] Modeled conditions at the detection's hour in thermal detection popups (nearest grid point, with distance). Optional: skipped for 12b and the README
 - [x] Wind arrows (default weather view), sized by speed
   - Mike (2026-09-30): the weather layer is on by default, showing wind alone. Each point gets wavy streaks pointing where the wind blows (the stored direction is where it comes from, so the icon turns 180°), bigger for faster wind and with one more streak from 12 and from 30 km/h; under 2 km/h a ring, since the direction means little. A point with no wind value draws no arrow, only its grey sample-point dot, so it never reads as calm. Gusts became a colour option instead of the arrows' colour, so the arrows stay one readable dark colour over any fill
   - The icons are SVG data URLs added to the map's style on load (`src/components/wind-icons.ts`); the legend shows the same images
 - [x] Variable picker: wind, humidity, temperature
   - A Wind checkbox plus "Colour points by": None (default), Gusts, Humidity, Temperature. One colour at a time, since two fills on one point can't both be read. Built on the client from the already-loaded layer (all six values were in it), so no route change
 
+## Phase 12b: Mobile layout and UI polish (next branch)
+
+Mike (2026-09-30): a responsive mobile version, kept simple. Brief 10 makes mobile a nice-to-have, so desktop stays as it is unless a question below says otherwise.
+
+- [ ] Timeline fits on mobile: a little shorter, its buttons in their own row above the bars, better spaced
+- [ ] One sheet for the data panel and the chat on mobile, with a tab to switch between them
+- [ ] The sheet collapses to its header (the 24h / 3 days / 7 days switch) with an arrow to open it
+
+Proposed (Claude), open for Mike before building:
+
+1. **Breakpoint:** only screens under 768 px (Tailwind `md`) get the mobile layout; desktop is unchanged. Yes?
+2. **Sheet's first state:** start minimised, so the map is what a phone sees first? Or open on the Data tab?
+3. **Sheet position:** the timeline stays pinned along the bottom and the sheet sits above it, up to ~55% of the screen when open. Or should the open sheet cover the timeline?
+4. **Mobile timeline:** buttons (play, speed, whole window) in one row above the bars; bars shorter (h-8 → h-6); each row's label as a small line above it instead of the left column; the long "Showing…" sentence hidden, keeping only the shown span. Is hiding that sentence acceptable, or should it move into the sheet?
+5. **Chat on mobile:** picking a citation chip or evidence item flies the map to the record, but the open sheet would hide it. Minimise the sheet when one is picked?
+6. **Desktop "UI a bit":** anything specific on desktop, or is mobile the whole of it?
+
 ## Phase 13: README and submission
 
 - [ ] README (including how the system would evolve: on-demand history fetching), decisions review, final deploy check
   - Include: one big fire becomes one detection cluster, since DBSCAN chains nearby detections (650 in one near Yosemite, Sep 2026); known issues, including serial test runs until tests get their own database (issue #9)
+  - Also a known limitation: introduced species aren't distinguished on the map (brief 10). iNaturalist's introduced flag was never verified for California (Phase 2 limitations), so it stays out rather than risk a wrong label
+  - Ask Mike whether the feature freeze covers the README; if it does, it goes before 12b
 - [ ] Before submitting: check the Supabase database's size growth per day and its egress, and confirm whether rows outside the live window are ever pruned (the "Later" list says they aren't; check the code and the table sizes). Note the answer in the README's scaling section
 
 ## Phase 14 (stretch): CZU for the agent

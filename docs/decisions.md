@@ -319,6 +319,14 @@ Highlighting by ID breaks whenever the timeline or window filters a point out, a
 
 Dropping them silently makes an answer look better grounded than the model actually was, which undercuts the point of citing. Raw IDs are noise and could look like real sources. The logged count is also a free measure for the evals (Phase 11). **Tradeoff:** a slightly busier answer when the model garbles an ID.
 
-## 39. Open decisions
+## 39. Weather layer: wind by default, one colour at a time
+
+**Decision:** The weather layer is on when the map opens and shows wind alone: streaks pointing where the wind blows, bigger and with more streaks when it's stronger. Gusts, humidity and temperature are a "Colour points by" choice, one at a time, off by default. Suggested by Claude; I agreed.
+
+**Considered:** colouring the arrows by gusts (the original plan); letting several variables colour the points at once; keeping the layer off by default with temperature as its view.
+
+Wind is the condition most tied to how fire behaves, and arrows read at a glance without a legend. One dark arrow colour stays readable over the basemap and over any fill, and two colours on one dot can't both be read. **Tradeoff:** gusts only show when picked, and a third layer on by default adds clutter next to the recorded observations and detections.
+
+## 40. Open decisions
 
 - Charting library for the agent's metrics (the timeline uses plain SVG, 19)

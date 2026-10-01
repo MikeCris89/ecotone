@@ -339,7 +339,7 @@ Hard requirements for whatever design is chosen:
 - Feels fast and responsive; the timeline scrubs smoothly
 - Freshness and data-quality states are visible, not buried
 - Evidence cited by the agent is visibly connected to the map/timeline
-- Introduced species can be distinguished in the wildlife layer (not labeled "invasive" without an authoritative source)
+- Introduced species can be distinguished in the wildlife layer (not labeled "invasive" without an authoritative source). **Not in the MVP (2026-09-30):** iNaturalist's introduced flag was never verified for California, so the README lists this as a known limitation instead
 - Works well on a laptop screen; mobile is a nice-to-have
 - Source attribution (NASA FIRMS, iNaturalist, Open-Meteo) is displayed
 
