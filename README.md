@@ -2,13 +2,11 @@
 
 A California wildfire and wildlife explorer: a map, an hourly timeline and a chat agent over three live data feeds, with every answer traceable to its source records.
 
-**Live demo:** https://ecotone-iota.vercel.app
-
 Ecotone puts satellite thermal detections (NASA FIRMS), recorded wildlife observations (iNaturalist) and modeled weather (Open-Meteo) for California on one map. Scrub the timeline to replay the last seven days hour by hour, or ask the chat a question in plain English. Every answer cites the records it used, and clicking a citation flies the map to that record.
 
-**Reviewers:** open the link with `?key=…` from the submission email. It only raises the chat's rate limit. There are no accounts.
+![Ecotone: map, timeline and chat with evidence markers](docs/images/ecotone.jpg)
 
----
+**Reviewers:** open the link with `?key=…` from the submission email. It only raises the chat's rate limit. There are no accounts.
 
 ## Contents
 
@@ -33,14 +31,14 @@ Ecotone puts satellite thermal detections (NASA FIRMS), recorded wildlife observ
 
 ## Challenge requirements
 
-| Requirement | Where |
-| ----------- | ----- |
-| Three or more real-time feeds around one question | NASA FIRMS, iNaturalist and Open-Meteo, polled on a schedule ([Data sources](#data-sources)) |
-| Backend for collecting, storing and querying | Scheduled ingestion into Postgres + PostGIS ([Architecture](#architecture)) |
-| Natural-language queries over real-time and historical data | The chat agent, over anything stored ([The agent](#the-agent)) |
-| Interactive timeline to replay change | Hourly scrubbing and playback ([Using the app](#using-the-app)) |
-| A technology new to me | PostGIS ([New technology](#new-technology-postgis)) |
-| Deployed at a shared URL | https://ecotone-iota.vercel.app |
+| Requirement                                                 | Where                                                                                        |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Three or more real-time feeds around one question           | NASA FIRMS, iNaturalist and Open-Meteo, polled on a schedule ([Data sources](#data-sources)) |
+| Backend for collecting, storing and querying                | Scheduled ingestion into Postgres + PostGIS ([Architecture](#architecture))                  |
+| Natural-language queries over real-time and historical data | The chat agent, over anything stored ([The agent](#the-agent))                               |
+| Interactive timeline to replay change                       | Hourly scrubbing and playback ([Using the app](#using-the-app))                              |
+| A technology new to me                                      | PostGIS ([New technology](#new-technology-postgis))                                          |
+| Deployed at a shared URL                                    | https://ecotone-iota.vercel.app                                                              |
 
 ---
 
@@ -50,17 +48,17 @@ Ecotone puts satellite thermal detections (NASA FIRMS), recorded wildlife observ
 
 I chose California because of how many wildfires happen there every year and how active iNaturalist is there. Wildlife agencies make decisions around fires in real time: where to send field crews, which areas to survey once a fire is out, and what was recorded in a place before it burned. Answering those means checking a satellite feed, a citizen-science app and a weather model separately. Here it's one question.
 
-I started from a different question: how does wildlife respond to fire? The data can't answer that reliably. Near a fire, people leave, so fewer iNaturalist observations could mean the animals left or the observers did. And FIRMS detects heat, not fire, so a detection isn't always a wildfire. I reframed the question around *recorded* observations, which the data can support. The app makes no claims about populations or the effect of fire on animals, and says so when asked.
+I started from a different question: how does wildlife respond to fire? The data can't answer that reliably. Near a fire, people leave, so fewer iNaturalist observations could mean the animals left or the observers did. And FIRMS detects heat, not fire, so a detection isn't always a wildfire. I reframed the question around _recorded_ observations, which the data can support. The app makes no claims about populations or the effect of fire on animals, and says so when asked.
 
 ---
 
 ## Data sources
 
-| Source | What it gives | Updated |
-| ------ | ------------- | ------- |
-| **NASA FIRMS** | Satellite thermal detections from three VIIRS satellites | Every 15 min; detections arrive a few hours after each pass |
-| **iNaturalist** | Recorded wildlife observations (animals only) | Every 5 min, including late uploads and re-identifications |
-| **Open-Meteo** | Modeled weather (NOAA HRRR) at 169 points across California | Hourly |
+| Source          | What it gives                                               | Updated                                                     |
+| --------------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
+| **NASA FIRMS**  | Satellite thermal detections from three VIIRS satellites    | Every 15 min; detections arrive a few hours after each pass |
+| **iNaturalist** | Recorded wildlife observations (animals only)               | Every 5 min, including late uploads and re-identifications  |
+| **Open-Meteo**  | Modeled weather (NOAA HRRR) at 169 points across California | Hourly                                                      |
 
 **Why these three.** Each adds something the others can't: FIRMS gives the event (where and when something was hot), iNaturalist the biological signal, and Open-Meteo continuous context everywhere, including wind, the condition most tied to how fire behaves. Considered and cut: GBIF (days of ingestion lag, so not real-time; I used it to check the idea had enough data), eBird (birds only), Movebank (no public tracks overlapping a recent California fire) and USGS earthquakes (doesn't serve the question).
 
@@ -78,7 +76,7 @@ I started from a different question: how does wildlife respond to fire? The data
 ### Questions to try
 
 - What wildlife was recorded near thermal activity this week?
-- Is the largest cluster a fire? *(as a follow-up; it won't answer yes or no)*
+- Is the largest cluster a fire? _(as a follow-up; it won't answer yes or no)_
 - What are conditions right now around here?
 - How fresh is the data right now?
 - Did the fires cause wildlife populations to decline?
@@ -157,7 +155,7 @@ The app treats "we don't know" as a state to show, never as zero.
 
 ## New technology: PostGIS
 
-I hadn't used PostGIS before. I picked it over other new-to-me options (React Native, Three.js, a RAG pipeline) because it solved a core problem instead of just being new: the question is about what happens *near* thermal activity, which is a spatial join across sources.
+I hadn't used PostGIS before. I picked it over other new-to-me options (React Native, Three.js, a RAG pipeline) because it solved a core problem instead of just being new: the question is about what happens _near_ thermal activity, which is a spatial join across sources.
 
 It handles distances in metres, proximity searches, clustering detections into fires, and keeping counts inside California's outline.
 
@@ -167,16 +165,16 @@ It handles distances in metres, proximity searches, clustering detections into f
 
 The full log, with the alternatives behind each, is in [docs/decisions.md](docs/decisions.md).
 
-| Decision | Alternatives considered | Why / tradeoff |
-| -------- | ----------------------- | -------------- |
-| Live California as the default, one bounded region | Global explorer; historical-first with a live button | Real-time is the core of the brief, and one region keeps every view populated. Tradeoff: no coverage elsewhere, and history is only what has been stored |
-| Store the data instead of proxying APIs | Query upstream on demand | Replay, cross-source spatial queries and reproducible answers. Tradeoff: ingestion code to maintain, storage cost, and data can trail upstream by a poll interval |
-| Typed tables per source, raw SQL, no ORM | Generic event/value table; Prisma | The sources mean different things, and PostGIS functions are first-class in SQL where an ORM would hide them. Tradeoff: each new source needs its own table and hand-written types |
-| Fixed tools, no text-to-SQL, no RAG | LLM-written SQL; vector search | Exact numeric and spatial questions, with guardrails in tested code. Tradeoff: only questions the tools cover |
-| Report coverage gaps instead of refusing | Refuse on any gap; ignore gaps | Live feeds always have a few unread hours, so refusing on any gap meant refusing constantly. Answers use only the hours read and say so. Tradeoff: the cut-off for "too little to answer" is a judgment call |
-| Load the whole window once, filter in the browser | Refetch per pan or per scrub | Scrubbing and window switches are instant. Tradeoff: only works while a window's data stays small |
-| Agent before the CZU case study | CZU first with a thinner agent | The agent was a requirement; CZU was mine. Tradeoff: "historical" means since Sep 22, 2026, not 2020 |
-| Rate limits in Postgres | In-memory; Redis; Vercel firewall | In-memory counters don't survive serverless, Redis is new infrastructure, and one table handles everything. Tradeoff: a database write per question |
+| Decision                                           | Alternatives considered                              | Why / tradeoff                                                                                                                                                                                               |
+| -------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Live California as the default, one bounded region | Global explorer; historical-first with a live button | Real-time is the core of the brief, and one region keeps every view populated. Tradeoff: no coverage elsewhere, and history is only what has been stored                                                     |
+| Store the data instead of proxying APIs            | Query upstream on demand                             | Replay, cross-source spatial queries and reproducible answers. Tradeoff: ingestion code to maintain, storage cost, and data can trail upstream by a poll interval                                            |
+| Typed tables per source, raw SQL, no ORM           | Generic event/value table; Prisma                    | The sources mean different things, and PostGIS functions are first-class in SQL where an ORM would hide them. Tradeoff: each new source needs its own table and hand-written types                           |
+| Fixed tools, no text-to-SQL, no RAG                | LLM-written SQL; vector search                       | Exact numeric and spatial questions, with guardrails in tested code. Tradeoff: only questions the tools cover                                                                                                |
+| Report coverage gaps instead of refusing           | Refuse on any gap; ignore gaps                       | Live feeds always have a few unread hours, so refusing on any gap meant refusing constantly. Answers use only the hours read and say so. Tradeoff: the cut-off for "too little to answer" is a judgment call |
+| Load the whole window once, filter in the browser  | Refetch per pan or per scrub                         | Scrubbing and window switches are instant. Tradeoff: only works while a window's data stays small                                                                                                            |
+| Agent before the CZU case study                    | CZU first with a thinner agent                       | The agent was a requirement; CZU was mine. Tradeoff: "historical" means since Sep 22, 2026, not 2020                                                                                                         |
+| Rate limits in Postgres                            | In-memory; Redis; Vercel firewall                    | In-memory counters don't survive serverless, Redis is new infrastructure, and one table handles everything. Tradeoff: a database write per question                                                          |
 
 ---
 
