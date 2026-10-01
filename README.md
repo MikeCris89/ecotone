@@ -2,6 +2,8 @@
 
 A California wildfire and wildlife explorer: a map, an hourly timeline and a chat agent over three live data feeds, with every answer traceable to its source records.
 
+**Live demo:** https://ecotone-iota.vercel.app
+
 Ecotone puts satellite thermal detections (NASA FIRMS), recorded wildlife observations (iNaturalist) and modeled weather (Open-Meteo) for California on one map. Scrub the timeline to replay the last seven days hour by hour, or ask the chat a question in plain English. Every answer cites the records it used, and clicking a citation flies the map to that record.
 
 ![Ecotone: map, timeline and chat with evidence markers](docs/images/ecotone.jpg)
