@@ -57,6 +57,8 @@ Run tests with `pnpm test` (Vitest). Database tests need the local Supabase stac
 
 A full `pnpm test` is slow now that files run serially, so agents don't run it: run the test files a change touches, then ask Mike to run the full `pnpm test` (with the exact command) and wait for his result before handing off a phase. Report which targeted files passed and that the full run is his.
 
+Agent evals run with `pnpm eval` (`evals/`, `vitest.eval.mts`), separate from `pnpm test`: they send questions to the deployed chat, which calls the real model (about $1 a run, in the reviewer bucket). Agents don't run them; ask Mike.
+
 Typecheck with `pnpm exec tsc --noEmit`. In a fresh workspace, run `pnpm exec next typegen` first: route types such as `LayoutProps` and `RouteContext` are generated into `.next/`, and `tsc` fails without them.
 
 Nothing polls the local stack (Vercel Cron only runs in production), so local data stops at the last local backfill while production keeps growing. Compare route output and SQL against the same database.
