@@ -113,7 +113,7 @@ describe("contextPrompt", () => {
 			retentionDays: 7,
 		};
 		const prompt = contextPrompt(resolveContext(context(), dataset, NOW));
-		expect(prompt).toContain('All of California: {"west":-124.5,"south":32.5,"east":-114.1,"north":42}');
+		expect(prompt).toContain('All of California (a rectangle around the state; the tools only count records inside the state, coastal waters included): {"west":-124.5,"south":32.5,"east":-114.1,"north":42}');
 		expect(prompt).not.toContain("live-california");
 	});
 });

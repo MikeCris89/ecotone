@@ -2,7 +2,7 @@ import { localDate } from "@/lib/dates";
 import { sql } from "@/lib/db";
 import { DEFAULT_QUALITY_GRADES } from "@/lib/default-filters";
 import { type InatObservationRow, QUALITY_GRADES } from "@/lib/inaturalist/normalize";
-import { inBbox, type MapLayer, type MapQuery } from "@/lib/map-query";
+import { inBbox, inCalifornia, type MapLayer, type MapQuery } from "@/lib/map-query";
 
 // Rows are ~75 bytes of JSON, so a full layer stays under Vercel's 4.5 MB response limit.
 export const INAT_MAP_CAP = 50_000;
@@ -63,6 +63,7 @@ export async function getInatMapLayer(
 			from inat_observations
 			where quality_grade in ${sql(DEFAULT_QUALITY_GRADES)}
 				and ${inBbox("location", bbox)}
+				and ${inCalifornia("location")}
 				-- Lets the observed_on index narrow the scan. The day of margin covers observed_on being
 				-- the observer's local date, which needn't be the dataset's.
 				and observed_on between ${localDate(start, timezone)}::date - 1 and ${localDate(end, timezone)}::date + 1

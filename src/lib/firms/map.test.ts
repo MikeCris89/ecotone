@@ -7,9 +7,10 @@ import type { FirmsDetectionRow } from "@/lib/firms/normalize";
 import { upsertDetections } from "@/lib/firms/store";
 import { startRun } from "@/lib/ingestion-runs";
 
-// Real IDs start with a satellite name, and these are in the Pacific in 2002: the test never
-// touches ingested data.
-const BBOX = { west: -130.5, south: 29.5, east: -129.5, north: 30.5 };
+// Real IDs start with a satellite name, and these are dated 2002: the test never touches ingested
+// data. They sit inside California's outline, which the layer counts within.
+// Reaches into Nevada, whose line runs at ~-116.0 here, like the Live bbox does.
+const BBOX = { west: -118.5, south: 35.5, east: -115.5, north: 36.5 };
 
 function row(id: string, overrides: Partial<FirmsDetectionRow>): FirmsDetectionRow {
 	return {
@@ -20,8 +21,8 @@ function row(id: string, overrides: Partial<FirmsDetectionRow>): FirmsDetectionR
 		acquired_at: "2002-06-10T10:00:00.000Z",
 		daynight: "night",
 		retrieved_at: "2002-06-10T15:00:00.000Z",
-		longitude: -130.1234567,
-		latitude: 30.1234567,
+		longitude: -118.1234567,
+		latitude: 36.1234567,
 		scan_km: 0.41,
 		track_km: 0.37,
 		confidence: "nominal",
@@ -29,7 +30,7 @@ function row(id: string, overrides: Partial<FirmsDetectionRow>): FirmsDetectionR
 		bright_ti4_k: 302.48,
 		bright_ti5_k: 284.93,
 		fire_type: null,
-		source_url: "https://firms.modaps.eosdis.nasa.gov/map/#d:2002-06-10;@-130.1,30.1,14z",
+		source_url: "https://firms.modaps.eosdis.nasa.gov/map/#d:2002-06-10;@-118.1,36.1,14z",
 		...overrides,
 	};
 }
@@ -38,7 +39,9 @@ const rows = [
 	row("early", {}),
 	row("late", { acquired_at: "2002-06-10T21:00:00.000Z", confidence: "high", frp_mw: 12.5 }),
 	row("low", { confidence: "low" }),
-	row("outside", { longitude: -131 }),
+	row("outside", { longitude: -119 }),
+	// In the bbox, but in Nevada: never counted.
+	row("nevada", { longitude: -115.8 }),
 	// Exactly at the window's end, which is exclusive.
 	row("end", { acquired_at: "2002-06-11T00:00:00.000Z" }),
 ];
@@ -80,8 +83,8 @@ describe("getFirmsMapLayer", () => {
 			total: 2,
 			truncated: false,
 			rows: [
-				["test:map:late", -130.12346, 30.12346, Date.parse("2002-06-10T21:00:00Z") / 1000, 12.5],
-				["test:map:early", -130.12346, 30.12346, Date.parse("2002-06-10T10:00:00Z") / 1000, 0.67],
+				["test:map:late", -118.12346, 36.12346, Date.parse("2002-06-10T21:00:00Z") / 1000, 12.5],
+				["test:map:early", -118.12346, 36.12346, Date.parse("2002-06-10T10:00:00Z") / 1000, 0.67],
 			],
 		});
 	});
@@ -113,7 +116,7 @@ describe("getFirmsMapDetails", () => {
 			brightTi5K: 284.93,
 			// Unclassified, not "vegetation fire".
 			fireType: null,
-			sourceUrl: "https://firms.modaps.eosdis.nasa.gov/map/#d:2002-06-10;@-130.1,30.1,14z",
+			sourceUrl: "https://firms.modaps.eosdis.nasa.gov/map/#d:2002-06-10;@-118.1,36.1,14z",
 		});
 	});
 

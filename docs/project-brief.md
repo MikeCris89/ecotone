@@ -65,7 +65,7 @@ The app has two modes that run on **the same system**: same source adapters, sam
 
 The app opens here. This mode is what satisfies the "real-time feeds" requirement, so it must feel first-class, not bolted on.
 
-- **Region:** California (approximate bounding box: lat 32.5 to 42.0, lon -124.5 to -114.1; refine as needed)
+- **Region:** California. Data is read over a bounding box (lat 32.5 to 42.0, lon -124.5 to -114.1); the map and the agent only count records inside the state outline, state waters included
 - **Time window:** a fixed retention window (e.g. 7 days) with selectable sub-ranges (24h / 3 days / 7 days). The window is **seeded from upstream recent history** at setup, then kept current by scheduled polling. Seeded records keep their original observation times
 - **Bounded loading:** the browser loads the Live window (California, 7 days) once per layer, capped per layer, and narrows it locally. The API routes accept a viewport bbox and time window, for when the data outgrows one load (see decisions.md, 18)
 - **Shows:** recent FIRMS thermal detections, recent iNaturalist wildlife observations, current and recent weather context

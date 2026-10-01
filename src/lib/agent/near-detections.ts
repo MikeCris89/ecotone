@@ -4,6 +4,7 @@
 import { z } from "zod";
 import {
 	areaSchema,
+	californiaExtent,
 	type Coverage,
 	getCoverage,
 	hasUploadLag,
@@ -11,6 +12,7 @@ import {
 	isComplete,
 	labelGroups,
 	LIMITATIONS,
+	OUTSIDE_CALIFORNIA,
 	rangeSchema,
 	resolveRange,
 	type ToolResult,
@@ -25,7 +27,7 @@ import {
 import { inatEvidence } from "@/lib/agent/observations";
 import { sql } from "@/lib/db";
 import { DEFAULT_FIRMS_CONFIDENCE, DEFAULT_QUALITY_GRADES, PRECISE_ACCURACY_M } from "@/lib/default-filters";
-import { inBbox } from "@/lib/map-query";
+import { inBbox, inCalifornia } from "@/lib/map-query";
 import { CALIFORNIA_TIME_ZONE } from "@/lib/timeline";
 
 const HOUR_MS = 60 * 60_000;
@@ -118,9 +120,10 @@ export async function observationsNearDetections(
 		end: new Date(Math.min(window.end.getTime() + within, now.getTime())),
 	};
 
-	const [firms, inat] = await Promise.all([
+	const [firms, inat, extent] = await Promise.all([
 		getCoverage(["firms"], area, window, now),
 		getCoverage(["inaturalist"], area, observationWindow, now),
+		californiaExtent(area),
 	]);
 	const sources = [...firms, ...inat];
 	const coverage: Coverage = {
@@ -133,7 +136,7 @@ export async function observationsNearDetections(
 			{ ...inat[0], statement: `Recorded observations, ${withinHours} h either side: ${inat[0].statement}` },
 		],
 	};
-	const insufficient = insufficientCoverage(sources);
+	const insufficient = extent === "outside" ? { reason: OUTSIDE_CALIFORNIA } : insufficientCoverage(sources);
 	if (insufficient) return { result: null, evidence: [], coverage, limitations: [], insufficient };
 
 	const radiusM = radiusKm * 1000;
@@ -158,9 +161,10 @@ export async function observationsNearDetections(
 			join inat_observations o
 				on extensions.st_dwithin(o.location, d.location, ${radiusM})
 			-- Only inside the area, where iNaturalist's coverage was checked: past its edge, "none
-			-- nearby" could just mean "never read".
+			-- nearby" could just mean "never read". And only inside California, like the detections.
 			where o.quality_grade in ${sql(DEFAULT_QUALITY_GRADES)}
 				and ${inBbox("o.location", area)}
+				and ${inCalifornia("o.location")}
 				and o.observed_on between (d.acquired_at - ${interval}::interval)::date - 1
 					and (d.acquired_at + ${interval}::interval)::date + 1
 				and coalesce(o.observed_at, o.observed_on::timestamp at time zone ${CALIFORNIA_TIME_ZONE})
@@ -320,6 +324,7 @@ export async function observationsNearDetections(
 		evidence,
 		coverage,
 		limitations: [
+			...(extent === "crossing" ? [LIMITATIONS.beyondCalifornia] : []),
 			`Counts recorded observations inside the area within ${radiusKm} km of a detection's pixel centre, observed up to ` +
 				`${withinHours} h before or after it. Only precisely located, timed records count (known accuracy within 1 km, ` +
 				"not obscured); the others are counted as excluded. A detection near the area's edge may have observations " +

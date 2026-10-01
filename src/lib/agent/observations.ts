@@ -7,6 +7,7 @@ import {
 	animalGroupLabel,
 	labelGroups,
 	areaSchema,
+	californiaExtent,
 	type Coverage,
 	DEFAULT_FILTERS,
 	EVIDENCE_LIMIT,
@@ -17,6 +18,7 @@ import {
 	insufficientCoverage,
 	isComplete,
 	LIMITATIONS,
+	OUTSIDE_CALIFORNIA,
 	rangeSchema,
 	resolveRange,
 	type SourceCoverage,
@@ -28,7 +30,7 @@ import type { Span } from "@/lib/freshness";
 import { localDate, nextDate, startOfLocalDate } from "@/lib/dates";
 import { sql } from "@/lib/db";
 import { DEFAULT_QUALITY_GRADES, PRECISE_ACCURACY_M } from "@/lib/default-filters";
-import { inBbox } from "@/lib/map-query";
+import { inBbox, inCalifornia } from "@/lib/map-query";
 import { CALIFORNIA_TIME_ZONE } from "@/lib/timeline";
 
 const HOUR_MS = 60 * 60_000;
@@ -65,6 +67,7 @@ function observationsIn(area: Bbox, { start, end, read }: Window, { animalGroup,
 			from inat_observations
 			where quality_grade in ${sql(DEFAULT_QUALITY_GRADES)}
 				and ${inBbox("location", area)}
+				and ${inCalifornia("location")}
 				-- See getInatMapLayer: lets the observed_on index narrow the scan.
 				and observed_on between ${localDate(start, CALIFORNIA_TIME_ZONE)}::date - 1
 					and ${localDate(end, CALIFORNIA_TIME_ZONE)}::date + 1
@@ -240,9 +243,12 @@ export async function summarizeObservations(
 	const window = resolveRange(range, now);
 	if (!window) return rangeInFuture(area, range, filter);
 
-	const sources = await getCoverage(["inaturalist"], area, window, now);
+	const [sources, extent] = await Promise.all([
+		getCoverage(["inaturalist"], area, window, now),
+		californiaExtent(area),
+	]);
 	const coverage = coverageOf(area, window, filter, sources);
-	const insufficient = insufficientCoverage(sources);
+	const insufficient = extent === "outside" ? { reason: OUTSIDE_CALIFORNIA } : insufficientCoverage(sources);
 	if (insufficient) return { result: null, evidence: [], coverage, limitations: [], insufficient };
 
 	const [inat] = sources;
@@ -286,6 +292,7 @@ export async function summarizeObservations(
 		evidence,
 		coverage,
 		limitations: [
+			...(extent === "crossing" ? [LIMITATIONS.beyondCalifornia] : []),
 			LIMITATIONS.defaultFilters,
 			LIMITATIONS.effort,
 			...(hasUploadLag(inat) ? [LIMITATIONS.uploadLag] : []),
@@ -375,9 +382,10 @@ export async function comparePeriods(
 	const whole = { start: before.start, end: after.end };
 	if (!beforeWindow || !afterWindow) return rangeInFuture(area, whole, filter);
 
-	const [beforeCoverage, afterCoverage] = await Promise.all([
+	const [beforeCoverage, afterCoverage, extent] = await Promise.all([
 		getCoverage(["inaturalist"], area, beforeWindow, now),
 		getCoverage(["inaturalist"], area, afterWindow, now),
+		californiaExtent(area),
 	]);
 	const coverage: Coverage = {
 		...coverageOf(area, { start: beforeWindow.start, end: afterWindow.end }, filter, []),
@@ -387,7 +395,8 @@ export async function comparePeriods(
 			{ ...afterCoverage[0], statement: `After: ${afterCoverage[0].statement}` },
 		],
 	};
-	const insufficient = insufficientCoverage([...beforeCoverage, ...afterCoverage]);
+	const insufficient =
+		extent === "outside" ? { reason: OUTSIDE_CALIFORNIA } : insufficientCoverage([...beforeCoverage, ...afterCoverage]);
 	if (insufficient) return { result: null, evidence: [], coverage, limitations: [], insufficient };
 	const difference = Math.abs(beforeCoverage[0].readFraction - afterCoverage[0].readFraction);
 	if (difference > MAX_READ_FRACTION_DIFFERENCE) {
@@ -471,6 +480,7 @@ export async function comparePeriods(
 		evidence: [...beforeEvidence, ...afterEvidence],
 		coverage,
 		limitations: [
+			...(extent === "crossing" ? [LIMITATIONS.beyondCalifornia] : []),
 			LIMITATIONS.defaultFilters,
 			LIMITATIONS.effort,
 			"Changes compare per-day rates over each period's read hours. They're descriptive: no significance test was run, " +
