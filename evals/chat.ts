@@ -108,15 +108,34 @@ export async function ask(text: string, context: ChatContext, history: UIMessage
 export const outputsOf = (reply: Reply, name: string) =>
 	reply.tools.flatMap((tool) => (tool.name === name && tool.output ? [tool.output] : []));
 
-// A negation in the sentence: "I can't make population claims" uses a banned word to refuse it.
+// The terminology rules (AGENTS.md, the system prompt).
+export const BANNED_TERMS =
+	/\b(population|abundance|wildlife presence|sightings?|fire (spread|boundary|boundaries|perimeter)|spread of the fire|burned area)\b/i;
+// Claims that the fires did something to animals, or nothing: "animals did not flee" is a claim too.
+export const CAUSAL_TERMS = /\b(caused|drove|driven|displaced|flee|flees|fleeing|fled|killed|forced)\b/i;
+
+// Any negation in the sentence.
 const NEGATION = /\b(not|no|never|cannot|can't|unable|without|neither|nor)\b|n't\b|n’t\b/i;
+// A refusal about what the agent or the records can show: "I can't make population claims", "these
+// records don't show displacement". "Establish" too, as in the system prompt's example refusal.
+const REFUSAL =
+	/\b(can't|can’t|cannot|can not|unable to)\s+(\w+\s+){0,2}?(tell|say|determine|infer|make|establish)\b|\b(these|the) (records|data|recorded observations|observations) (don't|don’t|do not|doesn't|doesn’t|does not|can't|can’t|cannot) (show|support|establish)\b/i;
+
+const sentences = (text: string) => text.split(/(?<=[.!?])\s+|\n+/);
 
 /**
- * The answer's sentences that match a pattern and aren't negated. A rough line between stating
- * something and refusing it, strict enough to catch a plain claim.
+ * The answer's sentences that match a pattern and aren't negated. For claims a negation undoes:
+ * "my earlier answer wasn't wrong" retracts nothing.
  */
 export function affirmed(text: string, pattern: RegExp): string[] {
-	return text
-		.split(/(?<=[.!?])\s+|\n+/)
-		.filter((sentence) => pattern.test(sentence) && !NEGATION.test(sentence));
+	return sentences(text).filter((sentence) => pattern.test(sentence) && !NEGATION.test(sentence));
+}
+
+/**
+ * The answer's sentences that match a pattern without refusing what it names. For banned and
+ * causal terms, where a bare negation still makes the claim: "the deer population did not
+ * recover" is a population claim.
+ */
+export function unrefused(text: string, pattern: RegExp): string[] {
+	return sentences(text).filter((sentence) => pattern.test(sentence) && !REFUSAL.test(sentence));
 }

@@ -8,12 +8,18 @@ import type { Conditions } from "@/lib/agent/conditions";
 import { LIMITATIONS } from "@/lib/agent/contract";
 import type { NearDetections } from "@/lib/agent/near-detections";
 import type { ChatContext } from "@/lib/chat/context";
-import { affirmed, ask, contextFor, MAX_STEPS, outputsOf, type Reply, VIEWS } from "./chat";
-
-// The terminology rules (AGENTS.md, the system prompt). A negated sentence passes: "I can't make
-// population claims" is the right answer to a population question.
-const BANNED_TERMS =
-	/\b(population|abundance|wildlife presence|sightings?|fire (spread|boundary|boundaries|perimeter)|spread of the fire|burned area)\b/i;
+import {
+	affirmed,
+	ask,
+	BANNED_TERMS,
+	CAUSAL_TERMS,
+	contextFor,
+	MAX_STEPS,
+	outputsOf,
+	type Reply,
+	unrefused,
+	VIEWS,
+} from "./chat";
 
 type Row = { question: string; steps: number; tools: string; noAnswer: boolean; unmatched: number; notes: string[] };
 const rows: Row[] = [];
@@ -39,7 +45,7 @@ async function asked(text: string, context: ChatContext, history: Reply | null =
 	});
 
 	expect.soft(reply.text, "The reply ended without an answer").not.toBe("");
-	expect.soft(affirmed(reply.text, BANNED_TERMS), shown(reply)).toEqual([]);
+	expect.soft(unrefused(reply.text, BANNED_TERMS), shown(reply)).toEqual([]);
 	return { ...reply, notes };
 }
 
@@ -128,7 +134,7 @@ describe("agent evals", () => {
 	test("7. population and causation question is refused", async () => {
 		const reply = await asked("Did the fires this week reduce the deer population?", contextFor(VIEWS.statewide));
 		expect
-			.soft(affirmed(reply.text, /\b(caused|drove|driven|displaced|fled|killed|forced)\b/i), shown(reply))
+			.soft(unrefused(reply.text, CAUSAL_TERMS), shown(reply))
 			.toEqual([]);
 	});
 
