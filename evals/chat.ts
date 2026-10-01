@@ -43,7 +43,7 @@ export const contextFor = (view: ChatContext["view"], window: ChatContext["windo
 type ParsedChunk =
 	ReturnType<typeof parseJsonEventStream<UIMessageChunk>> extends ReadableStream<infer T> ? T : never;
 
-export type ToolCall ={ name: string; output: ToolResult<unknown> | null; failed: boolean };
+export type ToolCall = { name: string; output: ToolResult<unknown> | null; failed: boolean };
 
 export type Reply = {
 	question: UIMessage;
@@ -54,6 +54,9 @@ export type Reply = {
 	steps: number;
 	// Distinct citations no tool in the turn returned, counted as the route logs them.
 	unmatched: number;
+	// Why the last step stopped: "stop" when it answered, "tool-calls" when it ended on tool calls,
+	// "length" when the output token cap cut it off. Null if the stream never said.
+	finishReason: string | null;
 };
 
 /**
@@ -75,11 +78,14 @@ export async function ask(text: string, context: ChatContext, history: UIMessage
 	});
 	if (!response.ok || !response.body) throw new Error(`Chat answered ${response.status}: ${await response.text()}`);
 
-	// As the SDK's chat transport reads it: server-sent events, each a UI message chunk.
+	// As the SDK's chat transport reads it: server-sent events, each a UI message chunk. The
+	// finish reason is read on the way, since the assembled message doesn't keep it.
+	let finishReason: string | null = null;
 	const chunks = parseJsonEventStream({ stream: response.body, schema: uiMessageChunkSchema }).pipeThrough(
 		new TransformStream<ParsedChunk, UIMessageChunk>({
 			transform(chunk, controller) {
 				if (!chunk.success) throw chunk.error;
+				if (chunk.value.type === "finish") finishReason = chunk.value.finishReason ?? null;
 				controller.enqueue(chunk.value);
 			},
 		}),
@@ -101,6 +107,7 @@ export async function ask(text: string, context: ChatContext, history: UIMessage
 		tools,
 		steps: message.parts.filter((part) => part.type === "step-start").length,
 		unmatched: citeAnswer(texts, turnEvidence(message)).unmatched,
+		finishReason,
 	};
 }
 

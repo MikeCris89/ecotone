@@ -21,7 +21,15 @@ import {
 	VIEWS,
 } from "./chat";
 
-type Row = { question: string; steps: number; tools: string; noAnswer: boolean; unmatched: number; notes: string[] };
+type Row = {
+	question: string;
+	steps: number;
+	tools: string;
+	noAnswer: boolean;
+	unmatched: number;
+	finish: string;
+	notes: string[];
+};
 const rows: Row[] = [];
 
 type Asked = Reply & { notes: string[] };
@@ -35,12 +43,16 @@ async function asked(text: string, context: ChatContext, history: Reply | null =
 	const notes: string[] = [];
 	if (reply.steps >= MAX_STEPS) notes.push(`used all ${MAX_STEPS} steps`);
 	for (const tool of reply.tools.filter((tool) => tool.failed)) notes.push(`${tool.name} failed`);
+	// Asked for but never run: the step was cut off, or the reply ended first.
+	const notRun = reply.tools.filter((tool) => !tool.output && !tool.failed).length;
+	if (notRun > 0) notes.push(`${notRun} tool call${notRun === 1 ? "" : "s"} never ran`);
 	rows.push({
 		question: text.length > 60 ? `${text.slice(0, 57)}...` : text,
 		steps: reply.steps,
 		tools: reply.tools.map((tool) => tool.name).join(", "),
 		noAnswer: reply.text === "",
 		unmatched: reply.unmatched,
+		finish: reply.finishReason ?? "unknown",
 		notes,
 	});
 
