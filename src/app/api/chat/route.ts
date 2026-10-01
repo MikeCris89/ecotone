@@ -27,7 +27,9 @@ const CHAT_MODEL = "claude-sonnet-5-5";
 const MAX_STEPS = 8;
 const LAST_STEP_INSTRUCTION =
 	"You have used all your tool calls for this question. Don't call any more tools: answer now from the results above, and say what you couldn't check.";
-const MAX_OUTPUT_TOKENS = 2000;
+// Per step. The model can ask for many tools in one step: at 2,000, a step with ~10 tool calls was
+// cut off mid-call, nothing ran, and the reply ended with no answer (Phase 11 evals, question 12).
+const MAX_OUTPUT_TOKENS = 4000;
 
 const requestSchema = z.looseObject({
 	messages: z.array(chatMessageSchema).min(1).max(200),
