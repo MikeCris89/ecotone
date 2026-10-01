@@ -196,7 +196,9 @@ describe("agent evals", () => {
 				"20 km box around it between the first and second half of the week.",
 			contextFor(VIEWS.statewide),
 		);
-		// This one is meant to reach the limit: that's when the last-step instruction is tested.
+		// This one is meant to reach the limit: that's when the last-step instruction is tested. Known to fail
+		// for now: the model asks for every tool in step 2, and they outlast the route's 120 s maxDuration
+		// before it can answer (roadmap, Phase 11).
 		if (reply.steps < MAX_STEPS) reply.notes.push("step limit not reached: the last-step instruction wasn't tested");
 	});
 });
