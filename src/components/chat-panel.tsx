@@ -4,6 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, getToolOrDynamicToolName, isToolUIPart, type UIMessage } from "ai";
 import { type FormEvent, Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
+import { CollapseButton, isMobile, type PanelOpen } from "@/components/collapse-button";
 import { formatDate } from "@/components/map-popup";
 import type { Evidence } from "@/lib/agent/contract";
 import type { Bucket, ChatMetadata } from "@/lib/chat/access";
@@ -308,12 +309,19 @@ type ChatPanelProps = {
 	onHighlight: (evidence: NumberedEvidence[]) => void;
 	// A chip or evidence list item was picked: the map flies to the record and opens it.
 	onFocus: (entry: NumberedEvidence) => void;
+	// Collapsed, only the header and the input show on desktop, and only the input on phones, where
+	// focusing it opens the chat. Asking a question opens it too.
+	open: PanelOpen;
+	onOpenChange: (open: boolean) => void;
 };
 
 const NO_EVIDENCE: NumberedEvidence[] = [];
 
 // Memoized: the map re-renders on every pointer move over it.
-export const ChatPanel = memo(function ChatPanel({ context, suggestions, onHighlight, onFocus }: ChatPanelProps) {
+export const ChatPanel = memo(function ChatPanel(props: ChatPanelProps) {
+	const { context, suggestions, onHighlight, onFocus, open, onOpenChange } = props;
+	// Not yet toggled (null) is open on desktop and closed on phones (PanelOpen).
+	const hiddenOnPhones = open === true ? "" : "max-md:hidden";
 	const queryClient = useQueryClient();
 	const access = useQuery({ queryKey: ACCESS_KEY, queryFn: fetchAccess, staleTime: Infinity });
 	// Each request uses up a question, so the count is fetched again once it's done.
@@ -361,6 +369,7 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions, onHighl
 			{ body: { context: asked }, headers: reviewerHeaders() },
 		);
 		setInput("");
+		onOpenChange(true);
 	};
 	const onSubmit = (event: FormEvent) => {
 		event.preventDefault();
@@ -370,9 +379,11 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions, onHighl
 	return (
 		<section
 			aria-label="Chat"
-			className="pointer-events-auto flex min-h-0 w-96 flex-col rounded-lg bg-white/95 text-sm text-zinc-900 shadow-md"
+			className={`pointer-events-auto flex min-h-0 w-full flex-col rounded-lg bg-white/95 text-sm text-zinc-900 shadow-md md:w-96 ${open === true ? "max-md:flex-1" : ""}`}
 		>
-			<header className="flex flex-wrap items-center justify-between gap-2 px-3 pt-3">
+			<header
+				className={`flex flex-wrap items-center justify-between gap-2 px-3 pt-3 ${open === false ? "pb-3" : ""} ${hiddenOnPhones}`}
+			>
 				<div className="flex items-center gap-2">
 					<h2 className="font-semibold">Ask about the data</h2>
 					{/* Clears the conversation and brings the suggestions back; not mid-reply. */}
@@ -399,10 +410,15 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions, onHighl
 				<div className="flex items-center gap-2 text-xs">
 					{remaining && <span className="text-zinc-500">{remaining}</span>}
 					{bucket === "reviewer" && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600">Reviewer access</span>}
+					<CollapseButton open={open} onChange={onOpenChange} label="conversation" />
 				</div>
 			</header>
 
-			<div ref={scrollRef} className="min-h-0 space-y-3 overflow-y-auto p-3">
+			{/* Hidden rather than unmounted, so its scroll position and the streaming reply carry on. */}
+			<div
+				ref={scrollRef}
+				className={`min-h-0 space-y-3 overflow-y-auto p-3 max-md:flex-1 ${open === false ? "hidden" : hiddenOnPhones}`}
+			>
 				{messages.length === 0 && (
 					<div className="space-y-2">
 						<p className="text-zinc-600">
@@ -447,11 +463,18 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions, onHighl
 				{failure && <p className="rounded-md bg-red-50 px-3 py-2 text-red-800">{failure.message}</p>}
 			</div>
 
-			<form onSubmit={onSubmit} className="shrink-0 space-y-1 border-t border-zinc-200 p-3">
+			<form
+				onSubmit={onSubmit}
+				className={`shrink-0 space-y-1 border-t border-zinc-200 p-3 ${open === true ? "" : "max-md:border-t-0"}`}
+			>
 				<div className="flex items-end gap-2">
 					<textarea
 						value={input}
 						onChange={(event) => setInput(event.target.value)}
+						// On phones the closed chat is this input alone; typing opens the conversation above it.
+						onFocus={() => {
+							if (open !== true && isMobile()) onOpenChange(true);
+						}}
 						onKeyDown={(event) => {
 							if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
 							event.preventDefault();
@@ -462,7 +485,8 @@ export const ChatPanel = memo(function ChatPanel({ context, suggestions, onHighl
 						rows={2}
 						placeholder="Ask about recorded observations, thermal detections or conditions"
 						aria-label="Question"
-						className="min-w-0 flex-1 resize-none rounded-md border border-zinc-200 px-2 py-1 disabled:bg-zinc-50"
+						// 16 px on phones: iOS Safari zooms the page into a focused field with smaller text.
+						className="min-w-0 flex-1 resize-none rounded-md border border-zinc-200 px-2 py-1 disabled:bg-zinc-50 max-md:text-base"
 					/>
 					<button
 						type="submit"

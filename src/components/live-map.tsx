@@ -13,6 +13,7 @@ import Map, {
 	Source,
 } from "react-map-gl/maplibre";
 import { ChatPanel } from "@/components/chat-panel";
+import { isMobile, type PanelOpen } from "@/components/collapse-button";
 import { type LayerSummary, type LayerVisibility, MapPanel, type WeatherView } from "@/components/map-panel";
 import {
 	EvidencePopupContent,
@@ -32,6 +33,7 @@ import { addWindIcons, WIND_FILTER, WIND_LAYOUT } from "@/components/wind-icons"
 import type { ChatContext } from "@/lib/chat/context";
 import { evidenceGeoJson, loadedData, type NumberedEvidence, suggestedQuestions } from "@/lib/chat/ui";
 import { layerCoverage } from "@/lib/coverage";
+import type { SourceAttribution } from "@/lib/data-sources";
 import type { FirmsMapRow } from "@/lib/firms/map";
 import type { Freshness } from "@/lib/freshness";
 import type { InatMapRow } from "@/lib/inaturalist/map";
@@ -231,12 +233,28 @@ function summarize<Row>(
 	};
 }
 
+const HTML_ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
+const escapeHtml = (text: string) => text.replace(/[&<>"]/g, (char) => HTML_ESCAPES[char]);
+const htmlLink = (href: string, text: string) =>
+	`<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${escapeHtml(text)}</a>`;
+
+// A source's credit in the map's attribution, which stays visible when the panel (with the full
+// attribution texts) is collapsed. MapLibre renders it as HTML.
+function sourceCredit({ name, homepageUrl, license, licenseUrl }: SourceAttribution) {
+	if (!license) return htmlLink(homepageUrl, name);
+	return `${htmlLink(homepageUrl, name)} (${licenseUrl ? htmlLink(licenseUrl, license) : escapeHtml(license)})`;
+}
+
 export function LiveMap() {
 	const [mapWindow, setMapWindow] = useState<MapWindow>("7d");
 	const [visible, setVisible] = useState<LayerVisibility>({ inaturalist: true, firms: true, weather: true });
 	// Wind on its own by default: colouring the points too would compete with the other layers.
 	const [weatherView, setWeatherView] = useState<WeatherView>({ wind: true, color: null });
 	const [selection, setSelection] = useState<MapSelection | null>(null);
+	// Both panels open on desktop and closed on phones until toggled. On a phone only one shows at a
+	// time: the open chat replaces the data panel, and closed, it's an input bar.
+	const [dataOpen, setDataOpen] = useState<PanelOpen>(null);
+	const [chatOpen, setChatOpen] = useState<PanelOpen>(null);
 	// The newest answer's evidence, and the record whose popup is open. That popup is anchored at the
 	// record's own coordinates, so unlike the layers' it stays open whatever the timeline shows.
 	const [highlight, setHighlight] = useState<NumberedEvidence[]>([]);
@@ -400,6 +418,12 @@ export function LiveMap() {
 	const focusEvidence = useCallback((entry: NumberedEvidence) => {
 		setFocused(entry);
 		setSelection(null);
+		// On a phone the open chat covers the map, so it closes to its input bar to show the record, and
+		// the data panel collapses to its header.
+		if (isMobile()) {
+			setChatOpen(false);
+			setDataOpen(false);
+		}
 		const map = mapRef.current;
 		map?.flyTo({
 			center: [entry.record.longitude, entry.record.latitude],
@@ -413,11 +437,20 @@ export function LiveMap() {
 		[mapWindow, inaturalist.data, firms.data, weather.data],
 	);
 
+	const credits = useMemo(
+		() =>
+			[firms.data?.attribution, inaturalist.data?.attribution, weather.data?.attribution]
+				.filter((attribution) => attribution !== undefined)
+				.map(sourceCredit),
+		[firms.data?.attribution, inaturalist.data?.attribution, weather.data?.attribution],
+	);
+
 	const visibility = (layer: keyof LayerVisibility) => (visible[layer] ? "visible" : "none");
 	const weatherOpacity = weatherHour === null ? 1 : weatherStaleOpacity(weatherHour);
 
 	return (
-		<div className="relative h-dvh w-full">
+		// Clipped, so panels too wide or tall for a phone can't make the page itself scroll.
+		<div className="relative h-dvh w-full overflow-hidden">
 			<Map
 				ref={mapRef}
 				initialViewState={{ bounds: CALIFORNIA, fitBoundsOptions: { padding: 40 } }}
@@ -433,6 +466,8 @@ export function LiveMap() {
 					)
 				}
 				onClick={(event) => {
+					// On a phone the open chat covers most of the map; a tap on what's left closes it to its input bar.
+					if (isMobile()) setChatOpen(false);
 					const key = evidenceAt(event);
 					if (key) {
 						setFocused(highlight.find((entry) => entry.key === key) ?? null);
@@ -618,17 +653,23 @@ export function LiveMap() {
 						<MapPopupContent selection={selection} weather={weatherPopup} onResize={reanchorPopup} />
 					</Popup>
 				)}
-				{/* Top-right: the timeline covers the bottom edge. */}
-				<AttributionControl position="top-right" />
+				{/*
+				 * Top-right: the timeline covers the bottom edge. The control only reads its text when created,
+				 * so it's remounted as each layer's credit arrives.
+				 */}
+				<AttributionControl key={credits.join()} position="top-right" customAttribution={credits} />
 			</Map>
 			{/*
 			 * The legend on the left and the chat on the right (below the attribution), above the timeline.
-			 * Each scrolls when it would reach the timeline, whatever the timeline's height.
+			 * Each scrolls when it would reach the timeline, whatever the timeline's height. On phones they
+			 * stack full width, one at a time, clear of the attribution button on the right.
 			 */}
 			<div className="pointer-events-none absolute inset-3 flex flex-col gap-3">
-				<div className="flex min-h-0 flex-1 items-start justify-between gap-3">
-					<div className="flex max-h-full min-h-0 flex-col">
+				<div className="flex min-h-0 flex-1 items-start justify-between gap-3 max-md:mr-8 max-md:flex-col max-md:items-stretch">
+					<div className={`flex max-h-full min-h-0 flex-col ${chatOpen ? "max-md:hidden" : ""}`}>
 						<MapPanel
+							open={dataOpen}
+							onOpenChange={setDataOpen}
 							mapWindow={mapWindow}
 							onWindowChange={setMapWindow}
 							visible={visible}
@@ -652,12 +693,20 @@ export function LiveMap() {
 							}}
 						/>
 					</div>
-					<div className="flex max-h-full min-h-0 flex-col pt-8">
+					{/*
+					 * On phones the closed chat is its input bar alone, just above the timeline, where the open
+					 * chat's input also sits: the field doesn't jump when focusing it opens the chat.
+					 */}
+					<div
+						className={`flex max-h-full min-h-0 flex-col pt-8 max-md:pt-0 ${chatOpen ? "max-md:flex-1" : "max-md:mt-auto"}`}
+					>
 						<ChatPanel
 							context={chatContext}
 							suggestions={suggestions}
 							onHighlight={showEvidence}
 							onFocus={focusEvidence}
+							open={chatOpen}
+							onOpenChange={setChatOpen}
 						/>
 					</div>
 				</div>
