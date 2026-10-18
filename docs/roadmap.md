@@ -328,6 +328,7 @@ The challenge is over; the app stays up as a portfolio demo with as little manua
   - Deletes recorded observations by `observed_on` (date-only records have no `observed_at`), detections by `acquired_at`, readings by `valid_at`, then the ingestion runs whose window ended before the cutoff and that no record references any more (not `running` ones). Runs go too because coverage is read from them: a run left behind would make a pruned week look read, with zero records
   - Records carry no dataset, so they're scoped through the run that last wrote them: another dataset's history (CZU, if it's ever backfilled) is never pruned. Not recorded as an ingestion run (it isn't ingestion); the counts are logged and returned
   - Known limitation: a run whose window straddles the cutoff is kept, so its hours before the cutoff still count as read although their records are gone. Only affects questions reaching past 14 days
+  - First production run (2026-10-18) timed out at 60 s (`FUNCTION_INVOCATION_TIMEOUT`). Deleting a run makes Postgres check each records table for rows still pointing at it, and `ingestion_run_id` had no index, so every one of the thousands of runs cost full table scans. Fixed by indexing `ingestion_run_id` on the three records tables (a migration)
 - [ ] 15b: Hourly polling for every source
 
 ## Later
