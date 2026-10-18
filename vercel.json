@@ -3,6 +3,7 @@
 	"crons": [
 		{ "path": "/api/cron/inaturalist", "schedule": "*/5 * * * *" },
 		{ "path": "/api/cron/firms", "schedule": "*/15 * * * *" },
-		{ "path": "/api/cron/open-meteo", "schedule": "20 * * * *" }
+		{ "path": "/api/cron/open-meteo", "schedule": "20 * * * *" },
+		{ "path": "/api/cron/prune", "schedule": "30 9 * * *" }
 	]
 }
