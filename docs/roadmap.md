@@ -311,7 +311,7 @@ Built differently from the first plan (Mike, 2026-10-01): no tab sheet. Desktop 
   - Also a known limitation: introduced species aren't distinguished on the map (brief 10). iNaturalist's introduced flag was never verified for California (Phase 2 limitations), so it stays out rather than risk a wrong label
   - Ask Mike whether the feature freeze covers the README; if it does, it goes before 12b
 - [x] Before submitting: check the Supabase database's size growth per day and its egress, and confirm whether rows outside the live window are ever pruned (the "Later" list says they aren't; check the code and the table sizes). Note the answer in the README's scaling section
-  - Checked 2026-10-11 (`supabase inspect db table-stats --linked`): 142 MB in total, growing ~6 MB a day, nothing pruned (weather_readings 60 MB / 80k rows, inat_observations 55 MB / 89k, firms_detections 5 MB / 7.5k, ingestion_runs 3 MB / 7.5k). Supabase's free tier goes read-only at 500 MB. Pruning is Phase 15; the README note isn't written yet
+  - Checked 2026-10-11 (`supabase inspect db table-stats --linked`): 142 MB in total, growing ~6 MB a day, nothing pruned (weather_readings 60 MB / 80k rows, inat_observations 55 MB / 89k, firms_detections 5 MB / 7.5k, ingestion_runs 3 MB / 7.5k). Supabase's free tier goes read-only at 500 MB. Pruning is Phase 15a; the README's "How it would evolve" section notes it
 
 ## Phase 14 (stretch): CZU for the agent
 
@@ -323,7 +323,7 @@ Built differently from the first plan (Mike, 2026-10-01): no tab sheet. Desktop 
 
 The challenge is over; the app stays up as a portfolio demo with as little manual upkeep as possible (Mike, 2026-10-18). Nothing may become misleading: a pruned week reads as "not read", never as "read, zero records".
 
-- [ ] 15a: Daily prune (`src/lib/prune.ts`, `GET /api/cron/prune` at 09:30 UTC, after midnight PT)
+- [x] 15a: Daily prune (`src/lib/prune.ts`, `GET /api/cron/prune` at 09:30 UTC, after midnight PT)
   - Keeps 14 days: the dataset's `retention_days` (7, the map's window, left unchanged) plus a 7-day grace (`PRUNE_GRACE_DAYS`), so the agent can still compare this week with last week (the tools take any range; the model derives last week from the map's window). The cutoff is the local date 14 days back and the instant it starts in PT
   - Deletes recorded observations by `observed_on` (date-only records have no `observed_at`), detections by `acquired_at`, readings by `valid_at`, then the ingestion runs whose window ended before the cutoff and that no record references any more (not `running` ones). Runs go too because coverage is read from them: a run left behind would make a pruned week look read, with zero records
   - Records carry no dataset, so they're scoped through the run that last wrote them: another dataset's history (CZU, if it's ever backfilled) is never pruned. Not recorded as an ingestion run (it isn't ingestion); the counts are logged and returned
