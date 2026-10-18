@@ -16,8 +16,8 @@ import { pruneLiveData } from "@/lib/prune";
 
 const TEST_SLUG = "prune-test";
 const BBOX = { west: -121, south: 36, east: -119, north: 38 };
-// 11:00 PDT on Jul 14. 7 days of retention plus 1 of grace put the cutoff at local midnight on Jul 6.
-const NOW = new Date("2005-07-14T18:00:00Z");
+// 11:00 PDT on Jul 20. 7 days of retention plus 7 of grace put the cutoff at local midnight on Jul 6.
+const NOW = new Date("2005-07-20T18:00:00Z");
 const CUTOFF_DATE = "2005-07-06";
 const CUTOFF = "2005-07-06T07:00:00.000Z";
 const FIRST_ID = 9_000_000_005_001;
@@ -47,9 +47,9 @@ function observation(id: number, observedOn: string, observedAt: string | null):
 		uuid: `00000000-0000-4000-8000-${String(id).slice(-12)}`,
 		observed_on: observedOn,
 		observed_at: observedAt,
-		uploaded_at: "2005-07-13T00:00:00.000Z",
-		source_updated_at: "2005-07-13T00:00:00.000Z",
-		retrieved_at: "2005-07-13T00:00:00.000Z",
+		uploaded_at: "2005-07-19T00:00:00.000Z",
+		source_updated_at: "2005-07-19T00:00:00.000Z",
+		retrieved_at: "2005-07-19T00:00:00.000Z",
 		longitude: -120,
 		latitude: 37,
 		positional_accuracy_m: 10,
@@ -78,7 +78,7 @@ function detection(id: string, acquiredAt: string): FirmsDetectionRow {
 		version: "2.0NRT",
 		acquired_at: acquiredAt,
 		daynight: "night",
-		retrieved_at: "2005-07-13T00:00:00.000Z",
+		retrieved_at: "2005-07-19T00:00:00.000Z",
 		longitude: -120,
 		latitude: 37,
 		scan_km: 0.41,
@@ -97,7 +97,7 @@ function reading(validAt: string): WeatherReadingRow {
 		point_id: pointId,
 		model: LIVE_MODEL,
 		valid_at: validAt,
-		retrieved_at: "2005-07-13T00:00:00.000Z",
+		retrieved_at: "2005-07-19T00:00:00.000Z",
 		grid_longitude: -120,
 		grid_latitude: 37,
 		elevation_m: 120,
@@ -142,7 +142,7 @@ beforeAll(async () => {
 	// Old, wrote nothing, and still marked running.
 	await run("running", "inaturalist", "2005-07-01T07:00:00Z", "2005-07-02T07:00:00Z", "running");
 
-	await run("new", "inaturalist", "2005-07-06T07:00:00Z", "2005-07-14T18:00:00Z", "succeeded");
+	await run("new", "inaturalist", "2005-07-06T07:00:00Z", "2005-07-20T18:00:00Z", "succeeded");
 	await upsertObservations([observation(ON_CUTOFF_DATE, CUTOFF_DATE, "2005-07-06T08:00:00.000Z")], runs.new);
 
 	// Both sides of the cutoff instant: an hour, then a minute, before it, and at it.

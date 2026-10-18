@@ -1,8 +1,8 @@
 import { type Dataset, liveWindowStart } from "@/lib/datasets";
 import { sql } from "@/lib/db";
 
-// Kept on top of the dataset's live window.
-export const PRUNE_GRACE_DAYS = 1;
+// Kept on top of the dataset's live window, so the agent can still compare this week with last week.
+export const PRUNE_GRACE_DAYS = 7;
 
 const DAY_MS = 24 * 60 * 60_000;
 

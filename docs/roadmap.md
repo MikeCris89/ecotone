@@ -324,10 +324,10 @@ Built differently from the first plan (Mike, 2026-10-01): no tab sheet. Desktop 
 The challenge is over; the app stays up as a portfolio demo with as little manual upkeep as possible (Mike, 2026-10-18). Nothing may become misleading: a pruned week reads as "not read", never as "read, zero records".
 
 - [ ] 15a: Daily prune (`src/lib/prune.ts`, `GET /api/cron/prune` at 09:30 UTC, after midnight PT)
-  - Keeps 8 days: the dataset's `retention_days` (7, the map's window, left unchanged) plus a 1-day grace (`PRUNE_GRACE_DAYS`). The cutoff is the local date 8 days back and the instant it starts in PT
+  - Keeps 14 days: the dataset's `retention_days` (7, the map's window, left unchanged) plus a 7-day grace (`PRUNE_GRACE_DAYS`), so the agent can still compare this week with last week (the tools take any range; the model derives last week from the map's window). The cutoff is the local date 14 days back and the instant it starts in PT
   - Deletes recorded observations by `observed_on` (date-only records have no `observed_at`), detections by `acquired_at`, readings by `valid_at`, then the ingestion runs whose window ended before the cutoff and that no record references any more (not `running` ones). Runs go too because coverage is read from them: a run left behind would make a pruned week look read, with zero records
   - Records carry no dataset, so they're scoped through the run that last wrote them: another dataset's history (CZU, if it's ever backfilled) is never pruned. Not recorded as an ingestion run (it isn't ingestion); the counts are logged and returned
-  - Known limitation: a run whose window straddles the cutoff is kept, so its hours before the cutoff still count as read although their records are gone. Only affects questions reaching past 8 days
+  - Known limitation: a run whose window straddles the cutoff is kept, so its hours before the cutoff still count as read although their records are gone. Only affects questions reaching past 14 days
 - [ ] 15b: Hourly polling for every source
 
 ## Later
