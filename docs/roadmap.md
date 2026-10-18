@@ -310,7 +310,8 @@ Built differently from the first plan (Mike, 2026-10-01): no tab sheet. Desktop 
   - Include: one big fire becomes one detection cluster, since DBSCAN chains nearby detections (650 in one near Yosemite, Sep 2026); known issues, including serial test runs until tests get their own database (issue #9)
   - Also a known limitation: introduced species aren't distinguished on the map (brief 10). iNaturalist's introduced flag was never verified for California (Phase 2 limitations), so it stays out rather than risk a wrong label
   - Ask Mike whether the feature freeze covers the README; if it does, it goes before 12b
-- [ ] Before submitting: check the Supabase database's size growth per day and its egress, and confirm whether rows outside the live window are ever pruned (the "Later" list says they aren't; check the code and the table sizes). Note the answer in the README's scaling section
+- [x] Before submitting: check the Supabase database's size growth per day and its egress, and confirm whether rows outside the live window are ever pruned (the "Later" list says they aren't; check the code and the table sizes). Note the answer in the README's scaling section
+  - Checked 2026-10-11 (`supabase inspect db table-stats --linked`): 142 MB in total, growing ~6 MB a day, nothing pruned (weather_readings 60 MB / 80k rows, inat_observations 55 MB / 89k, firms_detections 5 MB / 7.5k, ingestion_runs 3 MB / 7.5k). Supabase's free tier goes read-only at 500 MB. Pruning is Phase 15; the README note isn't written yet
 
 ## Phase 14 (stretch): CZU for the agent
 
@@ -318,13 +319,23 @@ Built differently from the first plan (Mike, 2026-10-01): no tab sheet. Desktop 
 - Why it matters more after the first agent runs (2026-09-30): the live window gives a fire's "during" with little or no "before" in the same place (the largest live cluster started on the window's first day), and few precise recorded observations close to it. CZU has 30 days before, 38 during and 30 after in one small, heavily recorded area, which is what `compare_periods` needs. It still can't show how wildlife responded: the drop from ~45 to ~16 recorded observations a day is as much evacuations and closures as anything else (brief 7). The README should pitch it as "how recording changed before, during and after", not as a wildlife response
 - Cheapest slice if time allows: iNaturalist only. `backfillObservations` already takes any dataset; it needs a CZU `datasets` row (a migration) and the backfill route to accept it (today it only takes the live dataset's window), then one call per date (98 dates). That alone makes `summarize_observations` and `compare_periods` answer for CZU. FIRMS (CSV import) and weather (ERA5 archive) each need a new retrieval path
 
+## Phase 15: Low-upkeep demo
+
+The challenge is over; the app stays up as a portfolio demo with as little manual upkeep as possible (Mike, 2026-10-18). Nothing may become misleading: a pruned week reads as "not read", never as "read, zero records".
+
+- [ ] 15a: Daily prune (`src/lib/prune.ts`, `GET /api/cron/prune` at 09:30 UTC, after midnight PT)
+  - Keeps 8 days: the dataset's `retention_days` (7, the map's window, left unchanged) plus a 1-day grace (`PRUNE_GRACE_DAYS`). The cutoff is the local date 8 days back and the instant it starts in PT
+  - Deletes recorded observations by `observed_on` (date-only records have no `observed_at`), detections by `acquired_at`, readings by `valid_at`, then the ingestion runs whose window ended before the cutoff and that no record references any more (not `running` ones). Runs go too because coverage is read from them: a run left behind would make a pruned week look read, with zero records
+  - Records carry no dataset, so they're scoped through the run that last wrote them: another dataset's history (CZU, if it's ever backfilled) is never pruned. Not recorded as an ingestion run (it isn't ingestion); the counts are logged and returned
+  - Known limitation: a run whose window straddles the cutoff is kept, so its hours before the cutoff still count as read although their records are gone. Only affects questions reaching past 8 days
+- [ ] 15b: Hourly polling for every source
+
 ## Later
 
 - (stretch ideas go here)
 - On-demand history: the agent requests a bounded backfill for the current map view when coverage says data is missing, recorded as ingestion runs, shown once complete. Needs spatial coverage, abuse limits, and a map that can show windows other than Live
 - A "dry and windy" highlight on the weather layer (our own stated thresholds, never "Red Flag")
 - CZU mode switch and before/during/after periods on the timeline
-- Prune live records that fall outside the retention window (polling only bounds what's fetched, not what's kept)
 - Extra weather points near thermal-detection clusters, on top of the fixed grid
 - Live soil moisture (needs a pinned model that provides it; HRRR doesn't)
 - Derive the map's 7-day window from the dataset's `retention_days` instead of hardcoding 168 hours (the routes' default, and the loaded window in `src/components/live-map.tsx`)
