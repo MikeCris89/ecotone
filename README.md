@@ -191,7 +191,7 @@ The evals check behaviour, not exact numbers, because live data changes. Code gr
 
 ## How it would evolve
 
-- **More data:** loading a whole window into the browser stops working first. The next step is aggregating on the server or serving vector tiles. A daily job already prunes rows older than 14 days (the 7-day window plus a week for comparisons), so the database holds steady at roughly 100 MB
+- **More data:** loading a whole window into the browser stops working first. The next step is aggregating on the server or serving vector tiles. A daily job already prunes rows older than 14 days (the 7-day window plus a week for comparisons), so the database holds steady at roughly 170 MB
 - **More history:** the tools already take any area and time range, so the agent could fetch missing history on request for the current view. The CZU Lightning Complex (2020) would be the first case study, comparing recorded observations before, during and after the fire
 - **More traffic:** the map is already cached at the edge. Next would be rate limiting before requests reach the app, and making the heaviest agent tool cheaper (it repeats work today)
 - **More users:** a read replica for the agent, and map refreshes that fetch only what's new
