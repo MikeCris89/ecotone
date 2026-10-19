@@ -97,8 +97,9 @@ function PopupFrame({ onResize, children }: { onResize: () => void; children: Re
 }
 
 // A primary-key lookup per click. A record only changes when its source's poll lands, so a popup
-// reopened within the poll interval reuses the cached details; an open popup refetches on the same
-// cadence, keeping up with the map.
+// reopened within the poll interval reuses the cached details (gcTime keeps a closed popup's details
+// that long, not TanStack's default 5 minutes); an open popup refetches on the same cadence, keeping
+// up with the map.
 function useDetails<T>(source: "inaturalist" | "firms", id: number | string) {
 	const pollMs = LAYER_REFRESH_MINUTES[source].poll * 60_000;
 	return useQuery({
@@ -109,6 +110,7 @@ function useDetails<T>(source: "inaturalist" | "firms", id: number | string) {
 			return (await response.json()).record;
 		},
 		staleTime: pollMs,
+		gcTime: pollMs,
 		refetchInterval: pollMs,
 		retry: 1,
 	});
