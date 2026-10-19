@@ -351,6 +351,14 @@ A tab sheet still covers the map whenever it's open, and two minimised headers p
 
 Collapsing the panel would hide the credits, and Open-Meteo's CC BY license asks for visible attribution wherever its data is shown. **Tradeoff:** MapLibre only reads the text when the control is created, so it's remounted as each layer's credit arrives.
 
-## 43. Open decisions
+## 43. Hourly polling for the demo
+
+**Decision:** Since the challenge ended and the app stays up as a portfolio demo, every source is polled once an hour: iNaturalist at :05, FIRMS at :10, weather at :20 as before. The map layers refetch hourly and the CDN keeps each for 20 minutes; the data panel checks feed health every 5 minutes, cached for 5. This replaces the cadences in 13, 14 and 18 (5 and 15 minutes, CDN 2 and 5 minutes), which stay as the record of the challenge build.
+
+**Considered:** keeping the challenge cadences; polling daily.
+
+The demo should run with little upkeep and cost, and none of the sources publishes much faster than hourly for this purpose: FIRMS detections arrive hours after each pass, and iNaturalist uploads lag by hours to days. Cron runs drop from 408 to 72 a day, ingestion runs from ~600 to ~120, and an open tab stops downloading ~2 MB every 5 minutes. An hourly iNaturalist poll has more to read: the busiest hour in production (October 2026) had 1,458 changed records, ~8 pages, so the poll's time budget was doubled to fit its 20-page cap. **Tradeoffs:** the newest records reach the map up to an hour later, and the "behind" warning takes 2 hours to show.
+
+## 44. Open decisions
 
 - Charting library for the agent's metrics (the timeline uses plain SVG, 19)

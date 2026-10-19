@@ -62,6 +62,8 @@ I started from a different question: how does wildlife respond to fire? The data
 | **iNaturalist** | Recorded wildlife observations (animals only)               | Every 5 min, including late uploads and re-identifications  |
 | **Open-Meteo**  | Modeled weather (NOAA HRRR) at 169 points across California | Hourly                                                      |
 
+**Demo setup.** Those were the cadences during the challenge. Now that the app stays up as a portfolio demo, every source is polled once an hour and the map refreshes hourly, to keep running costs low. None of the sources publishes much faster than that anyway.
+
 **Why these three.** Each adds something the others can't: FIRMS gives the event (where and when something was hot), iNaturalist the biological signal, and Open-Meteo continuous context everywhere, including wind, the condition most tied to how fire behaves. Considered and cut: GBIF (days of ingestion lag, so not real-time; I used it to check the idea had enough data), eBird (birds only), Movebank (no public tracks overlapping a recent California fire) and USGS earthquakes (doesn't serve the question).
 
 ---

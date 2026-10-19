@@ -329,7 +329,17 @@ The challenge is over; the app stays up as a portfolio demo with as little manua
   - Records carry no dataset, so they're scoped through the run that last wrote them: another dataset's history (CZU, if it's ever backfilled) is never pruned. Not recorded as an ingestion run (it isn't ingestion); the counts are logged and returned
   - Known limitation: a run whose window straddles the cutoff is kept, so its hours before the cutoff still count as read although their records are gone. Only affects questions reaching past 14 days
   - First production run (2026-10-18) timed out at 60 s (`FUNCTION_INVOCATION_TIMEOUT`). Deleting a run makes Postgres check each records table for rows still pointing at it, and `ingestion_run_id` had no index, so every one of the thousands of runs cost full table scans. Fixed by indexing `ingestion_run_id` on the three records tables (a migration)
-- [ ] 15b: Hourly polling for every source
+- [x] 15b: Hourly polling for every source
+  - iNaturalist at :05, FIRMS at :10, weather still at :20 (`vercel.json`): 72 cron runs a day instead of 408, and ~120 ingestion runs instead of ~600. Every layer's `LAYER_REFRESH_MINUTES` is now 60 polled, 20 CDN-fresh, so the map, popups, "behind" (2 hours) and the "not published yet" note all follow from it. FIRMS loses nothing: each poll re-reads two UTC days
+  - The data panel's `/api/freshness` check went from every minute to every 5 minutes, and its CDN cache from 60 s to 5 minutes (stale for 5 more). A reopened popup reuses its details for the poll interval instead of a minute
+  - iNaturalist catches up an hour per poll: the busiest hour in production (2026-10-05 to 10-18) had 1,458 changed records, ~8 pages of 200. The poll's time budget went from 30 to 60 s, its fetch deadline from 45 to 90 s and the route's `maxDuration` from 60 to 120 s, so the 20-page cap (4,000 records) fits in one run
+  - Verified locally (2026-10-18): `freshness`, map `routes`, `coverage`, `poll-live` and `context` test files, typecheck, lint
+  - Post-merge checks (Mike): after an hour, `ingestion_runs` shows one iNaturalist run at :05 and three FIRMS runs at :10, all `succeeded`; the panel shows no "behind" warning
+  - Recorded in decisions.md, 43. Decisions 13, 14 and 18 keep the challenge cadences as history; the README keeps them too and notes the demo setup under its sources table
+- [ ] 15c: Research-grade iNaturalist only (Mike, 2026-10-18: the demo doesn't need the volume, and accuracy matters less now)
+  - Live data was ~57% research, ~41% needs ID and ~2% casual (decisions.md, 13), so this cuts recorded observations by about 40%. The newest day thins out most, since fresh records start as needs ID
+  - To decide before building: filter what's shown (`DEFAULT_QUALITY_GRADES` in `src/lib/default-filters.ts`: smaller map payload and chat counts, no change to storage), or also what's ingested (`quality_grade` in the poll and backfill: fewer rows and pages too). Ingesting research only has a catch: a record that drops out of research grade (a disputed ID, marked captive) stops matching the poll, so its stored row keeps saying research. Either way, existing needs ID and casual rows age out through the 14-day prune; deleting them sooner needs Mike's go-ahead
+  - The agent's default-filters limitation (`src/lib/agent/contract.ts`) names the grades, and the observation summary splits counts into research and needs ID, so both change with it
 
 ## Later
 
@@ -404,7 +414,7 @@ The challenge is over; the app stays up as a portfolio demo with as little manua
 - **Partial-run reasons come from error text:** `PARTIAL_REASONS` matches the messages the ingestion code writes. A reworded message falls back to "stopped by an error". A reason code column on `ingestion_runs` would fix it, at the cost of a migration
 - **Rejections, not rejected records:** the iNaturalist statement counts rejections across live polls, and one bad record re-read by the 2-minute overlap counts again. Runs don't record which records were rejected, so there's no distinct count
 - **Settling bands are fixed estimates:** 3 hours for FIRMS and 48 hours for iNaturalist uploads, not measured from the data. A slower day can still add records before the band
-- **Feed health is judged when the server answers:** `/api/freshness` is cached up to ~2 minutes and refetched every minute, so "behind" and "No live poll for …" can be ~3 minutes late. Small next to the 10/30/120-minute thresholds
+- **Feed health is judged when the server answers:** `/api/freshness` is cached up to ~10 minutes and refetched every 5 (since 15b), so "behind" and "No live poll for …" can be ~15 minutes late. Small next to the 2-hour threshold
 - **Test runs left in the local database:** the flaky weather poll test (issue #9) can leave a `running` run with a 2001 window. Freshness ignores it (its window is outside the Live window), but it stays in `ingestion_runs`
 
 ### Known limitations from Phase 10 (check later)
