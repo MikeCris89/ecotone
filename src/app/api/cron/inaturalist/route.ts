@@ -1,8 +1,8 @@
 import { isAuthorizedCron } from "@/lib/cron-auth";
 import { pollLiveObservations } from "@/lib/inaturalist/poll-live";
 
-// Headroom above the poll's own 40 s time budget.
-export const maxDuration = 60;
+// Headroom above the poll's own 90 s fetch deadline.
+export const maxDuration = 120;
 
 // Scheduled in vercel.json.
 export async function GET(request: Request) {

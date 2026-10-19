@@ -16,8 +16,8 @@ const attributions = {
 };
 // Fresh for about a third of the source's poll interval, then stale for as long again.
 const cacheControl = {
-	inaturalist: "public, s-maxage=120, stale-while-revalidate=120",
-	firms: "public, s-maxage=300, stale-while-revalidate=300",
+	inaturalist: "public, s-maxage=1200, stale-while-revalidate=1200",
+	firms: "public, s-maxage=1200, stale-while-revalidate=1200",
 	weather: "public, s-maxage=1200, stale-while-revalidate=1200",
 };
 // In the Pacific, where no source has data: the responses stay small.
