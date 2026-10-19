@@ -3,8 +3,8 @@ import { getFreshness } from "@/lib/freshness";
 
 /**
  * Feed health and coverage for each Live California source: GET /api/freshness. See
- * SourceFreshness. Polls land every few minutes, so the CDN keeps a response for one minute and
- * serves it stale for one more while it refetches.
+ * SourceFreshness. Polls land once an hour, so the CDN keeps a response for 5 minutes and serves
+ * it stale for 5 more while it refetches.
  */
 export async function GET() {
 	try {
@@ -12,7 +12,7 @@ export async function GET() {
 		const freshness = await getFreshness(dataset, new Date());
 		return Response.json(
 			{ ok: true, ...freshness },
-			{ headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=60" } },
+			{ headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=300" } },
 		);
 	} catch (error) {
 		console.error("Freshness query failed", error);

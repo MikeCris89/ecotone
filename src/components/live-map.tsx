@@ -164,7 +164,7 @@ async function fetchLayer<T>(source: MapLayerName): Promise<T> {
 	return response.json();
 }
 
-// Feed health and coverage change as polls land, every few minutes; the route is cached for one.
+// Feed health and coverage change as polls land, once an hour; the route is cached for 5 minutes.
 function useFreshness() {
 	return useQuery({
 		queryKey: ["freshness"],
@@ -173,8 +173,8 @@ function useFreshness() {
 			if (!response.ok) throw new Error(`Freshness: HTTP ${response.status}`);
 			return response.json();
 		},
-		refetchInterval: 60_000,
-		staleTime: 60_000,
+		refetchInterval: 5 * 60_000,
+		staleTime: 5 * 60_000,
 	});
 }
 

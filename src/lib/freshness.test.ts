@@ -443,7 +443,7 @@ describe("GET /api/freshness", () => {
 		const body = await response.json();
 
 		expect(response.status).toBe(200);
-		expect(response.headers.get("Cache-Control")).toBe("public, s-maxage=60, stale-while-revalidate=60");
+		expect(response.headers.get("Cache-Control")).toBe("public, s-maxage=300, stale-while-revalidate=300");
 		expect(Object.keys(body.sources).sort()).toEqual(["firms", "inaturalist", "open-meteo"]);
 		for (const source of Object.values<{ statement: string }>(body.sources)) {
 			expect(source.statement).toMatch(/\.$/);

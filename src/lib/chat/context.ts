@@ -16,7 +16,7 @@ const MAX_DATE_S = 8.64e12;
 const WINDOWS = Object.keys(WINDOW_HOURS) as [MapWindow, ...MapWindow[]];
 
 // The map's `end` is the server clock when its layer was requested, then cached by the CDN for up
-// to 40 minutes. Older than this, or in the future beyond clock skew, it's not one the map shows.
+// to 40 minutes, and the map refetches its layers hourly: up to ~100 minutes old. Older than this, or in the future beyond clock skew, it's not one the map shows.
 const MAX_END_AGE_MS = 2 * 60 * 60_000;
 const MAX_CLOCK_SKEW_MS = 60_000;
 

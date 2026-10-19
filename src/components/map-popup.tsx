@@ -96,9 +96,11 @@ function PopupFrame({ onResize, children }: { onResize: () => void; children: Re
 	);
 }
 
-// A primary-key lookup per click. A minute of staleTime saves a refetch when the same popup is
-// reopened; an open popup refetches on its layer's cadence, so it keeps up with the map.
+// A primary-key lookup per click. A record only changes when its source's poll lands, so a popup
+// reopened within the poll interval reuses the cached details; an open popup refetches on the same
+// cadence, keeping up with the map.
 function useDetails<T>(source: "inaturalist" | "firms", id: number | string) {
+	const pollMs = LAYER_REFRESH_MINUTES[source].poll * 60_000;
 	return useQuery({
 		queryKey: ["map-details", source, id],
 		queryFn: async (): Promise<T> => {
@@ -106,8 +108,8 @@ function useDetails<T>(source: "inaturalist" | "firms", id: number | string) {
 			if (!response.ok) throw new Error(`${source} details: HTTP ${response.status}`);
 			return (await response.json()).record;
 		},
-		staleTime: 60_000,
-		refetchInterval: LAYER_REFRESH_MINUTES[source].poll * 60_000,
+		staleTime: pollMs,
+		refetchInterval: pollMs,
 		retry: 1,
 	});
 }

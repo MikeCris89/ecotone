@@ -16,12 +16,14 @@ export type MapWindow = keyof typeof WINDOW_HOURS;
 
 // Each layer's source poll interval, and how long Vercel's CDN treats a response as fresh: about a
 // third of the interval. The CDN then serves it stale for as long again while it refetches, so a
-// response is at most twice the fresh time old (4, 10, 40 minutes), small next to each source's own
+// response is at most twice the fresh time old (40 minutes), small next to each source's own
 // latency (FIRMS ~3 hours after a pass, hourly model output, iNaturalist upload lag of hours to
 // days). The client refetches once per poll interval, never faster than the CDN refreshes.
+// Every source polls hourly since the challenge ended (Phase 15b): the demo should cost little to
+// keep up, and none of the sources publishes much faster than that anyway.
 export const LAYER_REFRESH_MINUTES = {
-	inaturalist: { poll: 5, cdnFresh: 2 },
-	firms: { poll: 15, cdnFresh: 5 },
+	inaturalist: { poll: 60, cdnFresh: 20 },
+	firms: { poll: 60, cdnFresh: 20 },
 	weather: { poll: 60, cdnFresh: 20 },
 } as const;
 export type MapLayerName = keyof typeof LAYER_REFRESH_MINUTES;

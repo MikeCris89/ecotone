@@ -76,9 +76,9 @@ export function rowShading(axis: TimeWindow, loaded: TimeWindow | null, coverage
 export type LayerCoverage = {
 	statement: string;
 	// When the latest live poll started; null if none did in the window. A time rather than "N min
-	// ago", which the cached response (up to ~3 minutes old) would understate.
+	// ago", which the cached response (up to ~15 minutes old) would understate.
 	lastPollAt: number | null;
-	// Judged when the server answered, so up to ~3 minutes late: small next to the thresholds.
+	// Judged when the server answered, so up to ~15 minutes late: small next to the 2-hour threshold.
 	behind: boolean;
 	// How much of the span shown lies past what's been read (by more than a poll's usual delay), and
 	// where reading stopped: the end of anything read, complete or not, as the timeline shades it.

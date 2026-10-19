@@ -16,14 +16,15 @@ import { upsertObservations } from "@/lib/inaturalist/store";
 const CURSOR_OVERLAP_MS = 2 * 60_000;
 // With no earlier run, look back an hour. Filling the whole live window is the backfill's job.
 const FIRST_RUN_LOOKBACK_MS = 60 * 60_000;
-// A normal poll needs one page. These caps only matter when catching up after downtime; the
-// run is then marked partial and the next poll continues from covered_until.
+// An hourly poll needs up to ~8 pages: the busiest hour in production's first weeks had 1,458
+// changed records (Oct 2026). These caps only matter when catching up after downtime; the run is
+// then marked partial and the next poll continues from covered_until.
 const MAX_PAGES = 20;
-// No new page starts after this.
-const TIME_BUDGET_MS = 30_000;
-// Every request, retries included, must finish by this point. The route's 60 s maxDuration then
+// No new page starts after this. Roomy enough for the 20 pages with their 1 s spacing.
+const TIME_BUDGET_MS = 60_000;
+// Every request, retries included, must finish by this point. The route's 120 s maxDuration then
 // leaves time to store the last page and record the run's outcome.
-const FETCH_DEADLINE_MS = 45_000;
+const FETCH_DEADLINE_MS = 90_000;
 
 export type PollSummary = RunProgress & { runId: string; status: RunStatus };
 
